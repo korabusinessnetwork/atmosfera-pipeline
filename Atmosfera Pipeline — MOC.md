@@ -43,7 +43,7 @@ código de aplicação ainda. Próximo passo é a **Sprint 0** (`/spec`), que cr
 
 ## 🗄️ Dados
 
-- [[atmosfera-pipeline/supabase/migrations/20260801_000_init_pipeline|20260801_000_init_pipeline.sql]]
+- [[atmosfera-pipeline/supabase/migrations/20260801000000_init_pipeline|20260801000000_init_pipeline.sql]]
 	- `pautas` — produzidas pelo Cowork (tema · roteiro · hook · título · hashtags)
 	- `videos` — um registro por render, com lock (`locked_by` / `locked_at`)
 	- `publicacoes` — uma linha por plataforma, `unique (video_id, plataforma)`

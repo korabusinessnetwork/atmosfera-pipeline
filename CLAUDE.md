@@ -31,7 +31,16 @@ superfície de ataque inteira, e não é negociável.
 - Estrutura sempre precede código — documentar antes de implementar.
 - SQL snake_case · JS/TS camelCase · componentes PascalCase.
 - **RLS obrigatório em toda tabela** — é definition-of-done da tabela, não item de backlog.
-- Migrations `YYYYMMDD_NNN_descricao.sql` em `supabase/migrations/`.
+- Migration nova **sempre** via `supabase migration new <nome>` — o CLI carimba
+  `YYYYMMDDHHMMSS_descricao.sql`. Não usar `YYYYMMDD_NNN_`: o CLI lê só o prefixo
+  numérico, então dois arquivos do mesmo dia viram a mesma versão e um é ignorado
+  sem aviso — o pareamento com o remoto quebra e o `db push` morre em
+  "Remote migration versions not found in local migrations directory".
+- Toda função nova nasce com `set search_path = ''` e nomes qualificados por
+  schema. Rodar `supabase db advisors --linked` depois de cada migration — o
+  alvo é `No issues found`, não "só warnings".
+- Teste de RLS roda pelo CLI: `supabase db query --linked -f supabase/tests/rls_test.sql`.
+  Nove ✅ é definition-of-done de qualquer migration que toque tabela.
 - **Multi-tenant desde o dia 1** — `org_id` em toda tabela, sempre via `public.current_org_id()`.
 - Nomes de domínio em português (`pauta`, `publicar`, `destravar_orfaos`), padrões técnicos em inglês.
 

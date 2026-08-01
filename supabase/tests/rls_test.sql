@@ -24,6 +24,7 @@ revoke all on schema tests from anon, authenticated;
 create or replace function tests.rls()
 returns table (teste text, esperado text, obtido text, passou boolean)
 language plpgsql
+set search_path = ''
 as $$
 declare
   org_a  uuid := '11111111-1111-1111-1111-111111111111';
