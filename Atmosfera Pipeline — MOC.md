@@ -12,9 +12,10 @@ repo: atmosfera-pipeline
 > automação de vídeos em lote: pauta por agente → render local → aprovação
 > humana no celular → YouTube + TikTok.
 
-**Status:** fundação — schema e documento mestre prontos, nenhuma linha de
-código de aplicação ainda. Próximo passo é a **Sprint 0** (`/spec`), que cria
-`memory/` e `docs/`.
+**Status:** fundação — documento mestre pronto e **schema aplicado no Supabase**
+(2 migrations, RLS testada 9/9, `db advisors` limpo). Nenhuma linha de código de
+aplicação ainda. Falta fechar a **Sprint 0** (`/spec`): `memory/` e o resto de
+`docs/`.
 
 > [!info] Este MOC lê os arquivos reais do repositório
 > A pasta `atmosfera-pipeline` no vault é uma **junction** para o repositório
@@ -40,6 +41,9 @@ código de aplicação ainda. Próximo passo é a **Sprint 0** (`/spec`), que cr
 | 05 | Direção da conexão | Worker **só faz saída** (polling) — o PC nunca abre porta |
 | 06 | Publicação | **Gate humano obrigatório** — full-auto = vídeo invisível ou conta queimada |
 | 07 | Agente de decisão | Cowork agendado (remoto) — gera pauta sem PC ligado |
+| 08 | Onde roda o Postgres | Projeto Supabase Free dedicado — separado do Caos, rodízio de slot |
+
+- [[atmosfera-pipeline/docs/08_DECISOES/adr-008-onde-roda-o-postgres|ADR-008 — Onde roda o Postgres]] — a primeira ADR escrita por extenso (as 01–07 vivem resumidas no mestre)
 
 ## 🗄️ Dados
 
@@ -62,7 +66,7 @@ Qualquer estágio pode cair em `erro` com `erro_msg` preenchido. Nada é silenci
 
 ## 🏗️ Sprints (§ 5 do mestre)
 
-- **Sprint 0** — fundação: `memory/`, `docs/`, migration ✅ *(migration feita)*
+- **Sprint 0** — fundação: migration ✅ · ADR-008 ✅ · falta `memory/` e o resto de `docs/`
 - **Sprint 1** — worker esqueleto com render **fake** (valida a máquina de estados)
 - **Sprint 2** — cliente MoneyPrinterTurbo (render de verdade)
 - **Sprint 3** — pós-processo ffmpeg: hook, LUT escura, grão, assinatura 亡者 ← *o que separa do genérico*

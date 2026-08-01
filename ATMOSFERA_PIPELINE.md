@@ -17,6 +17,7 @@ Versão 1.0 — 2026-08-01
 | 05 | Direção da conexão | **Worker só faz saída (polling)** | O PC nunca abre porta. Elimina todo o risco de segurança do endpoint público. |
 | 06 | Publicação | **Gate humano obrigatório** | YouTube: teto de ~6 uploads/dia por cota. TikTok: cliente não auditado força SELF_ONLY. Full-auto = vídeo invisível ou conta queimada. |
 | 07 | Agente de decisão | **Cowork agendado (remoto)** | Gera pauta/roteiro/copy sem PC ligado. Não toca arquivo local — e não precisa. |
+| 08 | Onde roda o Postgres | **Projeto Supabase Free dedicado (rodízio de slot)** | Banco **separado do Caos**: a `service_role` do worker ignora RLS no banco inteiro, e o Caos guarda dado de menor sob LGPD. Free por rodízio até a Sprint 6; Pro custa US$ 25/mês quando doer. Detalhe em `docs/08_DECISOES/adr-008-onde-roda-o-postgres.md`. |
 
 **Princípio que organiza tudo:** a tabela é o contrato. Painel, worker e Cowork não sabem da existência um do outro.
 
