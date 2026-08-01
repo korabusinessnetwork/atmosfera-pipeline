@@ -79,7 +79,7 @@ Qualquer estágio pode cair em `erro` com `erro_msg` preenchido. Nada é silenci
 ## 🔗 Relacionados
 
 - [[Caos Diário — MOC]] — divide a estética **Atmosfera Viral**, mas é outro produto (B2C single-tenant)
-- [[Commits]] · [[Reviews]] — notas geradas pelas skills `/commit` e `/review`
+- `Commits/` · `Reviews/` — notas geradas pelas skills `/commit` e `/review`
 
 ---
 
