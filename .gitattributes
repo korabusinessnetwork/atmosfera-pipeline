@@ -1,0 +1,15 @@
+# O worker roda em WSL2 e o painel na Vercel (Linux). Normaliza a quebra de
+# linha no commit para o CRLF do Windows não vazar pro Linux.
+* text=auto eol=lf
+
+# Binários — não tocar
+*.mp4  binary
+*.mov  binary
+*.png  binary
+*.jpg  binary
+*.cube binary
+
+# Scripts do Windows precisam de CRLF
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf

@@ -1,0 +1,55 @@
+# === SEGREDOS — nunca versionar ===
+.env
+.env.*
+!.env.example
+token.json            # OAuth do YouTube (worker/publishers)
+*.token
+client_secret*.json   # credenciais do Google Cloud
+
+# === Saída de render (é vídeo, não é código) ===
+output/
+*.mp4
+*.mov
+*.webm
+*.mkv
+
+# === MoneyPrinterTurbo (vem do Docker, não é nosso código) ===
+MoneyPrinterTurbo/
+
+# === Python (worker) ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# === Node / Next.js (painel) ===
+node_modules/
+.next/
+out/
+dist/
+.vercel/
+
+# === Supabase CLI ===
+.supabase/
+supabase/.temp/
+
+# === Logs ===
+*.log
+npm-debug.log*
+logs/
+
+# === Editores / SO ===
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# === Cache / cobertura ===
+.cache/
+coverage/
