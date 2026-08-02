@@ -274,7 +274,7 @@ atmosfera-pipeline/
 │   └── 20260801_000_init_pipeline.sql
 │
 ├── output/{pending,approved,published}/
-├── MoneyPrinterTurbo/             # Docker, porta 8080 (API) e 8501 (WebUI)
+├── MoneyPrinterTurbo/             # clone (gitignored) — `uv run main.py`, API em 127.0.0.1:8080
 ├── memory/
 │   ├── 00_IDENTIDADE.md
 │   ├── 03_DECISOES.md             # os ADRs da seção 0
@@ -357,13 +357,75 @@ Sem MPT, sem ffmpeg, sem upload ainda.
 
 ### Sprint 2 — Cliente MPT (1h)
 ```
-/spec Implementar worker/mpt.py. Subir o MoneyPrinterTurbo via
-docker-compose.release.yml. Ler o Swagger em http://127.0.0.1:8080/docs e
-implementar: criar task de vídeo a partir de uma pauta, fazer polling do
-status até concluir, retornar o caminho do arquivo. Timeout de 20 min,
-3 tentativas com backoff. Substituir o render fake do Sprint 1.
+/spec Implementar worker/mpt.py. Subir o MoneyPrinterTurbo com
+`uv run main.py` (é uv-native, não precisa de Docker). Ler o Swagger em
+http://127.0.0.1:8080/docs e implementar: criar task de vídeo a partir de uma
+pauta, fazer polling do status até concluir, retornar o caminho do arquivo.
+Timeout de 20 min, 3 tentativas com backoff. Substituir o render fake do Sprint 1.
 ```
 **Atenção:** confirme os endpoints reais no `/docs` — não confie em memória.
+
+**Endpoints confirmados (item 5, lidos do `/openapi.json`):**
+
+| Verbo | Rota | Uso no worker |
+|-------|------|---------------|
+| `POST` | `/api/v1/videos` | cria a task a partir da pauta → devolve `task_id` |
+| `GET` | `/api/v1/tasks/{task_id}` | polling de progresso até concluir |
+| `GET` | `/api/v1/download/{file_path}` | puxa o mp4 pronto |
+| `DELETE` | `/api/v1/tasks/{task_id}` | limpeza após baixar |
+| `GET/POST` | `/api/v1/musics`, `/api/v1/video_materials` | trilha e material local |
+| `POST` | `/api/v1/scripts`, `/terms`, `/audio`, `/subtitle` | etapas isoladas — não usamos, o Cowork já escreve o roteiro |
+
+**Dois achados que economizam dinheiro e tempo:**
+
+- **Docker é desnecessário.** O MPT traz `pyproject.toml` + `uv.lock` + `.python-version` (3.11) — `uv sync` resolve tudo.
+- **Nenhuma chave de LLM é necessária.** `app/services/task.py:271` só chama o modelo quando `video_script` vem vazio. Como o Cowork escreve o roteiro e o worker manda em `video_script`, o LLM do MPT nunca roda. Zero custo de API.
+
+**Config do MPT endurecida** (`MoneyPrinterTurbo/config.toml`, gitignored):
+`listen_host = "127.0.0.1"` (o default `0.0.0.0` publicaria uma API sem autenticação
+para a LAN inteira — viola a ADR-05) e `log_level = "INFO"` (o `DEBUG` despeja
+payload de requisição no log, e payload de LLM leva chave junto).
+
+**Entregue (item 6):** `worker/mpt.py` + `worker/tests/test_mpt.py`. O render fake
+saiu do `render.py` — sobrou nele só o nome/lugar do arquivo, que a Sprint 4 vai
+reusar para achar o mp4. 56 testes verdes, nenhum precisa de rede, chave ou MPT de pé.
+
+**Quatro decisões que o código carrega:**
+
+- **`video_source = "local"`, nunca `pexels`.** Não é gosto, é aritmética de chave:
+  `pexels` exige **duas** chaves (Pexels + LLM, porque `task.py:1111` só pula a
+  geração de termos quando a fonte é local); `local` exige zero. Material remoto
+  ainda nos custaria dinheiro para entregar imagem de banco genérica — o oposto
+  do que a Sprint 3 existe para fazer.
+- **Material vai como nome de arquivo, nunca caminho.** `video.py:1270` resolve
+  todo material com `resolve_path_within_directory` contra
+  `MoneyPrinterTurbo/storage/local_videos/` e **descarta em silêncio** o que
+  escapar. Caminho absoluto não dá erro: some.
+- **O `/tasks/` do retorno não serve pro download.** `GET /tasks/{id}` devolve
+  `videos: ["/tasks/<id>/final-1.mp4"]` (URI de estático, `video.py:119`), mas
+  `GET /download/{file_path}` resolve relativo a `storage/tasks` — com o prefixo,
+  404. `mpt.caminho_download()` corta, e tem teste.
+- **Retry só em GET; POST nunca.** Descoberto na primeira execução real: o uvicorn
+  fecha a conexão ociosa em `timeout_keep_alive` (5s — exatamente o intervalo do
+  polling) e o `requests` reaproveita do pool um socket recém-fechado. Dá
+  `RemoteDisconnected` no meio de um render saudável, e aconteceu 3× em 105s.
+  Repetir `POST /videos`, porém, criaria uma segunda task renderizando o mesmo
+  vídeo — 2,5 min de CPU e arquivo órfão.
+
+Falha de render (`state = -1`) **não** é retentada no processo: quem governa
+reincidência é o `tentativas < 3` do `claim_proximo_video`. Retentar nos dois
+níveis daria 9 tentativas sem ninguém ter decidido isso.
+
+**Novas variáveis** (todas com padrão, ver `worker/.env.example`):
+`MPT_URL` · `MPT_TIMEOUT_SEG` · `MPT_VOZ` · `MPT_FONTE`.
+Saiu: `RENDER_FAKE_FONTE`.
+
+**Fonte da legenda — armadilha real.** `MicrosoftYaHeiBold.ttc` é o padrão
+(negrito lê melhor no celular); `STHeiti*` e `MicrosoftYaHeiNormal` também servem.
+**Nunca `UTM Kabel KT.ttf`**: não tem `ç` e injeta uma marca d'água vietnamita
+dentro do texto renderizado. `BeVietnamPro-*` e `Charm-*` cobrem acento mas fazem
+tofu no 亡者. Vozes pt-BR gratuitas do edge-tts: `pt-BR-AntonioNeural` (M),
+`pt-BR-FranciscaNeural` (F), `pt-BR-ThalitaMultilingualNeural` (F).
 
 ### Sprint 3 — Pós-processo (1h)
 ```
@@ -514,9 +576,9 @@ if __name__ == "__main__":
 [ ] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← só o painel precisa (Sprint 6)
 [x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 9/9
 [x] 4. Sprint 1 — worker esqueleto com render fake        (1h)      ← 27 testes verdes
-[ ] 5. Subir MPT no Docker, abrir /docs, ler os endpoints (30 min)  ← BLOQUEADO: Docker não instalado
-[ ] 6. Sprint 2 — render de verdade                       (1h)
-[ ] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←──
+[x] 5. Subir MPT, abrir /docs, ler os endpoints           (30 min)  ← uv, sem Docker. 127.0.0.1:8080
+[x] 6. Sprint 2 — render de verdade                       (1h)      ← worker/mpt.py, 56 testes verdes
+[x] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←── fila ponta a ponta, 66s
 [ ] 8. Sprint 3 — identidade visual                       (1h)
 [ ] 9. Sprint 4 — YouTube                                 (1h30)
 [ ] 10. Sprint 6 — painel na Vercel                       (2h)
@@ -525,6 +587,32 @@ if __name__ == "__main__":
 ```
 
 **Pare no item 7 antes de decidir qualquer outra coisa.** Se um vídeo sai na pasta com a fila funcionando, o projeto está de pé. Todo o resto é acabamento.
+
+**Item 7 fechado — 2026-08-02.** O item pedia duas coisas, as duas estão provadas
+por uma execução só de `uv run main.py --uma-vez` (66s, do claim ao unlock):
+
+1. **Vídeo na pasta ✅** — `output/pending/dev-disciplina-nao-e-motivacao-3984a330.mp4`,
+   5,2 MB, H.264 1080×1920 30fps + AAC estéreo, 10,4s. Saiu do `mpt.gerar()` que o
+   `main.py` chama — lista material pela API, cria task, faz polling, baixa pelo
+   endpoint. Não é smoke test paralelo.
+2. **Fila funcionando ✅** — `videos` foi de 3 `na_fila` para 2 `na_fila` +
+   1 `aguardando_aprovacao`. O registro `3984a330` fechou com `locked_by` e
+   `locked_at` **nulos**, `erro_msg` nulo, `tentativas = 1` e `arquivo_path`
+   apontando para o mp4 acima. Lock pego e devolvido: a invariante 2 do worker
+   (vídeo travado sempre solta) está exercida contra o banco real, não só em teste.
+
+**O que a execução real ensinou e o teste não ensinaria.** O retry de transporte
+disparou **4 vezes em 66s** — `RemoteDisconnected` no polling, porque o uvicorn
+fecha conexão ociosa em `timeout_keep_alive = 5s`, exatamente o intervalo do
+polling. Recuperou nas 4. Sem a política GET-only isso seria morte aleatória no
+meio de render, intermitente e difícil de reproduzir. Foi encontrada rodando de
+verdade, com 54 testes unitários verdes.
+
+**Próximo comando útil** (esvazia o resto da fila, 2 vídeos):
+
+```bash
+cd worker && uv run main.py
+```
 
 ---
 

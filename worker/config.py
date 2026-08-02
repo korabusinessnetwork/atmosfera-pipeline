@@ -33,9 +33,12 @@ class Config:
     orfaos_minutos: int
     output_dir: Path
 
-    # Opcional: mp4 real para o render fake copiar. Sem isso, o render fake
-    # gera um arquivo de marcação (ver render.py). Some na Sprint 2.
-    render_fake_fonte: Path | None
+    # MoneyPrinterTurbo. Tudo com padrão: o `.env` só precisa mexer nisso para
+    # trocar de voz ou de fonte, e a instalação padrão sobe funcionando.
+    mpt_url: str
+    mpt_timeout_seg: int
+    mpt_voz: str
+    mpt_fonte: str
 
 
 def _obrigatoria(nome: str) -> str:
@@ -60,6 +63,10 @@ def _inteiro(nome: str, padrao: int) -> int:
     return valor
 
 
+def _texto(nome: str, padrao: str) -> str:
+    return os.getenv(nome, "").strip() or padrao
+
+
 def carregar(env_path: Path | None = None) -> Config:
     load_dotenv(env_path or RAIZ / ".env")
 
@@ -79,10 +86,11 @@ def carregar(env_path: Path | None = None) -> Config:
     if not output_dir.is_absolute():
         output_dir = (RAIZ / output_dir).resolve()
 
-    fonte_bruta = os.getenv("RENDER_FAKE_FONTE", "").strip()
-    fonte = Path(fonte_bruta).expanduser() if fonte_bruta else None
-    if fonte is not None and not fonte.is_file():
-        raise ConfigInvalida("RENDER_FAKE_FONTE aponta para um arquivo que não existe.")
+    # Sem barra no fim: o resto do código monta `{url}/api/v1/...`, e "//" em
+    # caminho de FastAPI não redireciona, dá 404.
+    mpt_url = _texto("MPT_URL", "http://127.0.0.1:8080").rstrip("/")
+    if not mpt_url.startswith(("http://", "https://")):
+        raise ConfigInvalida("MPT_URL precisa começar com http:// ou https://.")
 
     return Config(
         supabase_url=url,
@@ -91,5 +99,8 @@ def carregar(env_path: Path | None = None) -> Config:
         poll_seg=_inteiro("WORKER_POLL_SEG", 30),
         orfaos_minutos=_inteiro("WORKER_ORFAOS_MINUTOS", 45),
         output_dir=output_dir,
-        render_fake_fonte=fonte,
+        mpt_url=mpt_url,
+        mpt_timeout_seg=_inteiro("MPT_TIMEOUT_SEG", 1200),
+        mpt_voz=_texto("MPT_VOZ", "pt-BR-AntonioNeural-Male"),
+        mpt_fonte=_texto("MPT_FONTE", "MicrosoftYaHeiBold.ttc"),
     )

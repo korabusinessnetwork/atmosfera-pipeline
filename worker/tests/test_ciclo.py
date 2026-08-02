@@ -6,6 +6,10 @@ em qualquer máquina, inclusive antes de alguém preencher o `.env`.
 O que está sob teste aqui é a **invariante 2**: vídeo travado sempre solta.
 É ela que impede a fila de empacar num vídeo morto, e é a única que só
 aparece no caminho de erro — justamente o que ninguém exercita à mão.
+
+O render é dublado de propósito: o que se testa aqui é a máquina de estados,
+e um render real levaria ~2,5 min por caso. O cliente do MPT tem a própria
+suíte em `test_mpt.py`.
 """
 
 from __future__ import annotations
@@ -17,8 +21,9 @@ from uuid import UUID, uuid4
 import pytest
 
 import main
-import render
+import mpt
 from config import Config
+from render import caminho_saida
 
 LOG = logging.getLogger("teste")
 
@@ -107,7 +112,10 @@ def cfg(tmp_path: Path) -> Config:
         poll_seg=30,
         orfaos_minutos=45,
         output_dir=tmp_path,
-        render_fake_fonte=None,
+        mpt_url="http://127.0.0.1:8080",
+        mpt_timeout_seg=1200,
+        mpt_voz="pt-BR-AntonioNeural-Male",
+        mpt_fonte="MicrosoftYaHeiBold.ttc",
     )
 
 
@@ -123,7 +131,30 @@ def video() -> dict:
 
 @pytest.fixture
 def pauta(video) -> dict:
-    return {"id": video["pauta_id"], "tema": "Disciplina", "hook": "vai"}
+    return {
+        "id": video["pauta_id"],
+        "tema": "Disciplina",
+        "hook": "vai",
+        "roteiro": "Disciplina não é motivação.",
+    }
+
+
+@pytest.fixture(autouse=True)
+def render_dublado(monkeypatch):
+    """Grava um arquivo onde o MPT gravaria, sem MPT.
+
+    `autouse` porque nenhum teste desta suíte quer render de verdade: se algum
+    escapar, ele tentaria abrir conexão com 127.0.0.1:8080 e o resultado
+    dependeria de a API estar de pé na máquina de quem roda.
+    """
+
+    def gerar(video, pauta, output_dir, **_kwargs):
+        destino = caminho_saida(output_dir, video["id"], pauta.get("tema", ""))
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(b"mp4-de-mentira")
+        return destino
+
+    monkeypatch.setattr(mpt, "gerar", gerar)
 
 
 # --------------------------------------------------------------- casos ----
@@ -160,7 +191,7 @@ def test_render_que_explode_solta_o_lock(cfg, video, pauta, monkeypatch):
     def explode(*_a, **_k):
         raise RuntimeError("ffmpeg morreu\n  com traceback\n  de várias linhas")
 
-    monkeypatch.setattr(render, "renderizar", explode)
+    monkeypatch.setattr(mpt, "gerar", explode)
     sb = SupabaseFake(fila=video, pauta=pauta)
 
     # o ciclo não propaga: o loop tem que sobreviver (invariante 1)
@@ -188,7 +219,7 @@ def test_banco_fora_do_ar_na_marcacao_de_erro_nao_derruba_o_ciclo(
 ):
     # Pior caso: falhou o render E falhou marcar o erro. Quem salva a fila
     # aqui é o destravar_orfaos, não o worker — mas o ciclo tem que voltar.
-    monkeypatch.setattr(render, "renderizar", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(mpt, "gerar", lambda *a, **k: 1 / 0)
     sb = SupabaseFake(fila=video, pauta=pauta)
     monkeypatch.setattr(sb, "table", lambda _n: (_ for _ in ()).throw(OSError("sem rede")))
 

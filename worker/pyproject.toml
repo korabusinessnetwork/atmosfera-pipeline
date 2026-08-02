@@ -9,6 +9,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "supabase>=2.15.0",
     "python-dotenv>=1.0.1",
+    "requests>=2.32.0",  # cliente HTTP do MoneyPrinterTurbo (mpt.py)
 ]
 
 [dependency-groups]

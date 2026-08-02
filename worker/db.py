@@ -1,8 +1,8 @@
 """Camada de serviços do Supabase. Nenhuma chamada ao banco fora daqui.
 
 Regra da casa (CLAUDE.md): toda chamada ao backend passa pela camada de
-serviços. Isso não é cerimônia — quando a Sprint 2 trocar o render fake pelo
-MPT, `main.py` não muda uma linha, e quando o schema mudar, muda um arquivo.
+serviços. Quando o schema mudar, muda um arquivo — e a Sprint 2 confirmou:
+trocar o render fake pelo MPT não encostou em nada aqui.
 
 O cliente usa a `service_role`, que **ignora RLS por design**. É por isso que
 essa chave vive só no `.env` local: no painel ela dissolveria o multi-tenant.

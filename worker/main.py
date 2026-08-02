@@ -1,6 +1,6 @@
-"""Loop do worker — Sprint 1.
+"""Loop do worker — Sprint 2.
 
-claim → render (fake) → aguardando_aprovacao → dorme.
+claim → render (MoneyPrinterTurbo) → aguardando_aprovacao → dorme.
 
 Três invariantes que valem mais que o código:
 
@@ -27,7 +27,7 @@ import time
 
 import db
 import log as logmod
-import render
+import mpt
 from config import Config, ConfigInvalida, carregar
 
 # Sinalizado por Ctrl-C / SIGTERM. `wait()` nele em vez de `sleep()` faz o
@@ -63,7 +63,15 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
         # inconsistente, não erro de render. Falha explícita, sem adivinhação.
         raise RuntimeError(f"pauta {video['pauta_id']} não encontrada")
 
-    arquivo = render.renderizar(video, pauta, cfg.output_dir, cfg.render_fake_fonte)
+    arquivo = mpt.gerar(
+        video,
+        pauta,
+        cfg.output_dir,
+        base_url=cfg.mpt_url,
+        timeout_seg=cfg.mpt_timeout_seg,
+        voz=cfg.mpt_voz,
+        fonte=cfg.mpt_fonte,
+    )
 
     db.concluir_render(sb, video_id, str(arquivo))
     log.info(
@@ -101,7 +109,8 @@ def loop(cfg: Config, log: logging.Logger, uma_vez: bool = False) -> None:
             "poll_seg": cfg.poll_seg,
             "orfaos_minutos": cfg.orfaos_minutos,
             "output_dir": str(cfg.output_dir),
-            "render": "copia" if cfg.render_fake_fonte else "marcador",
+            "mpt_url": cfg.mpt_url,
+            "voz": cfg.mpt_voz,
         },
     )
 
