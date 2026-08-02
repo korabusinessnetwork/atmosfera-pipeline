@@ -510,11 +510,11 @@ if __name__ == "__main__":
 ## 8. Ordem de execução
 
 ```
-[ ] 1. Rodar a migration no Supabase                      (15 min)
-[ ] 2. Criar usuário de teste com app_metadata.org_id     (5 min)
-[ ] 3. Testar RLS: outra org não enxerga nada             (10 min)
-[ ] 4. Sprint 1 — worker esqueleto com render fake        (1h)
-[ ] 5. Subir MPT no Docker, abrir /docs, ler os endpoints (30 min)
+[x] 1. Rodar a migration no Supabase                      (15 min)  ← 2 migrations, advisors limpo
+[ ] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← só o painel precisa (Sprint 6)
+[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 9/9
+[x] 4. Sprint 1 — worker esqueleto com render fake        (1h)      ← 27 testes verdes
+[ ] 5. Subir MPT no Docker, abrir /docs, ler os endpoints (30 min)  ← BLOQUEADO: Docker não instalado
 [ ] 6. Sprint 2 — render de verdade                       (1h)
 [ ] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←──
 [ ] 8. Sprint 3 — identidade visual                       (1h)

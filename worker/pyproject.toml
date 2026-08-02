@@ -1,0 +1,21 @@
+[project]
+name = "atmosfera-worker"
+version = "0.1.0"
+description = "Worker local do Atmosfera Pipeline — claim na fila, render, publicação."
+# ADR-01: Python 3.11 fixo. O MoneyPrinterTurbo é Python, e a Sprint 2 vai
+# compartilhar dependência com ele — versão solta aqui vira dor lá.
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "supabase>=2.15.0",
+    "python-dotenv>=1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
