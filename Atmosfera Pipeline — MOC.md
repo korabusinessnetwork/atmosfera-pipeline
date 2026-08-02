@@ -12,10 +12,11 @@ repo: atmosfera-pipeline
 > automação de vídeos em lote: pauta por agente → render local → aprovação
 > humana no celular → YouTube + TikTok.
 
-**Status:** fundação — documento mestre pronto e **schema aplicado no Supabase**
-(2 migrations, RLS testada 9/9, `db advisors` limpo). Nenhuma linha de código de
-aplicação ainda. Falta fechar a **Sprint 0** (`/spec`): `memory/` e o resto de
-`docs/`.
+**Status:** **worker de pé** — schema aplicado no Supabase (2 migrations, RLS
+testada 9/9, `db advisors` limpo) e **Sprint 1 fechada**: o loop claim → render
+fake → `aguardando_aprovacao` roda com 27 testes verdes, nenhum precisando de
+rede ou chave. Falta a chave `service_role` no `worker/.env` para o primeiro run
+contra o banco de verdade. Pendências de fundação: `memory/` e o resto de `docs/`.
 
 > [!info] Este MOC lê os arquivos reais do repositório
 > A pasta `atmosfera-pipeline` no vault é uma **junction** para o repositório
@@ -67,7 +68,7 @@ Qualquer estágio pode cair em `erro` com `erro_msg` preenchido. Nada é silenci
 ## 🏗️ Sprints (§ 5 do mestre)
 
 - **Sprint 0** — fundação: migration ✅ · ADR-008 ✅ · falta `memory/` e o resto de `docs/`
-- **Sprint 1** — worker esqueleto com render **fake** (valida a máquina de estados)
+- **Sprint 1** ✅ — worker esqueleto com render **fake** (valida a máquina de estados) — [[atmosfera-pipeline/worker/README|worker/README.md]]
 - **Sprint 2** — cliente MoneyPrinterTurbo (render de verdade)
 - **Sprint 3** — pós-processo ffmpeg: hook, LUT escura, grão, assinatura 亡者 ← *o que separa do genérico*
 - **Sprint 4** — YouTube (OAuth, agendamento, teto de 6/dia)
