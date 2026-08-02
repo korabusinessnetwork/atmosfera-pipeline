@@ -1,10 +1,16 @@
 # === SEGREDOS — nunca versionar ===
+# ATENÇÃO: o .gitignore NÃO aceita comentário no fim da linha. O `#` só abre
+# comentário na coluna 1; no meio da linha ele vira parte do padrão. As duas
+# linhas abaixo já tiveram comentário à direita e por isso não casavam com
+# arquivo nenhum — `git check-ignore -v worker/token.json` não devolvia nada.
 .env
 .env.*
 !.env.example
-token.json            # OAuth do YouTube (worker/publishers)
+# OAuth do YouTube (gravado por worker/autorizar_youtube.py)
+token.json
 *.token
-client_secret*.json   # credenciais do Google Cloud
+# credenciais do Google Cloud (baixadas do console)
+client_secret*.json
 
 # === Saída de render (é vídeo, não é código) ===
 output/

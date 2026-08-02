@@ -523,6 +523,85 @@ de enviar e adiar o excedente para o dia seguinte. Marcar o vídeo como
 Gravar external_id e url em publicacoes.
 ```
 
+**Entregue (item 9):** `worker/publishers/youtube.py` + `worker/publicar.py` +
+`worker/autorizar_youtube.py` + migration `20260802142212_publicacao_enviado_em.sql`
++ `test_youtube.py` e `test_publicar.py`. **158 testes verdes** (eram 103),
+nenhum precisa de rede, chave ou canal. RLS **13/13**, advisors `No issues found`.
+
+**O que ainda NÃO está provado, e é honesto dizer:** nenhum vídeo subiu.
+Diferente da Sprint 3, aqui não há execução real por trás — o OAuth exige uma
+pessoa na tela de consentimento do Google, e isso é **seu**, não meu. O código
+está exercitado contra a API dublada; o primeiro upload de verdade é o teste que
+falta. Passo a passo no cabeçalho de `worker/autorizar_youtube.py`.
+
+**A publicação virou módulo próprio (`publicar.py`), não um trecho do `main.py`.**
+O § 6 esboçava `publicar_aprovados` dentro do loop. Não coube: contagem de cota,
+janela de dia em outro fuso e escrita em duas tabelas não são "mais um passo".
+E `publishers/youtube.py` continua sem conhecer Supabase — mesma divisão que
+deixou a Sprint 2 trocar o render fake pelo MPT sem encostar no `db.py`.
+
+**Sete decisões que o código carrega:**
+
+- **O dia da cota é o do Pacífico, não o seu.** Contando em BRT, 6 uploads às
+  23h e mais 6 à 1h caem no **mesmo** dia lá (BRT−3 vs PDT−7 = 4h): 12 num teto
+  de 6, e o excedente falha calado até a virada. `inicio_do_dia_de_cota()` corta
+  em `America/Los_Angeles` e devolve UTC. No Windows isso exige `tzdata` — não
+  há base IANA no SO, e sem ela a contagem cairia no fuso local sem avisar.
+- **`enviado_em` é carimbado ANTES do upload, com a linha ainda em `pendente`.**
+  Se o processo morre no meio, a cota foi gasta do mesmo jeito — mas sem o
+  carimbo o ciclo seguinte acharia que tem uma vaga a mais. Reservar antes erra
+  para menos uma vaga; reservar depois erra para mais. Só um dos dois erros é
+  recuperável. É por isso que a coluna nova não é `status`: as quatro que já
+  existiam respondem outra pergunta (`created_at` = nascimento da linha,
+  `updated_at` = qualquer escrita, `agendado_para` = publishAt, `publicado_em` =
+  quando ficou público, horas depois).
+- **Um vídeo tem no máximo uma tentativa por dia de cota.** Sem isso, um upload
+  que falha às 10h é retentado às 10h05 e às 10h10 — as seis vagas do dia iriam
+  embora em meia hora, todas no mesmo mp4 quebrado.
+- **Retry só retoma a sessão; um novo `insert` nunca.** `next_chunk()` repetido
+  reaproveita a mesma sessão resumable e **não** cobra cota de novo. Recriar o
+  insert cobraria mais 1.600 unidades E criaria um segundo vídeo no canal. É a
+  regra "retry só em GET, POST nunca" da Sprint 2, aqui com fatura anexada. Só
+  500/502/503/504 são retentados: 403 é cota ou permissão, e repetir queima o
+  que sobrou.
+- **`str(HttpError)` é credencial.** A string traz a URI inteira da requisição,
+  e a de upload resumable leva `upload_id` no query string. Gravar isso em
+  `publicacoes.erro_msg` colocaria a credencial no banco e de lá na tela do
+  painel. `descrever_erro()` devolve só status + motivo, e tem teste.
+- **"Gastou cota" ≠ "tentou".** Arquivo sumido e pauta ausente morrem antes de
+  falar com o Google; contá-los como upload jogaria fora uma das seis vagas do
+  dia sem ninguém ter ligado para o YouTube. O desfecho é um tipo de quatro
+  valores e só dois decrementam a vaga.
+- **Adiar não conta como trabalho.** Sem token ou com o teto estourado, todo
+  ciclo devolve o lote inteiro adiado. Se isso contasse, o `main.loop` pularia o
+  sono e varreria o Supabase em milissegundos, por horas, até a virada da cota.
+  Adiar é exatamente a hora de dormir — e virou teste, porque o bug seria mudo.
+
+**O ADR-05 sobrevive ao OAuth.** O fluxo de desktop precisa de um servidor HTTP
+local para receber o callback, e o worker é justo o processo que nunca abre
+porta. A saída: `autorizar_youtube.py` é um processo separado, one-shot, que
+escuta em `127.0.0.1` numa porta efêmera por alguns segundos e morre. O
+`google_auth_oauthlib` é importado dentro da função — o worker de 24h nem carrega
+código de servidor na memória. Renovar token, que o loop faz, é HTTPS de saída
+como qualquer outro.
+
+**Armadilha de 7 dias.** Enquanto o app estiver como *Testing* na tela de
+consentimento do Google, o refresh token expira semanalmente: o worker para de
+publicar com `AutorizacaoAusente` e ninguém percebe até faltar vídeo. Publicar o
+app (mesmo sem verificação, para uso próprio) remove o prazo. Isso vai doer na
+Sprint 7, quando o worker subir sozinho no boot.
+
+**Falha de publicação vai para `erro`, não de volta para `aprovado`.** Voltar
+faria o worker retentar sozinho — e aí o gate humano vira decoração. Reaprovar
+no painel é a forma de tentar de novo, e como a cota do dia já foi, a retentativa
+cai na virada por conta própria.
+
+**Novas variáveis** (todas com padrão, ver `worker/.env.example`):
+`YOUTUBE_TOKEN` · `YOUTUBE_CLIENT_SECRET` · `YOUTUBE_CATEGORIA` ·
+`YOUTUBE_ATRASO_MIN` · `YOUTUBE_INTERVALO_MIN` · `PUBLICAR_LOTE`. **O teto de 6
+não está aí de propósito:** é aritmética de cota (10.000 ÷ 1.600), não gosto, e
+variável de ambiente convidaria a subir o número às 3h da manhã sem review.
+
 ### Sprint 5 — TikTok (1h)
 ```
 /spec worker/publishers/tiktok.py usando o escopo video.upload (inbox/rascunho),
@@ -636,6 +715,8 @@ if __name__ == "__main__":
 | Limite | Número | Consequência de ignorar |
 |--------|--------|-------------------------|
 | Cota YouTube | 10.000 un/dia ÷ 1.600 por upload = **~6 vídeos/dia** | Uploads falham silenciosamente até meia-noite PT |
+| Virada da cota | **Meia-noite do Pacífico**, não a sua | Contar em BRT deixa passar 12 num dia lá (6 às 23h + 6 à 1h) |
+| Refresh token em "Testing" | Expira em **7 dias** | Worker para de publicar e ninguém percebe até faltar vídeo |
 | YouTube API nova | Uploads travados em privado até auditoria | Vídeo sobe e ninguém vê |
 | TikTok não auditado | Direct post forçado em SELF_ONLY (server-side) | Pipeline "funciona" e gera zero views |
 | TikTok rate limit | 6 requests/min por access_token | 429 |
@@ -657,7 +738,8 @@ if __name__ == "__main__":
 [x] 6. Sprint 2 — render de verdade                       (1h)      ← worker/mpt.py, 56 testes verdes
 [x] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←── fila ponta a ponta, 66s
 [x] 8. Sprint 3 — identidade visual                       (1h)      ← 102 testes, RLS 13/13
-[ ] 9. Sprint 4 — YouTube                                 (1h30)
+[x] 9. Sprint 4 — YouTube                                 (1h30)    ← 158 testes, RLS 13/13
+[ ] 9b. OAuth do Google + primeiro upload real            (10 min)  ← SEU: console + autorizar_youtube.py
 [ ] 10. Sprint 6 — painel na Vercel                       (2h)
 [ ] 11. Sprint 5 — TikTok                                 (1h)
 [ ] 12. Sprint 7 — Task Scheduler                         (20 min)
@@ -699,11 +781,20 @@ a cadeia se prova inteira — graduação, grão, vinheta, cartela do hook e o �
 no canto, todos legíveis. A correção é uma só e é sua: soltar footage de verdade
 em `storage/local_videos/`. Nenhuma linha de código muda.
 
-**Próximo comando útil** (esvazia o resto da fila, 2 vídeos):
+**Próximo passo (item 9b) — é seu, não meu.** O OAuth exige uma pessoa na tela
+de consentimento do Google, e credencial não passa por mim. No
+`console.cloud.google.com`: ative a **YouTube Data API v3**, na tela de
+consentimento escolha *Externo* e ponha seu e-mail em **Usuários de teste**, crie
+um ID de cliente OAuth do tipo **App para computador**, baixe o JSON e salve como
+`worker/client_secret.json`. Depois:
 
 ```bash
-cd worker && uv run main.py
+cd worker && uv run autorizar_youtube.py
 ```
+
+Abre o navegador, você aprova, e o script grava `worker/token.json` (gitignored).
+Só então o primeiro upload de verdade é possível — e ele ainda depende do gate
+humano: o worker só toca em vídeo que já está `aprovado`.
 
 ---
 

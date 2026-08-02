@@ -61,6 +61,12 @@ class _Consulta:
     def limit(self, _n):
         return self
 
+    def order(self, _coluna, **_kwargs):
+        # A publicação da Sprint 4 entrou no `ciclo()`: fila de render vazia
+        # agora varre `videos` por aprovados. Aqui não há nenhum, então o
+        # encadeamento só precisa existir para não estourar.
+        return self
+
     def execute(self):
         if self._valores is not None:
             self._banco.updates.append((self._tabela, self._id, self._valores))

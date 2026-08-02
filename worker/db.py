@@ -11,6 +11,7 @@ essa chave vive só no `.env` local: no painel ela dissolveria o multi-tenant.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from supabase import Client, create_client
@@ -126,3 +127,140 @@ def destravar_orfaos(sb: Client, minutos: int) -> int:
     """Devolve à fila o que ficou travado por worker que morreu."""
     resposta = sb.rpc("destravar_orfaos", {"p_minutos": minutos}).execute()
     return int(resposta.data or 0)
+
+
+# ============================================================ publicação (S4)
+
+
+def listar_aprovados(sb: Client, limite: int) -> list[dict[str, Any]]:
+    """Vídeos que passaram pelo gate humano e ainda não foram publicados.
+
+    Sem filtro de org, igual ao `claim_proximo_video`: o worker atende a fila
+    inteira e cada linha carrega o seu próprio `org_id` (é o que o
+    `postprocess` já faz com o caminho no Storage).
+    """
+    resposta = (
+        sb.table("videos")
+        .select("id, org_id, pauta_id, arquivo_path")
+        .eq("status", "aprovado")
+        .order("created_at")
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
+def contar_enviados_desde(sb: Client, plataforma: str, desde: datetime) -> int:
+    """Uploads já feitos nesta janela — a base do teto diário.
+
+    Conta `enviado_em`, e não `created_at`/`updated_at`, porque o que interessa
+    é quando a cota foi gasta (ver a migration `publicacao_enviado_em`).
+
+    De propósito **sem filtro de org**: a cota é do projeto no Google Cloud, não
+    do tenant. Duas orgs neste worker compartilham o mesmo `token.json` e,
+    portanto, o mesmo teto — somar as duas é a leitura correta, e no pior caso
+    erra para menos, que é o lado seguro.
+    """
+    resposta = (
+        sb.table("publicacoes")
+        .select("id", count="exact")
+        .eq("plataforma", plataforma)
+        .gte("enviado_em", desde.isoformat())
+        .execute()
+    )
+    return int(resposta.count or 0)
+
+
+def buscar_publicacao(
+    sb: Client, video_id: str, plataforma: str
+) -> dict[str, Any] | None:
+    resposta = (
+        sb.table("publicacoes")
+        .select("id, status, external_id, url, enviado_em, agendado_para, erro_msg")
+        .eq("video_id", video_id)
+        .eq("plataforma", plataforma)
+        .limit(1)
+        .execute()
+    )
+    return resposta.data[0] if resposta.data else None
+
+
+def ultimo_agendamento(sb: Client, plataforma: str) -> datetime | None:
+    """Maior `publishAt` já marcado — o ponto de partida do próximo slot."""
+    resposta = (
+        sb.table("publicacoes")
+        .select("agendado_para")
+        .eq("plataforma", plataforma)
+        .not_.is_("agendado_para", "null")
+        .order("agendado_para", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not resposta.data:
+        return None
+    return datetime.fromisoformat(resposta.data[0]["agendado_para"])
+
+
+def reservar_envio(
+    sb: Client, org_id: str, video_id: str, plataforma: str, agora: datetime
+) -> str:
+    """Marca a cota como gasta **antes** de gastá-la. Devolve o id da linha.
+
+    A ordem é deliberada e não é pessimismo. Se o processo morrer no meio do
+    upload, a cota foi embora do mesmo jeito — mas a linha não teria registro
+    disso, e no ciclo seguinte o worker acharia que tem uma vaga a mais do que
+    tem. Reservar antes erra para menos uma vaga; reservar depois erra para
+    mais, e o excedente falha calado até a virada do dia.
+
+    `status` continua `pendente`: quem ainda não teve resposta da API não está
+    `enviado`. Quem contabiliza cota é `enviado_em`, não o status.
+    """
+    resposta = (
+        sb.table("publicacoes")
+        .upsert(
+            {
+                "org_id": org_id,
+                "video_id": video_id,
+                "plataforma": plataforma,
+                "status": "pendente",
+                "enviado_em": agora.isoformat(),
+                "erro_msg": None,
+            },
+            on_conflict="video_id,plataforma",
+        )
+        .execute()
+    )
+    return resposta.data[0]["id"]
+
+
+def concluir_publicacao(
+    sb: Client,
+    publicacao_id: str,
+    external_id: str,
+    url: str,
+    agendado_para: datetime,
+) -> None:
+    """Upload aceito. `enviado` e não `publicado`: o vídeo ainda está privado.
+
+    Ele vira público sozinho no `publishAt`. Quem carimba `publicado` é quem
+    confirmar isso depois — hoje ninguém confirma, e inventar o carimbo aqui
+    faria a tabela mentir sobre o que está no ar.
+    """
+    sb.table("publicacoes").update(
+        {
+            "status": "enviado",
+            "external_id": external_id,
+            "url": url,
+            "agendado_para": agendado_para.isoformat(),
+            "erro_msg": None,
+        }
+    ).eq("id", publicacao_id).execute()
+
+
+def falhar_publicacao(
+    sb: Client, publicacao_id: str, erro: BaseException | str
+) -> None:
+    """Registra a falha sem apagar `enviado_em`: a cota foi gasta de qualquer jeito."""
+    sb.table("publicacoes").update(
+        {"status": "erro", "erro_msg": truncar_erro(str(erro))}
+    ).eq("id", publicacao_id).execute()

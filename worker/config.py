@@ -51,6 +51,17 @@ class Config:
     ffprobe_bin: Path = Path("ffprobe")
     fonte_assinatura: Path = FONTE_ASSINATURA_PADRAO
 
+    # YouTube (Sprint 4). Note o que NÃO está aqui: o teto de 6 uploads/dia.
+    # Ele é constante em `publishers/youtube.py` de propósito — é aritmética de
+    # cota (10.000 ÷ 1.600), não gosto, e uma variável de ambiente convidaria a
+    # subir o número às 3h da manhã sem ninguém revisar.
+    youtube_token: Path = RAIZ / "token.json"
+    youtube_client_secret: Path = RAIZ / "client_secret.json"
+    youtube_categoria: str = "22"
+    youtube_atraso_min: int = 30
+    youtube_intervalo_min: int = 180
+    publicar_lote: int = 5
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -76,6 +87,15 @@ def _inteiro(nome: str, padrao: int) -> int:
 
 def _texto(nome: str, padrao: str) -> str:
     return os.getenv(nome, "").strip() or padrao
+
+
+def _caminho(nome_var: str, padrao: Path) -> Path:
+    """Caminho opcional, resolvido contra `worker/` quando vier relativo."""
+    bruto = os.getenv(nome_var, "").strip()
+    if not bruto:
+        return padrao
+    caminho = Path(bruto)
+    return caminho if caminho.is_absolute() else (RAIZ / caminho).resolve()
 
 
 def _binario(nome_var: str, comando: str) -> Path:
@@ -144,6 +164,19 @@ def carregar(env_path: Path | None = None) -> Config:
             "Precisa ser uma fonte com CJK (a assinatura é 亡者)."
         )
 
+    # Caminhos do YouTube: resolvidos, mas NÃO validados aqui. Diferente do
+    # ffmpeg, que é pré-requisito do loop inteiro, publicar é etapa separada e
+    # posterior ao gate humano — um worker que renderiza e ainda não tem OAuth
+    # é um estado normal da instalação, não erro de config. Quem reclama, com
+    # instrução do que rodar, é o `publishers/youtube.py` na hora de usar.
+    #
+    # Aviso que vale a pena saber: `worker/` está dentro do OneDrive, então o
+    # `token.json` padrão sincroniza para a nuvem da Microsoft. Se isso não te
+    # agrada, aponte YOUTUBE_TOKEN para fora da pasta sincronizada — o mesmo
+    # vale para o `.env`, que já vive lá com a service_role.
+    youtube_token = _caminho("YOUTUBE_TOKEN", RAIZ / "token.json")
+    youtube_client_secret = _caminho("YOUTUBE_CLIENT_SECRET", RAIZ / "client_secret.json")
+
     return Config(
         supabase_url=url,
         supabase_service_role_key=chave,
@@ -158,4 +191,10 @@ def carregar(env_path: Path | None = None) -> Config:
         ffmpeg_bin=_binario("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=_binario("FFPROBE_BIN", "ffprobe"),
         fonte_assinatura=fonte_assinatura,
+        youtube_token=youtube_token,
+        youtube_client_secret=youtube_client_secret,
+        youtube_categoria=_texto("YOUTUBE_CATEGORIA", "22"),
+        youtube_atraso_min=_inteiro("YOUTUBE_ATRASO_MIN", 30),
+        youtube_intervalo_min=_inteiro("YOUTUBE_INTERVALO_MIN", 180),
+        publicar_lote=_inteiro("PUBLICAR_LOTE", 5),
     )

@@ -30,6 +30,7 @@ import db
 import log as logmod
 import mpt
 import postprocess
+import publicar
 from config import Config, ConfigInvalida, carregar
 
 # Sinalizado por Ctrl-C / SIGTERM. `wait()` nele em vez de `sleep()` faz o
@@ -121,9 +122,12 @@ def ciclo(sb, cfg: Config, log: logging.Logger) -> bool:
     """Um ciclo. Devolve True se havia trabalho — quem chama decide o sono."""
     video = db.claim_proximo_video(sb, logmod.WORKER_ID)
     if video is None:
-        # Sprints 4 e 5 plugam aqui a publicação dos aprovados. Enquanto não
-        # existem publishers, fila vazia é só fila vazia.
-        return False
+        # Render tem prioridade sobre publicação, e não é ordem arbitrária: o
+        # render segura um lock e tem `tentativas < 3` correndo contra ele;
+        # publicar não segura nada e o excedente é adiado de graça. Quem espera
+        # melhor, espera.
+        resumo = publicar.publicar_aprovados(sb, cfg, log)
+        return resumo.houve_trabalho
 
     try:
         processar(sb, cfg, video, log)
