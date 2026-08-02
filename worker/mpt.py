@@ -47,7 +47,7 @@ from typing import Any, Callable, Protocol
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
-from render import caminho_saida
+from render import caminho_bruto
 
 log = logging.getLogger("worker.mpt")
 
@@ -374,7 +374,11 @@ def gerar(
     sessao: Sessao | None = None,
     sorteio: random.Random | None = None,
 ) -> Path:
-    """Pauta → vídeo pronto em `output/pending/`. É o render de verdade do worker."""
+    """Pauta → mp4 bruto em `output/raw/`, ainda sem a identidade visual.
+
+    Quem transforma bruto em final é o `postprocess`. A fronteira é de
+    responsabilidade: este módulo sabe falar com o MPT e mais nada.
+    """
     sessao = sessao or criar_sessao()
 
     materiais = escolher_materiais(listar_materiais(base_url, sessao), sorteio=sorteio)
@@ -387,5 +391,5 @@ def gerar(
     )
 
     uri = aguardar(base_url, task_id, sessao, timeout_seg=timeout_seg)
-    destino = caminho_saida(output_dir, video["id"], pauta.get("tema", ""))
+    destino = caminho_bruto(output_dir, video["id"], pauta.get("tema", ""))
     return baixar(base_url, uri, destino, sessao)

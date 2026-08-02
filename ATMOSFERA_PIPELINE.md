@@ -436,6 +436,83 @@ assinatura 亡者 no canto, (4) exportar 1080x1920 H.264 CRF 23,
 ```
 **Isso é o que separa o teu vídeo do genérico do MPT.**
 
+**Entregue (item 8):** `worker/postprocess.py` + `worker/tests/test_postprocess.py`
++ migration `20260802131855_preview_storage.sql`. **103 testes verdes**, nenhum
+precisa de ffmpeg, rede ou chave. RLS **13/13** (os casos 9–12 são do Storage),
+advisors `No issues found`.
+
+**Provado dentro do loop, não só em teste.** Duas execuções de
+`uv run main.py --uma-vez`, 84s cada, esvaziando a fila. A linha fecha com
+`status = aguardando_aprovacao`, `duracao_seg` preenchida, `locked_by`/`locked_at`
+**nulos**, `erro_msg` nulo — e `preview_url`/`thumb_url` apontando para
+`0f927960-…/cf3b2376-….mp4` e `.jpg`. Os dois objetos existem no bucket
+`atmosfera` com o byte-count idêntico ao do disco (469.179 e 15.765) e o mime
+certo. `output/raw/` ficou vazio: o bruto é descartado no caminho feliz.
+
+**O hook é sobreposto, não substitui.** A spec dizia "substituir os primeiros
+1,5s". Cortar 1,5s dessincronizaria a narração que o MPT já renderizou com a
+legenda queimada — o áudio seguiria adiantado até o fim do vídeo. O hook entra
+como cartela por cima (`drawbox` + `drawtext` com `enable='lt(t,1.5)'`), a
+duração fica intacta e a narração continua no lugar. Medido: 10,43 → 10,43 e
+17,03 → 17,03.
+
+**Seis decisões que o código carrega:**
+
+- **`curves`, não `.cube`.** Uma LUT é um blob opaco: ninguém revisa 32³ pontos
+  num diff, e "por que a sombra ficou azul" vira arqueologia. A graduação em
+  `curves` são três linhas legíveis que se ajustam sem abrir software.
+- **Texto de LLM nunca entra no filtergraph como texto.** O hook vem do Cowork;
+  um `:` ou `'` no meio dele quebraria o grafo, e `%` seria expandido. Vai por
+  `textfile=` + `expansion=none`. Provado em encode real com
+  `Disciplina não é motivação: é o que sobra 100% depois` — renderizou literal.
+- **Caminho no Windows precisa de aspas **E** escape.** `fontfile='C\:/Windows/Fonts/msyhbd.ttc'`.
+  Só aspas ou só escape falha com `No option name near '/Windows/...'`.
+- **A ordem dos filtros não é estética, é causal.** Graduação antes do grão
+  (grão sobre graduação vira mancha de cor), grão antes da vinheta (a vinheta
+  escurece o ruído da borda — é isso que lê como filme), texto por último
+  (grão por cima de texto é ilegível no celular).
+- **A cartela do hook é opaca — não existe alfa "alto o bastante".** Duas
+  medições, cada uma contra render de verdade: em `black@0.55` a legenda que o
+  MPT queima no vídeo fica claramente legível **atrás** do hook; em `black@0.92`
+  ainda vaza — no frame de 0,7s dava para ler "Todo mundo fala" entre as linhas.
+  O que atravessa é justamente o pixel mais claro do frame, e texto branco sobre
+  preto tem contraste de sobra para isso. Virou teste
+  (`test_cartela_do_hook_e_opaca`), porque já regrediu duas vezes.
+- **`noise=alls=6` é dither, não textura.** O `curves` levanta o preto e
+  comprime a sombra; em 8 bits isso gera banding, e num gradiente escuro as
+  faixas aparecem. Medido, sombra esticada 6× para inspeção: sem grão dá degrau
+  horizontal nítido, com `alls=6` some. Subir não compra imagem — 2s de campo
+  chapado em CRF 23 custam 77 KB em `alls=6` e **6.320 KB** em `alls=18`, porque
+  o encoder gasta bitrate preservando ruído aleatório.
+
+**`preview_url` guarda o CAMINHO no Storage, não uma URL assinada.** Isso é
+contrato para a Sprint 6: o painel **não** joga a coluna direto num `<video src>`
+— ele chama `createSignedUrl` na hora de exibir. Duas razões: URL assinada expira
+(gravada na coluna, apodrece), e URL assinada **é** a credencial — quem tem o
+link lê o arquivo, logado ou não. Persistir isso seria guardar bearer token em
+texto plano, e o `CLAUDE.md` proíbe até *logar* URL assinada.
+
+**A pasta do Storage é o tenant:** `atmosfera/<org_id>/<video_id>.mp4`. A
+política `atmosfera_preview_org` compara `(storage.foldername(name))[1]` com
+`public.current_org_id()::text`. Bucket privado sozinho só significa "precisa
+estar logado" — sem essa política, qualquer org logada leria o vídeo de
+qualquer outra.
+
+**`raw/` e `pending/` são pastas diferentes de propósito.** `mpt.gerar()` grava
+em `output/raw/`; só o que passou pelo ffmpeg entra em `output/pending/`, que é
+a pasta que o gate humano enxerga. O bruto é descartado apenas no caminho feliz.
+
+**O upload do preview é degradável.** Falhar ali significaria jogar fora 2,5 min
+de MPT mais o encode — e queimar uma das três tentativas — por um blip de rede.
+O vídeo vai para `aguardando_aprovacao` de qualquer jeito, com `preview_url`
+nulo; o arquivo está no disco e continua aprovável.
+
+**Novas variáveis** (todas com padrão, ver `worker/.env.example`):
+`FFMPEG_BIN` · `FFPROBE_BIN` · `ASSINATURA_FONTE`. Em branco = procura no PATH,
+mas a validação é na largada: a Sprint 7 sobe o worker pelo Task Scheduler, que
+roda com outro PATH. `ASSINATURA_FONTE` é caminho de disco; `MPT_FONTE` é nome
+de arquivo dentro do MoneyPrinterTurbo — não confundir.
+
 ### Sprint 4 — YouTube (1h30)
 ```
 /spec worker/publishers/youtube.py. OAuth desktop flow, token.json local.
@@ -572,14 +649,14 @@ if __name__ == "__main__":
 ## 8. Ordem de execução
 
 ```
-[x] 1. Rodar a migration no Supabase                      (15 min)  ← 2 migrations, advisors limpo
+[x] 1. Rodar a migration no Supabase                      (15 min)  ← 3 migrations, advisors limpo
 [ ] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← só o painel precisa (Sprint 6)
-[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 9/9
+[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 13/13
 [x] 4. Sprint 1 — worker esqueleto com render fake        (1h)      ← 27 testes verdes
 [x] 5. Subir MPT, abrir /docs, ler os endpoints           (30 min)  ← uv, sem Docker. 127.0.0.1:8080
 [x] 6. Sprint 2 — render de verdade                       (1h)      ← worker/mpt.py, 56 testes verdes
 [x] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←── fila ponta a ponta, 66s
-[ ] 8. Sprint 3 — identidade visual                       (1h)
+[x] 8. Sprint 3 — identidade visual                       (1h)      ← 102 testes, RLS 13/13
 [ ] 9. Sprint 4 — YouTube                                 (1h30)
 [ ] 10. Sprint 6 — painel na Vercel                       (2h)
 [ ] 11. Sprint 5 — TikTok                                 (1h)
@@ -607,6 +684,20 @@ fecha conexão ociosa em `timeout_keep_alive = 5s`, exatamente o intervalo do
 polling. Recuperou nas 4. Sem a política GET-only isso seria morte aleatória no
 meio de render, intermitente e difícil de reproduzir. Foi encontrada rodando de
 verdade, com 54 testes unitários verdes.
+
+**Uma ressalva que não bloqueia nada mas invalida o julgamento visual: o banco
+de material é preto.** `MoneyPrinterTurbo/storage/local_videos/` tem
+`atm-teste-01/02/03.mp4`, ~24 MB cada — e nos três o **pixel mais claro do frame
+inteiro** fica em 36–41 de 255 (YAVG 19–22). Não é "material escuro": um clipe
+cinematográfico escuro ainda tem highlight passando de 200. Ali não há imagem —
+puxar +0,35 de brilho e 1,4 de contraste revela só um gradiente cinza chapado.
+
+Consequência: os dois renders que existem hoje são vídeo preto com legenda por
+cima, e **a graduação da Sprint 3 não pode ser avaliada neles**. Por isso a
+validação visual do pós-processo foi feita contra um `testsrc2` sintético, onde
+a cadeia se prova inteira — graduação, grão, vinheta, cartela do hook e o 亡者
+no canto, todos legíveis. A correção é uma só e é sua: soltar footage de verdade
+em `storage/local_videos/`. Nenhuma linha de código muda.
 
 **Próximo comando útil** (esvazia o resto da fila, 2 vídeos):
 

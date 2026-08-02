@@ -22,8 +22,9 @@ import pytest
 
 import main
 import mpt
+import postprocess
 from config import Config
-from render import caminho_saida
+from render import caminho_bruto, caminho_saida, caminho_thumb
 
 LOG = logging.getLogger("teste")
 
@@ -77,8 +78,29 @@ class _Rpc:
         return _Resposta(self._banco.retorno_rpc.get(self._nome))
 
 
+class _Balde:
+    """O `sb.storage.from_(bucket)` do supabase-py, sem rede."""
+
+    def __init__(self, banco: "SupabaseFake", bucket: str):
+        self._banco = banco
+        self._bucket = bucket
+
+    def upload(self, path, file, file_options=None):
+        if self._banco.storage_explode:
+            raise OSError("storage fora do ar")
+        self._banco.uploads.append((self._bucket, path, file.read(), file_options or {}))
+
+
+class _Storage:
+    def __init__(self, banco: "SupabaseFake"):
+        self._banco = banco
+
+    def from_(self, bucket: str) -> _Balde:
+        return _Balde(self._banco, bucket)
+
+
 class SupabaseFake:
-    def __init__(self, *, fila=None, pauta=None):
+    def __init__(self, *, fila=None, pauta=None, storage_explode: bool = False):
         self.retorno_rpc = {
             "claim_proximo_video": [fila] if fila else [],
             "destravar_orfaos": 0,
@@ -87,6 +109,9 @@ class SupabaseFake:
         self.updates: list[tuple[str, str, dict]] = []
         self.selects: list[tuple[str, str]] = []
         self.rpcs: list[tuple[str, dict]] = []
+        self.uploads: list[tuple[str, str, bytes, dict]] = []
+        self.storage_explode = storage_explode
+        self.storage = _Storage(self)
 
     def rpc(self, nome, argumentos):
         return _Rpc(self, nome, argumentos)
@@ -121,8 +146,11 @@ def cfg(tmp_path: Path) -> Config:
 
 @pytest.fixture
 def video() -> dict:
+    # `org_id` está aqui porque o claim devolve `v.*` — a linha inteira da
+    # tabela — e o caminho do preview no Storage é montado a partir dele.
     return {
         "id": str(uuid4()),
+        "org_id": str(ORG),
         "pauta_id": str(uuid4()),
         "status": "renderizando",
         "tentativas": 1,
@@ -149,12 +177,41 @@ def render_dublado(monkeypatch):
     """
 
     def gerar(video, pauta, output_dir, **_kwargs):
-        destino = caminho_saida(output_dir, video["id"], pauta.get("tema", ""))
+        destino = caminho_bruto(output_dir, video["id"], pauta.get("tema", ""))
         destino.parent.mkdir(parents=True, exist_ok=True)
         destino.write_bytes(b"mp4-de-mentira")
         return destino
 
     monkeypatch.setattr(mpt, "gerar", gerar)
+
+
+@pytest.fixture(autouse=True)
+def ffmpeg_dublado(monkeypatch):
+    """Substitui só o que chama o ffmpeg — `subir` continua real.
+
+    O encode fica de fora porque `montar_filtro`/`montar_comando` já são
+    testados sozinhos em `test_postprocess.py` e um ffmpeg de verdade por caso
+    tornaria esta suíte dependente da instalação da máquina. Já o upload
+    **não** é dublado: é ele que decide o caminho `<org_id>/<video_id>` de que
+    a política de RLS do Storage depende, e isso é justamente o que se quer
+    ver quebrar se alguém mudar.
+    """
+
+    def aplicar(bruto, pauta, video, output_dir, **_kwargs):
+        final = caminho_saida(output_dir, video["id"], pauta.get("tema", ""))
+        thumb = caminho_thumb(output_dir, video["id"], pauta.get("tema", ""))
+        final.parent.mkdir(parents=True, exist_ok=True)
+        final.write_bytes(b"mp4-com-identidade")
+        thumb.write_bytes(b"jpg-de-mentira")
+        return postprocess.Preview(
+            arquivo=final,
+            thumb=thumb,
+            duracao_seg=17.0,
+            preview_path=postprocess.caminho_storage(video["org_id"], video["id"], ".mp4"),
+            thumb_path=postprocess.caminho_storage(video["org_id"], video["id"], ".jpg"),
+        )
+
+    monkeypatch.setattr(postprocess, "aplicar_identidade", aplicar)
 
 
 # --------------------------------------------------------------- casos ----
@@ -177,6 +234,64 @@ def test_caminho_feliz_entrega_ao_gate_humano(cfg, video, pauta):
     assert valores["locked_at"] is None
     # o arquivo saiu de verdade no disco
     assert Path(valores["arquivo_path"]).is_file()
+
+
+def test_bruto_e_descartado_e_o_final_fica(cfg, video, pauta):
+    # `pending/` só pode conter vídeo que passou pelo ffmpeg: é a pasta que o
+    # gate humano enxerga. Bruto na mesma pasta faria o painel oferecer para
+    # aprovação um vídeo sem identidade nenhuma.
+    sb = SupabaseFake(fila=video, pauta=pauta)
+    main.ciclo(sb, cfg, LOG)
+
+    assert not caminho_bruto(cfg.output_dir, video["id"], pauta["tema"]).exists()
+    assert caminho_saida(cfg.output_dir, video["id"], pauta["tema"]).is_file()
+    assert caminho_thumb(cfg.output_dir, video["id"], pauta["tema"]).is_file()
+
+
+def test_preview_sobe_na_pasta_da_org(cfg, video, pauta):
+    # A primeira pasta do caminho É o tenant: a política do Storage compara
+    # `(storage.foldername(name))[1]` com current_org_id(). Se este formato
+    # mudar sem a migration mudar junto, uma org passa a ler o preview da outra
+    # — vídeo não publicado, que ainda pode ser reprovado.
+    sb = SupabaseFake(fila=video, pauta=pauta)
+    main.ciclo(sb, cfg, LOG)
+
+    assert len(sb.uploads) == 2
+    for bucket, caminho, _conteudo, opcoes in sb.uploads:
+        assert bucket == "atmosfera"
+        assert caminho.split("/")[0] == str(ORG)
+        assert opcoes["upsert"] == "true"  # retry do mesmo vídeo reescreve
+
+    valores = sb.ultimo_update()
+    assert valores["preview_url"] == f"{ORG}/{video['id']}.mp4"
+    assert valores["thumb_url"] == f"{ORG}/{video['id']}.jpg"
+    assert valores["duracao_seg"] == 17.0
+
+
+def test_preview_url_nao_e_url_assinada(cfg, video, pauta):
+    # URL assinada expira (apodrece na coluna) e é credencial de portador.
+    # A coluna guarda caminho; quem assina é o painel, na hora.
+    sb = SupabaseFake(fila=video, pauta=pauta)
+    main.ciclo(sb, cfg, LOG)
+
+    guardado = sb.ultimo_update()["preview_url"]
+    assert not guardado.startswith("http")
+    assert "token" not in guardado
+
+
+def test_storage_fora_do_ar_nao_perde_o_video(cfg, video, pauta):
+    # Falhar aqui jogaria fora 2,5 min de MPT mais o encode e queimaria uma
+    # das três tentativas por um blip de rede. O vídeo está pronto no disco.
+    sb = SupabaseFake(fila=video, pauta=pauta, storage_explode=True)
+
+    assert main.ciclo(sb, cfg, LOG) is True
+
+    valores = sb.ultimo_update()
+    assert valores["status"] == "aguardando_aprovacao"
+    assert valores["locked_by"] is None
+    assert Path(valores["arquivo_path"]).is_file()
+    # sem preview, mas sem apagar o que houvesse lá antes
+    assert "preview_url" not in valores
 
 
 def test_nao_usa_select_estrela(cfg, video, pauta):

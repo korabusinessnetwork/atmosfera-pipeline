@@ -56,6 +56,15 @@ class FormatadorJson(logging.Formatter):
 
 def configurar(nivel: int = logging.INFO) -> logging.Logger:
     """Instala o formatter na saída padrão e devolve o logger do worker."""
+    # O console do Windows abre em cp1252, que não tem 亡者. Como o formatter
+    # emite `ensure_ascii=False` de propósito, a linha com a assinatura levanta
+    # UnicodeEncodeError no handler — e o `logging` engole exceção de handler
+    # em silêncio. Resultado: some justo o evento da Sprint 3, e o log é a única
+    # testemunha do que o worker fez. `errors="replace"` garante que, no pior
+    # caso, sai um "?" — nunca uma linha perdida.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(FormatadorJson())
 

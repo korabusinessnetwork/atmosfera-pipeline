@@ -12,7 +12,7 @@ import pytest
 
 from db import truncar_erro
 from main import deve_destravar
-from render import caminho_saida, slug
+from render import caminho_bruto, caminho_saida, caminho_thumb, nome_arquivo, slug
 
 
 class TestSlug:
@@ -56,6 +56,32 @@ class TestCaminhoSaida:
         a = caminho_saida(Path("/out"), "11111111-aaaa-bbbb-cccc-dddddddddddd", "Foco")
         b = caminho_saida(Path("/out"), "22222222-aaaa-bbbb-cccc-dddddddddddd", "Foco")
         assert a != b
+
+
+class TestBrutoSeparadoDoFinal:
+    """`pending/` é o que o gate humano enxerga — só entra o que passou pelo ffmpeg."""
+
+    ID = "abcdef12-3456-7890-abcd-ef1234567890"
+
+    def test_bruto_fica_em_raw(self):
+        assert caminho_bruto(Path("/out"), self.ID, "Foco").parent.name == "raw"
+
+    def test_bruto_e_final_nunca_sao_o_mesmo_arquivo(self):
+        # Se colidissem, o ffmpeg leria e escreveria o mesmo caminho e o
+        # `descartar_bruto` apagaria o vídeo pronto logo em seguida.
+        assert caminho_bruto(Path("/out"), self.ID, "Foco") != caminho_saida(
+            Path("/out"), self.ID, "Foco"
+        )
+
+    def test_thumb_acompanha_o_video_que_representa(self):
+        thumb = caminho_thumb(Path("/out"), self.ID, "Foco")
+        video = caminho_saida(Path("/out"), self.ID, "Foco")
+        assert thumb.parent == video.parent
+        assert thumb.stem == video.stem
+        assert thumb.suffix == ".jpg"
+
+    def test_nome_carrega_slug_e_id(self):
+        assert nome_arquivo(self.ID, "Foco") == "foco-abcdef12.mp4"
 
 
 class TestTruncarErro:

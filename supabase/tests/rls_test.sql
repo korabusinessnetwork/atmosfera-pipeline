@@ -144,8 +144,78 @@ begin
   passou := bloqueou;
   return next;
 
+  -- ================= STORAGE (Sprint 3) =================
+  -- O preview é o vídeo inteiro, não publicado, de material que ainda pode ser
+  -- reprovado. Bucket privado só garante "precisa estar logado" — quem separa
+  -- uma org da outra é a política que compara a PRIMEIRA PASTA do caminho com
+  -- current_org_id(). Se ela estiver errada, toda org logada lê o vídeo alheio
+  -- e nada no sistema reclama. Por isso tem teste.
+  --
+  -- `storage.objects` tem um trigger (`protect_objects_delete`) que recusa
+  -- DELETE direto — existe para ninguém apagar linha e deixar o arquivo órfão
+  -- no bucket. Aqui não há arquivo nenhum: a linha é semeada só para a política
+  -- ter o que filtrar. A escotilha é do próprio Supabase e vale só para esta
+  -- transação (o `true` do set_config é o is_local).
+  perform set_config('storage.allow_delete_query', 'true', true);
+
+  delete from storage.objects
+   where bucket_id = 'atmosfera' and name like '%[rls-test]%';
+
+  insert into storage.objects (bucket_id, name) values
+    ('atmosfera', org_a::text || '/[rls-test]-a.mp4'),
+    ('atmosfera', org_b::text || '/[rls-test]-b.mp4');
+
+  select count(*) into n
+    from storage.objects
+   where bucket_id = 'atmosfera' and name like '%[rls-test]%';
+  teste := '9 · seed de preview nas duas orgs';
+  esperado := '2'; obtido := n::text; passou := (n = 2);
+  return next;
+
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  begin
+    select count(*) filter (where name like '%[rls-test]%'),
+           count(*) filter (where name like '%[rls-test]%'
+                              and (storage.foldername(name))[1] <> org_a::text)
+      into n, vazou
+      from storage.objects
+     where bucket_id = 'atmosfera';
+  exception
+    when insufficient_privilege then n := -1; vazou := 0;
+  end;
+
+  -- Gravar na pasta da org alheia: sem o with check, o worker de um tenant
+  -- sobrescreveria o preview de outro.
+  begin
+    insert into storage.objects (bucket_id, name)
+    values ('atmosfera', org_b::text || '/[rls-test]-invasao.mp4');
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  execute 'reset role';
+
+  teste := '10 · org A enxerga o próprio preview';
+  esperado := '1'; obtido := n::text; passou := (n = 1);
+  return next;
+
+  teste := '11 · org A NÃO enxerga o preview da org B  <<< vídeo não publicado';
+  esperado := '0'; obtido := vazou::text; passou := (vazou = 0);
+  return next;
+
+  teste := '12 · org A não consegue GRAVAR preview na pasta da org B';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'GRAVOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
   -- ---------- limpeza ----------
   delete from public.pautas where tema like '[rls-test]%';
+  delete from storage.objects
+   where bucket_id = 'atmosfera' and name like '%[rls-test]%';
 end;
 $$;
 

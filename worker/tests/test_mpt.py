@@ -256,7 +256,10 @@ class TestGerar:
         fake = MptFake()
         destino = gerar(fake, video, pauta, tmp_path)
 
-        assert destino.parent.name == "pending"
+        # `raw/`, não `pending/`: o que sai do MPT ainda não tem identidade
+        # visual, e `pending/` é a pasta que o gate humano enxerga. Quem move
+        # de uma para a outra é o `postprocess` (Sprint 3).
+        assert destino.parent.name == "raw"
         assert destino.name == "disciplina-abcdef12.mp4"
         assert destino.read_bytes() == b"mp4-de-verdade"
 

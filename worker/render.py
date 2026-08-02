@@ -37,11 +37,31 @@ def slug(texto: str, limite: int = LIMITE_SLUG) -> str:
     return limpo or "sem-tema"
 
 
-def caminho_saida(output_dir: Path, video_id: str, tema: str) -> Path:
-    """`output/pending/<slug-do-tema>-<8 chars do id>.mp4`.
+def nome_arquivo(video_id: str, tema: str, extensao: str = ".mp4") -> str:
+    """`<slug-do-tema>-<8 chars do id><extensao>`.
 
     O id entra para garantir unicidade; o slug entra para o arquivo ser
     reconhecível na pasta sem abrir um por um.
     """
-    nome = f"{slug(tema)}-{str(video_id)[:8]}.mp4"
-    return output_dir / "pending" / nome
+    return f"{slug(tema)}-{str(video_id)[:8]}{extensao}"
+
+
+def caminho_bruto(output_dir: Path, video_id: str, tema: str) -> Path:
+    """`output/raw/…mp4` — o que sai do MoneyPrinterTurbo, sem identidade ainda.
+
+    Separado de `caminho_saida` porque são dois arquivos com significados
+    diferentes: o bruto é insumo, o de `pending/` é o que vai para o gate
+    humano. Misturar os dois na mesma pasta faria o painel oferecer para
+    aprovação um vídeo que ainda não passou pelo ffmpeg.
+    """
+    return output_dir / "raw" / nome_arquivo(video_id, tema)
+
+
+def caminho_saida(output_dir: Path, video_id: str, tema: str) -> Path:
+    """`output/pending/…mp4` — já com a identidade, pronto para ser aprovado."""
+    return output_dir / "pending" / nome_arquivo(video_id, tema)
+
+
+def caminho_thumb(output_dir: Path, video_id: str, tema: str) -> Path:
+    """`output/pending/…jpg` — o frame de capa, ao lado do vídeo que representa."""
+    return output_dir / "pending" / nome_arquivo(video_id, tema, ".jpg")

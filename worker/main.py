@@ -1,6 +1,7 @@
-"""Loop do worker — Sprint 2.
+"""Loop do worker — Sprint 3.
 
-claim → render (MoneyPrinterTurbo) → aguardando_aprovacao → dorme.
+claim → render (MPT) → identidade (ffmpeg) → preview no Storage
+      → aguardando_aprovacao → dorme.
 
 Três invariantes que valem mais que o código:
 
@@ -28,6 +29,7 @@ import time
 import db
 import log as logmod
 import mpt
+import postprocess
 from config import Config, ConfigInvalida, carregar
 
 # Sinalizado por Ctrl-C / SIGTERM. `wait()` nele em vez de `sleep()` faz o
@@ -63,7 +65,7 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
         # inconsistente, não erro de render. Falha explícita, sem adivinhação.
         raise RuntimeError(f"pauta {video['pauta_id']} não encontrada")
 
-    arquivo = mpt.gerar(
+    bruto = mpt.gerar(
         video,
         pauta,
         cfg.output_dir,
@@ -73,10 +75,45 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
         fonte=cfg.mpt_fonte,
     )
 
-    db.concluir_render(sb, video_id, str(arquivo))
+    preview = postprocess.aplicar_identidade(
+        bruto,
+        pauta,
+        video,
+        cfg.output_dir,
+        ffmpeg=cfg.ffmpeg_bin,
+        ffprobe=cfg.ffprobe_bin,
+        fonte=cfg.fonte_assinatura,
+    )
+    postprocess.descartar_bruto(bruto)
+
+    # O upload é degradável de propósito. Falhar aqui significaria jogar fora
+    # 2,5 min de MPT mais o encode do ffmpeg — e queimar uma das três
+    # tentativas — por um blip de rede. O vídeo está pronto no disco e continua
+    # aprovável; sem preview o painel só perde o player, não a fila.
+    preview_url = thumb_url = None
+    try:
+        postprocess.subir(sb, preview)
+        preview_url, thumb_url = preview.preview_path, preview.thumb_path
+    except Exception:  # noqa: BLE001
+        log.exception("upload do preview falhou — video segue aprovavel",
+                      extra={"video_id": video_id})
+
+    db.concluir_render(
+        sb,
+        video_id,
+        str(preview.arquivo),
+        preview_url=preview_url,
+        thumb_url=thumb_url,
+        duracao_seg=preview.duracao_seg,
+    )
     log.info(
         "video aguardando aprovacao",
-        extra={"video_id": video_id, "arquivo": str(arquivo)},
+        extra={
+            "video_id": video_id,
+            "arquivo": str(preview.arquivo),
+            "duracao_seg": round(preview.duracao_seg, 2),
+            "com_preview": preview_url is not None,
+        },
     )
 
 

@@ -64,17 +64,45 @@ def marcar(sb: Client, video_id: str, status: str, **campos: Any) -> None:
     sb.table("videos").update({"status": status, **campos}).eq("id", video_id).execute()
 
 
-def concluir_render(sb: Client, video_id: str, arquivo_path: str) -> None:
-    """Render terminou: solta o lock e entrega para o gate humano (ADR-06)."""
-    marcar(
-        sb,
-        video_id,
-        "aguardando_aprovacao",
-        arquivo_path=arquivo_path,
-        erro_msg=None,
-        locked_by=None,
-        locked_at=None,
-    )
+def concluir_render(
+    sb: Client,
+    video_id: str,
+    arquivo_path: str,
+    preview_url: str | None = None,
+    thumb_url: str | None = None,
+    duracao_seg: float | None = None,
+) -> None:
+    """Render terminou: solta o lock e entrega para o gate humano (ADR-06).
+
+    **`preview_url` guarda o CAMINHO no Storage, não uma URL assinada.** Duas
+    razões, e as duas são de segurança e não de estilo:
+
+    1. URL assinada expira. Gravada aqui, ela apodrece: o vídeo fica na fila
+       esperando aprovação por horas e o painel abre um player quebrado.
+    2. URL assinada É a credencial — quem tem o link lê o arquivo, logado ou
+       não. Persistir isso numa coluna é guardar bearer token em texto plano,
+       e o CLAUDE.md proíbe até *logar* URL assinada.
+
+    O painel assina a sua própria, na hora, com o JWT do usuário; a política
+    `atmosfera_preview_org` é quem autoriza. Sprint 6: não usar este valor
+    direto no `src` do `<video>`.
+    """
+    campos: dict[str, Any] = {
+        "arquivo_path": arquivo_path,
+        "erro_msg": None,
+        "locked_by": None,
+        "locked_at": None,
+    }
+    # Só escreve o que existe: se o upload para o Storage falhar, o vídeo ainda
+    # está pronto no disco e aprovável — não é motivo para apagar coluna.
+    if preview_url is not None:
+        campos["preview_url"] = preview_url
+    if thumb_url is not None:
+        campos["thumb_url"] = thumb_url
+    if duracao_seg is not None:
+        campos["duracao_seg"] = duracao_seg
+
+    marcar(sb, video_id, "aguardando_aprovacao", **campos)
 
 
 def falhar(sb: Client, video_id: str, erro: BaseException | str) -> None:

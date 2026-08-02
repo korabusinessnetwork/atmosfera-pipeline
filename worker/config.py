@@ -10,6 +10,7 @@ no banco inteiro; ela não aparece em log, em exceção, em nada.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -17,6 +18,10 @@ from uuid import UUID
 from dotenv import load_dotenv
 
 RAIZ = Path(__file__).resolve().parent
+
+# Fonte da assinatura 亡者. Precisa cobrir CJK: as fontes latinas fazem tofu
+# (▯▯) e ninguém percebe até olhar o vídeo pronto. A msyhbd vem com o Windows.
+FONTE_ASSINATURA_PADRAO = Path(r"C:\Windows\Fonts\msyhbd.ttc")
 
 
 class ConfigInvalida(RuntimeError):
@@ -39,6 +44,12 @@ class Config:
     mpt_timeout_seg: int
     mpt_voz: str
     mpt_fonte: str
+
+    # ffmpeg (Sprint 3). Com padrão porque o teste monta `Config` direto, e
+    # porque "procura no PATH" é o comportamento certo quando ninguém falou nada.
+    ffmpeg_bin: Path = Path("ffmpeg")
+    ffprobe_bin: Path = Path("ffprobe")
+    fonte_assinatura: Path = FONTE_ASSINATURA_PADRAO
 
 
 def _obrigatoria(nome: str) -> str:
@@ -67,6 +78,37 @@ def _texto(nome: str, padrao: str) -> str:
     return os.getenv(nome, "").strip() or padrao
 
 
+def _binario(nome_var: str, comando: str) -> Path:
+    """Resolve um executável: `.env` primeiro, PATH depois, erro por último.
+
+    Falhar aqui e não na hora do render é o ponto. O ffmpeg não está no PATH
+    nesta máquina — o winget instala sob `AppData\\Local\\Microsoft\\WinGet\\
+    Packages\\...` e não cria atalho. Sem esta checagem, o worker sobe, pega um
+    vídeo da fila, gasta 2,5 min renderizando no MPT e só então descobre que
+    não tem com que pós-processar: o vídeo cai em `erro`, `tentativas` sobe,
+    e três vezes disso queima o registro por um problema de instalação.
+
+    Na Sprint 7 isso fica pior: o Task Scheduler inicia o worker com um PATH
+    diferente do seu terminal, então "funciona quando eu rodo à mão" é
+    exatamente o sintoma que se deve evitar produzir.
+    """
+    bruto = os.getenv(nome_var, "").strip()
+    if bruto:
+        caminho = Path(bruto)
+        if not caminho.is_file():
+            raise ConfigInvalida(f"{nome_var} aponta para um arquivo que não existe.")
+        return caminho
+
+    achado = shutil.which(comando)
+    if achado:
+        return Path(achado)
+
+    raise ConfigInvalida(
+        f"{comando} não está no PATH. Defina {nome_var} no worker/.env com o "
+        f"caminho completo do executável (veja worker/.env.example)."
+    )
+
+
 def carregar(env_path: Path | None = None) -> Config:
     load_dotenv(env_path or RAIZ / ".env")
 
@@ -92,6 +134,16 @@ def carregar(env_path: Path | None = None) -> Config:
     if not mpt_url.startswith(("http://", "https://")):
         raise ConfigInvalida("MPT_URL precisa começar com http:// ou https://.")
 
+    bruto_fonte = os.getenv("ASSINATURA_FONTE", "").strip()
+    fonte_assinatura = Path(bruto_fonte) if bruto_fonte else FONTE_ASSINATURA_PADRAO
+    if not fonte_assinatura.is_file():
+        # Fonte que não existe não dá erro bonito: o ffmpeg aborta o filtergraph
+        # inteiro depois do render do MPT já ter acontecido.
+        raise ConfigInvalida(
+            f"ASSINATURA_FONTE não encontrada em {fonte_assinatura}. "
+            "Precisa ser uma fonte com CJK (a assinatura é 亡者)."
+        )
+
     return Config(
         supabase_url=url,
         supabase_service_role_key=chave,
@@ -103,4 +155,7 @@ def carregar(env_path: Path | None = None) -> Config:
         mpt_timeout_seg=_inteiro("MPT_TIMEOUT_SEG", 1200),
         mpt_voz=_texto("MPT_VOZ", "pt-BR-AntonioNeural-Male"),
         mpt_fonte=_texto("MPT_FONTE", "MicrosoftYaHeiBold.ttc"),
+        ffmpeg_bin=_binario("FFMPEG_BIN", "ffmpeg"),
+        ffprobe_bin=_binario("FFPROBE_BIN", "ffprobe"),
+        fonte_assinatura=fonte_assinatura,
     )
