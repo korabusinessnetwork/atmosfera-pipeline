@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Atmosfera — paleta do painel
+
+   Escuro não é estilo aqui, é instrumento: este painel existe para julgar
+   vídeo escuro, no celular, à noite. Ao lado de branco o mesmo frame parece
+   lavado; ao lado de preto parece correto. Uma tela clara faria você reprovar
+   graduação boa e aprovar graduação chapada.
+
+   Sem prefers-color-scheme: o tema não é preferência do sistema, é requisito
+   da tarefa. Modo claro aqui seria um bug.
+   ============================================================ */
+@theme {
+  --color-fundo: #08080a;
+  --color-superficie: #101014;
+  --color-superficie-alta: #17171d;
+  --color-borda: #23232b;
+  --color-tinta: #ececee;
+  --color-tinta-fraca: #8b8b98;
+  --color-brasa: #e0553a;
+  --color-sim: #2f8f5b;
+  --color-nao: #8f3a32;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-fundo);
+  color: var(--color-tinta);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS dá zoom ao focar campo com fonte menor que 16px — e não desfaz o zoom
+   depois. O painel é usado no celular; isso vale mais que a estética do campo. */
+input,
+textarea,
+select {
+  font-size: 16px;
+}

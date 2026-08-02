@@ -1,7 +1,7 @@
 -- ============================================================
 -- TESTE DE RLS — atmosfera-pipeline
 -- ============================================================
--- Rode INTEIRO no SQL Editor do Supabase, depois da migration.
+-- supabase db query --linked -f supabase/tests/rls_test.sql
 -- Devolve uma tabela: todas as linhas têm que vir passou = true.
 --
 -- POR QUE ISSO NÃO É PARANOIA:
@@ -16,6 +16,11 @@
 --
 -- A função mora no schema `tests`, NÃO no `public`, de propósito: o
 -- PostgREST só expõe `public`, então isso nunca vira endpoint da API.
+--
+-- Os casos 00–08 são isolamento entre orgs (Sprint 0). Os 09–12 são o
+-- Storage, onde mora o preview (Sprint 3). Os 13–19 são a máquina de estados
+-- do painel (Sprint 6) — a parte que responde "esta transição é legal?", que
+-- é uma pergunta diferente de "esta linha é sua?".
 -- ============================================================
 
 create schema if not exists tests;
@@ -37,15 +42,29 @@ declare
   vazou     int;
   org_lida  uuid;
   bloqueou  boolean;
+  pauta_a   uuid;
+  pauta_b   uuid;
+  vid_ag    uuid;   -- org A, aguardando_aprovacao  (o que o gate deixa passar)
+  vid_rend  uuid;   -- org A, renderizando          (o que o gate tem que barrar)
+  vid_b     uuid;   -- org B, aguardando_aprovacao  (o vizinho)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
-  delete from public.pautas where tema like '[rls-test]%';
-  insert into public.pautas (org_id, tema, status) values
-    (org_a, '[rls-test] pauta da org A', 'pronta'),
-    (org_b, '[rls-test] pauta da org B', 'pronta');
+  delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
+
+  insert into public.pautas (org_id, tema, status)
+  values (org_a, '[rls-test] pauta da org A', 'pronta') returning id into pauta_a;
+  insert into public.pautas (org_id, tema, status)
+  values (org_b, '[rls-test] pauta da org B', 'pronta') returning id into pauta_b;
+
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_a, pauta_a, 'aguardando_aprovacao') returning id into vid_ag;
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_a, pauta_a, 'renderizando')         returning id into vid_rend;
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_b, pauta_b, 'aguardando_aprovacao') returning id into vid_b;
 
   select count(*) into n from public.pautas where tema like '[rls-test]%';
-  teste := '0 · seed com duas orgs';
+  teste := '00 · seed com duas orgs';
   esperado := '2'; obtido := n::text; passou := (n = 2);
   return next;
 
@@ -53,18 +72,21 @@ begin
   select count(*) into n
     from pg_tables
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes')
+     and tablename in ('pautas','videos','publicacoes','membros')
      and rowsecurity;
-  teste := '1 · RLS ligada nas 3 tabelas';
-  esperado := '3'; obtido := n::text; passou := (n = 3);
+  teste := '01 · RLS ligada nas 4 tabelas';
+  esperado := '4'; obtido := n::text; passou := (n = 4);
   return next;
 
+  -- pautas 2 (leitura + producao) · videos 3 (leitura + enfileirar + gate)
+  -- publicacoes 1 · membros 1 = 7. `for all` não existe mais em lugar nenhum:
+  -- ler e escrever precisam dizer coisas diferentes.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes');
-  teste := '2 · uma política por tabela';
-  esperado := '3'; obtido := n::text; passou := (n = 3);
+     and tablename in ('pautas','videos','publicacoes','membros');
+  teste := '02 · políticas por comando nas 4 tabelas';
+  esperado := '7'; obtido := n::text; passou := (n = 7);
   return next;
 
   -- ================= ORG A =================
@@ -80,16 +102,16 @@ begin
 
   execute 'reset role';
 
-  teste := '3 · current_org_id() lê app_metadata do JWT';
+  teste := '03 · current_org_id() lê app_metadata do JWT';
   esperado := org_a::text; obtido := coalesce(org_lida::text, '(null)');
   passou := (org_lida = org_a);
   return next;
 
-  teste := '4 · org A enxerga a própria linha';
+  teste := '04 · org A enxerga a própria linha';
   esperado := '1'; obtido := n::text; passou := (n = 1);
   return next;
 
-  teste := '5 · org A NÃO enxerga a org B  <<< o teste que importa';
+  teste := '05 · org A NÃO enxerga a org B  <<< o teste que importa';
   esperado := '0'; obtido := vazou::text; passou := (vazou = 0);
   return next;
 
@@ -103,7 +125,7 @@ begin
 
   execute 'reset role';
 
-  teste := '6 · org B NÃO enxerga a org A';
+  teste := '06 · org B NÃO enxerga a org A';
   esperado := '0'; obtido := vazou::text; passou := (vazou = 0);
   return next;
 
@@ -114,13 +136,14 @@ begin
   begin
     select count(*) into n from public.pautas where tema like '[rls-test]%';
   exception
-    -- sem GRANT o anon nem chega na tabela: mais restritivo ainda, passa igual
+    -- desde a Sprint 6 o anon nem chega na tabela (sem GRANT): mais restritivo
+    -- ainda, passa igual
     when insufficient_privilege then n := 0;
   end;
 
   execute 'reset role';
 
-  teste := '7 · anônimo (sem JWT) não enxerga nada';
+  teste := '07 · anônimo (sem JWT) não enxerga nada';
   esperado := '0'; obtido := n::text; passou := (n = 0);
   return next;
 
@@ -130,7 +153,8 @@ begin
   execute 'set local role authenticated';
 
   begin
-    insert into public.pautas (org_id, tema) values (org_b, '[rls-test] invasão');
+    insert into public.videos (org_id, pauta_id, status)
+    values (org_b, pauta_b, 'na_fila');
     bloqueou := false;
   exception
     when insufficient_privilege then bloqueou := true;
@@ -138,7 +162,7 @@ begin
 
   execute 'reset role';
 
-  teste := '8 · org A não consegue GRAVAR na org B';
+  teste := '08 · org A não consegue GRAVAR na org B';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'GRAVOU — FURO GRAVE' end;
   passou := bloqueou;
@@ -168,7 +192,7 @@ begin
   select count(*) into n
     from storage.objects
    where bucket_id = 'atmosfera' and name like '%[rls-test]%';
-  teste := '9 · seed de preview nas duas orgs';
+  teste := '09 · seed de preview nas duas orgs';
   esperado := '2'; obtido := n::text; passou := (n = 2);
   return next;
 
@@ -209,6 +233,119 @@ begin
   teste := '12 · org A não consegue GRAVAR preview na pasta da org B';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'GRAVOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= O GATE HUMANO (Sprint 6) =================
+  -- A partir daqui a pergunta muda. Os casos acima perguntam "esta linha é
+  -- sua?"; estes perguntam "esta transição é legal?". São furos diferentes: a
+  -- org está isolada e mesmo assim o dono da própria org pode, com a anon key
+  -- e um curl, mandar para o YouTube um vídeo que ainda está renderizando.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  -- O USING da videos_gate filtra a linha antes de tocá-la: não dá erro,
+  -- simplesmente não acha o vídeo. Zero linhas afetadas é o resultado certo.
+  update public.videos set status = 'aprovado' where id = vid_rend;
+  get diagnostics n = row_count;
+
+  teste := '13 · painel não aprova vídeo que ainda está renderizando';
+  esperado := '0 linhas';
+  obtido := n::text || ' linhas' ||
+            case when n > 0 then '  — FURO GRAVE' else '' end;
+  passou := (n = 0);
+  return next;
+
+  -- Aqui o USING passa (o vídeo ESTÁ aguardando), quem barra é o WITH CHECK.
+  begin
+    update public.videos set status = 'publicado' where id = vid_ag;
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  teste := '14 · painel não marca `publicado` na mão';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'GRAVOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- Política limita o status; GRANT por coluna limita o resto. Sem isso, o
+  -- mesmo PATCH que aprova zeraria `tentativas` e reescreveria `arquivo_path`.
+  begin
+    update public.videos set locked_by = '[rls-test] invasor' where id = vid_ag;
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  teste := '15 · painel não escreve coluna do worker (locked_by)';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'GRAVOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- A RPC é SECURITY INVOKER: dentro dela a RLS continua valendo, então o
+  -- vídeo da org B não existe e o update não acha linha nenhuma.
+  begin
+    select count(*) into n from public.aprovar_video(vid_b);
+    bloqueou := false;
+  exception
+    when no_data_found then bloqueou := true;
+  end;
+
+  teste := '16 · org A não aprova vídeo da org B pela RPC';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'APROVOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- O caminho feliz precisa existir, senão os quatro acima seriam satisfeitos
+  -- por um banco que simplesmente não deixa ninguém aprovar nada.
+  begin
+    select count(*) into n from public.aprovar_video(vid_ag);
+  exception
+    when others then n := -1;
+  end;
+
+  teste := '17 · aprovar_video move aguardando_aprovacao -> aprovado';
+  esperado := '1'; obtido := n::text; passou := (n = 1);
+  return next;
+
+  -- claim_proximo_video é do worker. Pelo painel, três chamadas levariam o
+  -- vídeo além do `tentativas < 3` e ele ficaria travado para sempre, sem
+  -- ninguém ter renderizado nada.
+  begin
+    perform public.claim_proximo_video('[rls-test] painel');
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  execute 'reset role';
+
+  teste := '18 · painel não alcança claim_proximo_video';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'CHAMOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= ANÔNIMO NAS RPCs =================
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+
+  begin
+    select count(*) into n from public.aprovar_video(vid_ag);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  execute 'reset role';
+
+  teste := '19 · anônimo não alcança aprovar_video';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'CHAMOU — FURO GRAVE' end;
   passou := bloqueou;
   return next;
 

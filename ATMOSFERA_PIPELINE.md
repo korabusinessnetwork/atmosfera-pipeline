@@ -264,14 +264,26 @@ atmosfera-pipeline/
 │   ├── .env                       # NUNCA commitar
 │   └── pyproject.toml
 │
-├── painel/                        # Next.js — deploy Vercel
+├── painel/                        # Next.js 16 — deploy Vercel
+│   ├── proxy.ts                   # sessão + redirect (NÃO middleware.ts)
 │   ├── app/
-│   │   ├── page.tsx               # fila + aprovação
-│   │   └── api/                   # server actions
-│   └── lib/supabase.ts            # anon key + auth
+│   │   ├── acoes.ts               # server actions do gate
+│   │   ├── entrar/                # magic link
+│   │   ├── auth/confirm/route.ts  # troca o link por sessão
+│   │   └── (painel)/              # telas autenticadas
+│   │       ├── page.tsx           # fila + aprovação
+│   │       ├── pautas/page.tsx    # enfileirar render
+│   │       └── historico/page.tsx # publicações
+│   ├── components/                # cartões, navegação, botões
+│   ├── lib/
+│   │   ├── supabase/              # env, cliente de servidor, claims
+│   │   └── storage.ts             # assina o preview na hora de exibir
+│   └── .env.local                 # anon key — NUNCA commitar
 │
-├── supabase/migrations/
-│   └── 20260801_000_init_pipeline.sql
+├── supabase/
+│   ├── migrations/                # 6 arquivos, carimbados pelo CLI
+│   ├── tests/rls_test.sql         # 20 casos — definition-of-done
+│   └── seed_membros.example.sql   # quem pode entrar no painel
 │
 ├── output/{pending,approved,published}/
 ├── MoneyPrinterTurbo/             # clone (gitignored) — `uv run main.py`, API em 127.0.0.1:8080
@@ -619,6 +631,82 @@ Aprovar/Reprovar, (2) pautas prontas com botão "enfileirar render",
 Apenas anon key. RLS faz o resto.
 ```
 
+**Entregue (item 10):** `painel/` inteiro (Next 16.2 + React 19 + Tailwind v4) +
+migrations `20260802223611_membros_e_claim_de_org.sql` e
+`20260802223612_rpcs_do_painel.sql`. `next build` compila e passa o TypeScript,
+as seis rotas saem dinâmicas (`ƒ`), **158 testes do worker verdes**, RLS
+**20/20 ✅** (eram 13 — sete casos novos, todos do painel), advisors
+`No issues found`.
+
+**O que NÃO está provado, e é honesto dizer: ninguém logou.** Verifiquei tudo
+que existe antes da sessão — `/`, `/pautas` e `/historico` devolvem `307` para
+`/entrar`; `/auth/confirm` com código inválido devolve `307` para
+`/entrar?erro=link` e a tela mostra a frase certa; a tela de entrada renderiza a
+375px com a action ligada. Mas o magic link chega numa caixa de e-mail que é
+**sua**, e criar sessão na sua conta não é coisa que eu faça. As três telas
+autenticadas estão exercitadas contra o banco pelo `rls_test.sql`, não pelo
+navegador.
+
+**O navegador nunca recebe a anon key.** Medido no build de produção: dos 22
+arquivos servidos ao browser, **zero** contêm a chave. Tudo é Server Component,
+proxy e Server Action — o cliente carrega só o cookie de sessão. O prefixo
+`NEXT_PUBLIC_` fica porque é o nome que todo mundo procura e a chave é pública
+por desenho, não porque alguém precise dela no bundle. A `service_role` não
+aparece em nenhum dos 266 arquivos do build, e isso também é teste, não fé.
+
+**Oito decisões que o código carrega:**
+
+- **`proxy.ts`, não `middleware.ts`.** O Next 16 renomeou o arquivo. Um
+  `middleware.ts` não dá erro — ele simplesmente não roda, e o sintoma (sessão
+  que morre sozinha, RLS devolvendo vazio) parece problema do Supabase. Custaria
+  uma tarde. Está anotado em `painel/AGENTS.md` junto com as outras três
+  quebras que já verificamos nos docs embarcados.
+- **A RLS virou a máquina de estados.** A política de `for all` da Sprint 0
+  respondia só "essa linha é sua?" — com ela, o painel podia escrever
+  `status='publicado'` direto e pular o worker. Agora são políticas por comando
+  mais `grant` por coluna: `authenticated` só recebe `update (status, erro_msg)`
+  em `videos`, e `videos_gate` só aceita a transição
+  `aguardando_aprovacao → aprovado|reprovado`. Ninguém pulou etapa porque
+  ninguém *pode*. Sem política de DELETE em lugar nenhum — DELETE fica negado.
+- **As RPCs são `security invoker`.** `definer` teria sido mais fácil e é o que
+  o reflexo pede; o advisor acusou três
+  `authenticated_security_definer_function_executable`, e com razão: função
+  `definer` executável pelo `authenticated` é um buraco na RLS com aparência de
+  conveniência. Como invoker, a política é reavaliada por quem chama.
+- **Magic link é cadastro e login pela mesma porta.** Um e-mail não convidado
+  ganha sessão — isso é do GoTrue, não escolha nossa. O que ele não ganha é
+  `org_id`: `current_org_id()` devolve null, a RLS não encontra linha nenhuma e
+  a tela mostra o aviso de convite em vez de uma lista vazia sem explicação.
+  Quem entra é quem está em `public.membros`, e o carimbo é do trigger.
+- **O reparo do claim mora num lugar só.** Quando o `org_id` entra em
+  `app_metadata` depois do primeiro login, o JWT antigo continua sem ele até
+  renovar. O proxy é a única camada que consegue gravar cookie em toda request,
+  então é lá que o `refreshSession()` acontece — com trava de 120s num cookie
+  próprio, senão uma conta sem org forçaria um refresh no GoTrue a cada
+  request, prefetch e favicon.
+- **`/auth/confirm` aceita `code` E `token_hash`.** O template padrão do
+  Supabase manda `?code=` (PKCE); o da documentação do `@supabase/ssr` manda
+  `token_hash`. Aceitar os dois tira "editar o template do e-mail no dashboard"
+  do caminho crítico — sem isso, o primeiro login falharia com um link que
+  *parece* certo. Expirado, já usado e inexistente colapsam no mesmo
+  `?erro=link`: distinguir seria contar a estranhos quais links existiram.
+- **Nenhuma mensagem do Postgrest chega à tela.** `traduzir()` mapeia SQLSTATE
+  para frase — `P0002` é a corrida normal entre worker e gate humano, não falha.
+  Repassar `error.message` é o que quase todo painel faz, e é assim que um dia
+  vaza nome de função ou id interno para dentro do celular. O formulário de
+  entrada responde igual existindo ou não a conta, pelo mesmo motivo.
+- **`cookies()` é a primeira linha de `clienteServidor()`, e a ordem é causal.**
+  Ler cookie é Dynamic API: é ela que tira a rota do prerender. Com a leitura do
+  `.env` na frente, o `build` estourava no prerender de `/historico` — uma
+  página que nunca deveria ser prerendada — exibindo a mensagem de variável
+  faltando em vez da real. Aconteceu; por isso está comentado no arquivo.
+
+**O contrato da Sprint 3 sobre `preview_url` foi honrado.** A coluna guarda
+caminho; `lib/storage.ts` assina na hora de exibir, com validade de 600s e uma
+chamada só para o lote inteiro. E o painel **não** filtra por `org_id` nas
+queries: as políticas já fazem isso, e repetir no cliente daria a impressão de
+que a proteção mora no painel.
+
 ### Sprint 7 — Agendamento (20 min)
 ```
 /spec Script PowerShell que registra o worker no Task Scheduler do Windows
@@ -730,9 +818,9 @@ if __name__ == "__main__":
 ## 8. Ordem de execução
 
 ```
-[x] 1. Rodar a migration no Supabase                      (15 min)  ← 3 migrations, advisors limpo
-[ ] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← só o painel precisa (Sprint 6)
-[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 13/13
+[x] 1. Rodar a migration no Supabase                      (15 min)  ← 6 migrations, advisors limpo
+[x] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← virou public.membros + trigger
+[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 20/20
 [x] 4. Sprint 1 — worker esqueleto com render fake        (1h)      ← 27 testes verdes
 [x] 5. Subir MPT, abrir /docs, ler os endpoints           (30 min)  ← uv, sem Docker. 127.0.0.1:8080
 [x] 6. Sprint 2 — render de verdade                       (1h)      ← worker/mpt.py, 56 testes verdes
@@ -740,7 +828,8 @@ if __name__ == "__main__":
 [x] 8. Sprint 3 — identidade visual                       (1h)      ← 102 testes, RLS 13/13
 [x] 9. Sprint 4 — YouTube                                 (1h30)    ← 158 testes, RLS 13/13
 [ ] 9b. OAuth do Google + primeiro upload real            (10 min)  ← SEU: console + autorizar_youtube.py
-[ ] 10. Sprint 6 — painel na Vercel                       (2h)
+[x] 10. Sprint 6 — painel                                 (2h)      ← build limpo, RLS 20/20
+[ ] 10b. Deploy na Vercel + primeiro login pelo celular    (15 min)  ← SEU: caixa de e-mail é sua
 [ ] 11. Sprint 5 — TikTok                                 (1h)
 [ ] 12. Sprint 7 — Task Scheduler                         (20 min)
 ```
