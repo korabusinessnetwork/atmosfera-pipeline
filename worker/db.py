@@ -237,24 +237,33 @@ def concluir_publicacao(
     sb: Client,
     publicacao_id: str,
     external_id: str,
-    url: str,
-    agendado_para: datetime,
+    url: str | None = None,
+    agendado_para: datetime | None = None,
 ) -> None:
-    """Upload aceito. `enviado` e não `publicado`: o vídeo ainda está privado.
+    """Upload aceito. `enviado` e não `publicado`: o vídeo ainda não está no ar.
 
-    Ele vira público sozinho no `publishAt`. Quem carimba `publicado` é quem
-    confirmar isso depois — hoje ninguém confirma, e inventar o carimbo aqui
-    faria a tabela mentir sobre o que está no ar.
+    No YouTube ele sobe privado e vira público sozinho no `publishAt`. No TikTok
+    ele vira rascunho na caixa de entrada e espera você postar pelo app. Nos dois
+    casos `enviado` é a verdade: saiu das nossas mãos, não está público. Quem
+    carimba `publicado` é quem confirmar isso depois — hoje ninguém confirma, e
+    inventar o carimbo aqui faria a tabela mentir sobre o que está no ar.
+
+    `url` e `agendado_para` são opcionais porque o rascunho do TikTok não tem
+    nenhum dos dois: não existe endereço para um post que ainda não foi postado.
+    Só o que vier preenchido é escrito — mandar `None` explícito apagaria o que a
+    linha já tinha numa reconciliação.
     """
-    sb.table("publicacoes").update(
-        {
-            "status": "enviado",
-            "external_id": external_id,
-            "url": url,
-            "agendado_para": agendado_para.isoformat(),
-            "erro_msg": None,
-        }
-    ).eq("id", publicacao_id).execute()
+    campos: dict[str, Any] = {
+        "status": "enviado",
+        "external_id": external_id,
+        "erro_msg": None,
+    }
+    if url is not None:
+        campos["url"] = url
+    if agendado_para is not None:
+        campos["agendado_para"] = agendado_para.isoformat()
+
+    sb.table("publicacoes").update(campos).eq("id", publicacao_id).execute()
 
 
 def falhar_publicacao(

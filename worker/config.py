@@ -62,6 +62,16 @@ class Config:
     youtube_intervalo_min: int = 180
     publicar_lote: int = 5
 
+    # TikTok (Sprint 5). Mesma lógica do YouTube: os tetos (6 req/min, 5
+    # rascunhos por 24h) são constantes em `publishers/tiktok.py`, não variáveis.
+    # `client_key` e `client_secret` são segredo e por isso vivem no `.env`, não
+    # em arquivo separado como o `client_secret.json` do Google — a diferença é
+    # do formato de cada plataforma, não escolha nossa.
+    tiktok_token: Path = RAIZ / "tiktok_token.json"
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = ""
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -177,6 +187,11 @@ def carregar(env_path: Path | None = None) -> Config:
     youtube_token = _caminho("YOUTUBE_TOKEN", RAIZ / "token.json")
     youtube_client_secret = _caminho("YOUTUBE_CLIENT_SECRET", RAIZ / "client_secret.json")
 
+    # TikTok: mesmo tratamento — resolvido, não validado. Vazio é estado normal
+    # de quem ainda não criou o app no portal de desenvolvedor, e o worker tem de
+    # continuar renderizando e publicando no YouTube nesse meio-tempo.
+    tiktok_token = _caminho("TIKTOK_TOKEN", RAIZ / "tiktok_token.json")
+
     return Config(
         supabase_url=url,
         supabase_service_role_key=chave,
@@ -197,4 +212,8 @@ def carregar(env_path: Path | None = None) -> Config:
         youtube_atraso_min=_inteiro("YOUTUBE_ATRASO_MIN", 30),
         youtube_intervalo_min=_inteiro("YOUTUBE_INTERVALO_MIN", 180),
         publicar_lote=_inteiro("PUBLICAR_LOTE", 5),
+        tiktok_token=tiktok_token,
+        tiktok_client_key=_texto("TIKTOK_CLIENT_KEY", ""),
+        tiktok_client_secret=_texto("TIKTOK_CLIENT_SECRET", ""),
+        tiktok_redirect_uri=_texto("TIKTOK_REDIRECT_URI", ""),
     )

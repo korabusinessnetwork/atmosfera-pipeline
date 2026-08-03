@@ -253,14 +253,20 @@ $$;
 ```
 atmosfera-pipeline/
 ├── worker/                        # Python 3.11 — roda no seu PC
-│   ├── main.py                    # loop: claim → render → upload
+│   ├── main.py                    # loop: claim → render → publicar
 │   ├── config.py                  # carrega .env
 │   ├── db.py                      # cliente Supabase (service_role)
 │   ├── mpt.py                     # cliente da API do MoneyPrinterTurbo
+│   ├── render.py                  # onde o mp4 nasce e como se chama
 │   ├── postprocess.py             # ffmpeg: hook, grão, 亡者
-│   ├── publishers/
+│   ├── publicar.py                # orquestra as duas plataformas + cota
+│   ├── log.py                     # logging estruturado em JSON
+│   ├── autorizar_youtube.py       # OAuth one-shot, processo separado
+│   ├── autorizar_tiktok.py        # OAuth one-shot, sem abrir porta
+│   ├── publishers/                # nenhum destes conhece Supabase
 │   │   ├── youtube.py             # OAuth local + upload agendado
 │   │   └── tiktok.py              # video.upload → inbox (rascunho)
+│   ├── tests/                     # 216 testes — nenhum precisa de rede
 │   ├── .env                       # NUNCA commitar
 │   └── pyproject.toml
 │
@@ -622,6 +628,74 @@ o rascunho contorna isso e você finaliza no celular em 15s.
 Marcar disclosure de conteúdo gerado por IA. Máx 6 requests/min por token.
 ```
 
+**Entregue (item 11):** `worker/publishers/tiktok.py` + `worker/autorizar_tiktok.py`
++ `publicar.py` reescrito de uma plataforma para duas + `test_tiktok.py` (34 casos)
++ `test_publicar.py` refeito (35) + o aviso de rótulo de IA no histórico do painel.
+**216 testes verdes** (eram 158), nenhum precisa de rede, chave ou app. RLS
+**20/20 ✅**, advisors `No issues found`, `next build` limpo.
+
+**Sem migration, e isso foi verificado, não presumido.** `publish_id` cabe em
+`publicacoes.external_id`; `url` fica nula num rascunho, porque não existe
+endereço para post que ninguém postou; `plataforma in ('youtube','tiktok')` já
+estava no check desde a Sprint 0. Continuam **6 migrations** — a sprint que não
+toca no schema ainda assim tem de provar que não tocou, e é o que os 20 ✅ fazem.
+
+**O que NÃO está provado, e é honesto dizer: nada subiu.** Como na Sprint 4, o
+OAuth exige uma pessoa na tela do TikTok — e desta vez também um app aprovado no
+portal de desenvolvedor. O código está exercitado contra a API dublada; o aviso
+do painel nunca foi visto renderizado, porque `/historico` está atrás de sessão.
+Passo a passo em `specs/_manual.md` § 4.
+
+**Oito decisões que o código carrega:**
+
+- **O rascunho não é um atalho — é a sprint inteira.** Direct post
+  (`/post/publish/video/init/`) tem o campo `is_aigc` e seria mais direto, mas
+  cliente não auditado tem todo conteúdo forçado a `SELF_ONLY` **pelo servidor**:
+  o pipeline "funcionaria" com zero views. O preço do inbox é que ele aceita
+  **só** `source_info` — sem legenda, sem privacidade e sem `is_aigc`. O rótulo
+  de IA passa a ser passo humano, e por isso ele aparece em três lugares:
+  `falta_marcar_ia` no log, o aviso no card do histórico e o `specs/_manual.md`.
+  Log do worker ninguém lê no celular; o card, sim, na hora de agir.
+- **A resposta vem embrulhada em `{data, error}`.** `publish_id`, `upload_url` e
+  `status` moram sob `data`, nunca na raiz — a exceção é `/oauth/token/`, que é
+  plano. Custou 4 testes vermelhos antes de virar `_corpo_json()`, que desembrulha
+  num lugar só e transforma `error.code != ok` em exceção.
+- **`total_chunk_count` é divisão inteira, não `ceil`.** 12 MB em pedaços de 5 MB
+  dão **2** pedaços, e o segundo carrega 7 MB. `ceil` produziria um terceiro
+  pedaço de 2 MB e a API recusaria o upload inteiro — depois do init, ou seja,
+  com uma das cinco vagas já gasta.
+- **Adiado e desligado não são a mesma coisa, e confundir trava a fila.** Falta de
+  vaga resolve sozinha com o tempo; falta de credencial não resolve nunca sem uma
+  pessoa. Tratar as duas como adiamento parece conservador e é o oposto: com o
+  TikTok jamais configurado, todo vídeo já publicado no YouTube voltaria para
+  `aprovado`, o lote de tamanho fixo encheria de zumbis e a fila pararia — calada,
+  com todo componente reportando sucesso. Plataforma desligada sai da conta do
+  vídeo. É o `test_tiktok_desligado_nao_prende_o_video`, e quase não existiu.
+- **Duas plataformas, duas contabilidades que não se parecem.** O YouTube conta 6
+  uploads no **dia do calendário** do Pacífico; o TikTok conta 5 rascunhos
+  pendentes numa **janela móvel** de 24 h para trás. Não dá para ter uma janela
+  só no módulo — cada `_Canal` carrega o próprio `desde`.
+- **Retry só no `PUT`; `POST /init` nunca.** A mesma faixa de bytes reenviada
+  para a mesma `upload_url` sobrescreve e não cria nada. Repetir o init cria um
+  **segundo** rascunho e queima outra das cinco vagas. É a regra da Sprint 2 pela
+  terceira vez, agora com o preço em vaga em vez de CPU.
+- **O TikTok recusar localhost salvou a ADR-05.** O redirect precisa ser HTTPS,
+  estático e registrado — "Localhost and HTTP are not permitted". Então o fluxo
+  que no YouTube exigiu um servidor efêmero aqui simplesmente não existe:
+  `autorizar_tiktok.py` imprime o link, você autoriza e cola a URL de retorno.
+  Nenhuma porta em nenhum momento. O `state` é conferido contra CSRF.
+- **`upload_url` é credencial, não endereço.** Ela vem pré-assinada do init: quem
+  a tem escreve na nossa sessão de upload. Por isso `descrever_erro()` nunca faz
+  `str()` de um `RequestException` (o `requests` põe a URL na mensagem) e o
+  `Token.__repr__` foi reescrito à mão — sem ele, um `extra={"token": token}`
+  despejaria o `access_token` inteiro no log.
+
+**Novas variáveis** (todas com padrão, ver `worker/.env.example`):
+`TIKTOK_TOKEN` · `TIKTOK_CLIENT_KEY` · `TIKTOK_CLIENT_SECRET` · `TIKTOK_REDIRECT_URI`.
+**Os tetos de 6/min e 5/24h não estão aí**, pelo mesmo motivo do teto de 6 do
+YouTube: são número publicado da plataforma, não preferência, e variável de
+ambiente convidaria a subir o número às 3h da manhã sem ninguém revisar.
+
 ### Sprint 6 — Painel (2h)
 ```
 /spec Painel Next.js em painel/, deploy Vercel. Supabase Auth obrigatório
@@ -830,7 +904,8 @@ if __name__ == "__main__":
 [ ] 9b. OAuth do Google + primeiro upload real            (10 min)  ← SEU: console + autorizar_youtube.py
 [x] 10. Sprint 6 — painel                                 (2h)      ← build limpo, RLS 20/20
 [ ] 10b. Deploy na Vercel + primeiro login pelo celular    (15 min)  ← SEU: caixa de e-mail é sua
-[ ] 11. Sprint 5 — TikTok                                 (1h)
+[x] 11. Sprint 5 — TikTok                                 (1h)      ← 216 testes, sem migration
+[ ] 11b. App no portal do TikTok + OAuth                  (20 min)  ← SEU: portal + autorizar_tiktok.py
 [ ] 12. Sprint 7 — Task Scheduler                         (20 min)
 ```
 

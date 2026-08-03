@@ -8,6 +8,9 @@
 !.env.example
 # OAuth do YouTube (gravado por worker/autorizar_youtube.py)
 token.json
+# OAuth do TikTok (gravado por worker/autorizar_tiktok.py). Precisa de linha
+# própria: o padrão `token.json` acima casa nome de arquivo inteiro, não sufixo.
+tiktok_token.json
 *.token
 # credenciais do Google Cloud (baixadas do console)
 client_secret*.json
