@@ -20,7 +20,9 @@
 -- Os casos 00–08 são isolamento entre orgs (Sprint 0). Os 09–12 são o
 -- Storage, onde mora o preview (Sprint 3). Os 13–19 são a máquina de estados
 -- do painel (Sprint 6) — a parte que responde "esta transição é legal?", que
--- é uma pergunta diferente de "esta linha é sua?".
+-- é uma pergunta diferente de "esta linha é sua?". Os 20–22 são o batimento
+-- (Sprint 7), que só o worker escreve: forjar "worker vivo" numa máquina
+-- desligada esconderia exatamente a falha que a tabela existe para mostrar.
 -- ============================================================
 
 create schema if not exists tests;
@@ -72,21 +74,22 @@ begin
   select count(*) into n
     from pg_tables
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes','membros')
+     and tablename in ('pautas','videos','publicacoes','membros','batimentos')
      and rowsecurity;
-  teste := '01 · RLS ligada nas 4 tabelas';
-  esperado := '4'; obtido := n::text; passou := (n = 4);
+  teste := '01 · RLS ligada nas 5 tabelas';
+  esperado := '5'; obtido := n::text; passou := (n = 5);
   return next;
 
   -- pautas 2 (leitura + producao) · videos 3 (leitura + enfileirar + gate)
-  -- publicacoes 1 · membros 1 = 7. `for all` não existe mais em lugar nenhum:
-  -- ler e escrever precisam dizer coisas diferentes.
+  -- publicacoes 1 · membros 1 · batimentos 1 (só leitura) = 8. `for all` não
+  -- existe mais em lugar nenhum: ler e escrever precisam dizer coisas
+  -- diferentes.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes','membros');
-  teste := '02 · políticas por comando nas 4 tabelas';
-  esperado := '7'; obtido := n::text; passou := (n = 7);
+     and tablename in ('pautas','videos','publicacoes','membros','batimentos');
+  teste := '02 · políticas por comando nas 5 tabelas';
+  esperado := '8'; obtido := n::text; passou := (n = 8);
   return next;
 
   -- ================= ORG A =================
@@ -349,8 +352,108 @@ begin
   passou := bloqueou;
   return next;
 
+  -- ================= BATIMENTO (Sprint 7) =================
+  -- O batimento é a única coisa no sistema que responde "o worker está vivo?".
+  -- Quem escreve é o worker, com a service_role. Se o painel pudesse escrever,
+  -- qualquer um com a anon key forjaria "worker vivo" numa máquina desligada —
+  -- e o health check, que existe justamente para não acreditar nisso, passaria
+  -- a mentir com autoridade. Por isso a tabela tem UMA política, de select.
+  delete from public.batimentos where maquina like '[rls-test]%';
+
+  insert into public.batimentos (org_id, maquina, worker) values
+    (org_a, '[rls-test]-pc-a', '[rls-test]-pc-a-1'),
+    (org_b, '[rls-test]-pc-b', '[rls-test]-pc-b-1');
+
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n
+    from public.batimentos where maquina like '[rls-test]%';
+
+  -- Dois caminhos de leitura, e os dois têm que dizer a mesma coisa: a tabela
+  -- e a RPC `saude_workers()`, que é o que o painel de fato chama. Ela existe
+  -- por causa do relógio (o atraso é calculado com o `now()` do banco), e é
+  -- `security invoker` justamente para a política da tabela continuar valendo
+  -- por baixo. Se fosse `definer`, ESTE contador daria 2 e o outro 1 — que é o
+  -- formato exato do vazamento que a função poderia introduzir sem tocar em
+  -- política nenhuma.
+  select count(*) into vazou
+    from public.saude_workers() where maquina like '[rls-test]%';
+
+  teste := '20 · org A vê o próprio batimento e só o dele (tabela e RPC)';
+  esperado := '1 de 2 semeados, pelos dois caminhos';
+  obtido := n::text || ' na tabela, ' || vazou::text || ' na RPC' ||
+            case when n > 1 or vazou > 1 then '  — VAZOU' else '' end;
+  passou := (n = 1 and vazou = 1);
+  return next;
+
+  -- Três caminhos de escrita, os três negados: linha nova (máquina que não
+  -- existe), linha própria (adiantar o visto_em do próprio PC) e a RPC.
+  bloqueou := true;
+
+  begin
+    insert into public.batimentos (org_id, maquina, worker)
+    values (org_a, '[rls-test]-forjado', '[rls-test]-forjado-1');
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    update public.batimentos set visto_em = now()
+     where maquina like '[rls-test]%';
+    if found then bloqueou := false; end if;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.bater(org_a, '[rls-test]-rpc', '[rls-test]-rpc-1', 0, 0, false);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '21 · painel não escreve batimento (insert, update nem RPC)';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ESCREVEU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= ANÔNIMO NO BATIMENTO =================
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+
+  begin
+    select count(*) into n
+      from public.batimentos where maquina like '[rls-test]%';
+  exception
+    when insufficient_privilege then n := 0;   -- sem grant: mais restritivo
+  end;
+
+  -- A RPC também: sem sessão não se descobre nem que a máquina existe, muito
+  -- menos que ela está fora do ar. "Que PCs existem e quais estão desligados" é
+  -- reconhecimento de infraestrutura, e a anon key mora no navegador.
+  begin
+    select count(*) into vazou
+      from public.saude_workers() where maquina like '[rls-test]%';
+  exception
+    when insufficient_privilege then vazou := 0;
+  end;
+
+  execute 'reset role';
+
+  teste := '22 · anônimo não lê batimento (tabela nem RPC)';
+  esperado := '0 e 0';
+  obtido := n::text || ' e ' || vazou::text;
+  passou := (n = 0 and vazou = 0);
+  return next;
+
   -- ---------- limpeza ----------
   delete from public.pautas where tema like '[rls-test]%';
+  delete from public.batimentos where maquina like '[rls-test]%';
   delete from storage.objects
    where bucket_id = 'atmosfera' and name like '%[rls-test]%';
 end;

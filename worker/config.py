@@ -72,6 +72,14 @@ class Config:
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = ""
 
+    # Batimento (Sprint 7): de quanto em quanto tempo a thread avisa que o
+    # processo está vivo. Um minuto é caro em nada — são ~1.440 upserts por dia
+    # numa linha só — e barato em resolução: o health check declara o processo
+    # morto em três batidas perdidas, então 60s significa perceber uma máquina
+    # desligada em ~3 minutos. Subir isso adia o diagnóstico; descer não compra
+    # informação, porque quem escreve é uma thread e não o loop.
+    batimento_seg: int = 60
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -216,4 +224,5 @@ def carregar(env_path: Path | None = None) -> Config:
         tiktok_client_key=_texto("TIKTOK_CLIENT_KEY", ""),
         tiktok_client_secret=_texto("TIKTOK_CLIENT_SECRET", ""),
         tiktok_redirect_uri=_texto("TIKTOK_REDIRECT_URI", ""),
+        batimento_seg=_inteiro("BATIMENTO_SEG", 60),
     )

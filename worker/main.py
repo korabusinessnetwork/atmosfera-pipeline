@@ -31,6 +31,7 @@ import log as logmod
 import mpt
 import postprocess
 import publicar
+from batimento import Batimento
 from config import Config, ConfigInvalida, carregar
 
 # Sinalizado por Ctrl-C / SIGTERM. `wait()` nele em vez de `sleep()` faz o
@@ -157,29 +158,55 @@ def loop(cfg: Config, log: logging.Logger, uma_vez: bool = False) -> None:
 
     ultimo_gc: float | None = None  # nunca varreu → varre no primeiro ciclo
 
-    while not _parar.is_set():
-        try:
-            agora = time.monotonic()
-            if deve_destravar(agora, ultimo_gc, INTERVALO_ORFAOS_SEG):
-                soltos = db.destravar_orfaos(sb, cfg.orfaos_minutos)
-                ultimo_gc = agora
-                if soltos:
-                    log.warning("orfaos devolvidos a fila", extra={"quantidade": soltos})
+    # O batimento envolve o loop inteiro, e não cada ciclo: o que ele afirma é
+    # "este processo está de pé", que é verdade também durante um render de 20
+    # minutos — justamente quando o loop não passa por aqui. A thread é daemon e
+    # nada abaixo espera por ela (invariante 1).
+    with Batimento(
+        sb,
+        org_id=str(cfg.org_id),
+        maquina=logmod.MAQUINA,
+        worker=logmod.WORKER_ID,
+        intervalo_seg=cfg.batimento_seg,
+        log=log,
+    ) as batimento:
+        while not _parar.is_set():
+            try:
+                agora = time.monotonic()
+                if deve_destravar(agora, ultimo_gc, INTERVALO_ORFAOS_SEG):
+                    soltos = db.destravar_orfaos(sb, cfg.orfaos_minutos)
+                    ultimo_gc = agora
+                    if soltos:
+                        log.warning(
+                            "orfaos devolvidos a fila", extra={"quantidade": soltos}
+                        )
 
-            teve_trabalho = ciclo(sb, cfg, log)
+                teve_trabalho = ciclo(sb, cfg, log)
+                # Ciclo vazio conta como ciclo: o que `ciclo_em` mede é o loop
+                # girar, e fila vazia é worker saudável. Contar só ciclo com
+                # trabalho faria uma segunda de manhã parecer loop travado.
+                batimento.registrar_ciclo(ok=True)
 
-            if uma_vez:
-                log.info("modo --uma-vez, encerrando", extra={"teve_trabalho": teve_trabalho})
-                return
+                if uma_vez:
+                    log.info(
+                        "modo --uma-vez, encerrando",
+                        extra={"teve_trabalho": teve_trabalho},
+                    )
+                    return
 
-            if not teve_trabalho:
-                _parar.wait(cfg.poll_seg)
+                if not teve_trabalho:
+                    _parar.wait(cfg.poll_seg)
 
-        except Exception:  # noqa: BLE001 — invariante 1: o loop não morre
-            log.exception("loop falhou — seguindo")
-            if uma_vez:
-                return
-            _parar.wait(60)
+            except Exception:  # noqa: BLE001 — invariante 1: o loop não morre
+                log.exception("loop falhou — seguindo")
+                # O ciclo fechou, mal — e isso é diferente de não ter fechado.
+                # `ciclo_em` avança (o loop está girando) e `erros_seguidos`
+                # sobe: worker que bate mas erra sempre não está saudável, e
+                # sem este contador ele apareceria verde no painel.
+                batimento.registrar_ciclo(ok=False)
+                if uma_vez:
+                    return
+                _parar.wait(60)
 
     log.info("worker encerrado")
 

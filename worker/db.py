@@ -273,3 +273,53 @@ def falhar_publicacao(
     sb.table("publicacoes").update(
         {"status": "erro", "erro_msg": truncar_erro(str(erro))}
     ).eq("id", publicacao_id).execute()
+
+
+# ============================================================ batimento (S7)
+
+
+def registrar_batimento(
+    sb: Client,
+    org_id: str,
+    maquina: str,
+    worker: str,
+    ciclos: int,
+    erros_seguidos: int,
+    ciclou: bool = False,
+) -> None:
+    """Bate: uma linha por máquina, atualizada por upsert.
+
+    **Nenhum carimbo de tempo sai daqui.** A RPC usa o `now()` do banco para
+    `visto_em`, `ciclo_em` e `subiu_em`. Se o worker mandasse o próprio relógio,
+    um PC dez minutos adiantado se declararia saudável para sempre — e é
+    justamente o PC esquecido, que ninguém olha, o mais provável de estar com o
+    relógio à deriva.
+
+    O que vai daqui são contadores, e só contadores. Texto de exceção fica em
+    `videos.erro_msg`/`publicacoes.erro_msg`, que passaram por `descrever_erro`
+    exatamente para não carregar credencial; copiar mensagem crua para cá seria
+    superfície de vazamento nova sem informação nova.
+    """
+    sb.rpc(
+        "bater",
+        {
+            "p_org": org_id,
+            "p_maquina": maquina,
+            "p_worker": worker,
+            "p_ciclos": ciclos,
+            "p_erros": erros_seguidos,
+            "p_ciclou": ciclou,
+        },
+    ).execute()
+
+
+def ler_batimentos(sb: Client) -> list[dict[str, Any]]:
+    """Estado de cada máquina, com o atraso já calculado pelo banco.
+
+    Vem de `saude_workers()` e não de um `select` na tabela porque a conta que
+    interessa — há quantos segundos essa máquina não dá sinal — precisa do
+    `now()` do banco, e o PostgREST não expõe `now()`. Feita aqui, ela usaria o
+    relógio de quem pergunta, que é o mesmo relógio suspeito da linha acima.
+    """
+    resposta = sb.rpc("saude_workers", {}).execute()
+    return resposta.data or []

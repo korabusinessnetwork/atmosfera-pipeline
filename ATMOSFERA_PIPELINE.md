@@ -260,13 +260,20 @@ atmosfera-pipeline/
 │   ├── render.py                  # onde o mp4 nasce e como se chama
 │   ├── postprocess.py             # ffmpeg: hook, grão, 亡者
 │   ├── publicar.py                # orquestra as duas plataformas + cota
+│   ├── batimento.py               # thread daemon: "o processo está vivo"
+│   ├── saude.py                   # CLI que JULGA o batimento (exit code)
 │   ├── log.py                     # logging estruturado em JSON
 │   ├── autorizar_youtube.py       # OAuth one-shot, processo separado
 │   ├── autorizar_tiktok.py        # OAuth one-shot, sem abrir porta
 │   ├── publishers/                # nenhum destes conhece Supabase
 │   │   ├── youtube.py             # OAuth local + upload agendado
 │   │   └── tiktok.py              # video.upload → inbox (rascunho)
-│   ├── tests/                     # 216 testes — nenhum precisa de rede
+│   ├── scripts/                   # PowerShell 5.1, sem acento, sem senha
+│   │   ├── Registrar-Worker.ps1   # cria a tarefa (gatilho: logon)
+│   │   ├── Iniciar-Worker.ps1     # wrapper que o agendador executa
+│   │   └── Remover-Worker.ps1     # idempotente nos dois sentidos
+│   ├── logs/                      # stdout do agendador (gitignored)
+│   ├── tests/                     # 298 testes — nenhum precisa de rede
 │   ├── .env                       # NUNCA commitar
 │   └── pyproject.toml
 │
@@ -281,14 +288,16 @@ atmosfera-pipeline/
 │   │       ├── pautas/page.tsx    # enfileirar render
 │   │       └── historico/page.tsx # publicações
 │   ├── components/                # cartões, navegação, botões
+│   │   └── FaixaDoWorker.tsx      # o sinal de vida no topo da fila
 │   ├── lib/
 │   │   ├── supabase/              # env, cliente de servidor, claims
+│   │   ├── saude.ts               # RELATA o batimento (nunca julga)
 │   │   └── storage.ts             # assina o preview na hora de exibir
 │   └── .env.local                 # anon key — NUNCA commitar
 │
 ├── supabase/
-│   ├── migrations/                # 6 arquivos, carimbados pelo CLI
-│   ├── tests/rls_test.sql         # 20 casos — definition-of-done
+│   ├── migrations/                # 8 arquivos, carimbados pelo CLI
+│   ├── tests/rls_test.sql         # 23 casos — definition-of-done
 │   └── seed_membros.example.sql   # quem pode entrar no painel
 │
 ├── output/{pending,approved,published}/
@@ -788,6 +797,99 @@ para iniciar no boot e reiniciar em caso de crash. Mais um script de health
 check que grava heartbeat numa tabela.
 ```
 
+**Entregue (item 12):** `worker/batimento.py` + `worker/saude.py` +
+`worker/scripts/{Registrar,Iniciar,Remover}-Worker.ps1` + `painel/lib/saude.ts`
++ `painel/components/FaixaDoWorker.tsx` + migrations
+`20260803002503_batimentos.sql` e `20260803003243_saude_workers.sql`.
+**298 testes verdes** (eram 216), RLS **23/23 ✅** (eram 20), advisors
+`No issues found`, `next build` limpo.
+
+**Provado contra o banco real, não só em teste.** Quatro dos cinco vereditos
+saíram de execução de verdade, com a fila intacta em todas (nenhum vídeo mudou
+de estado — a fila seguiu com os mesmos 3 em `aguardando_aprovacao`):
+
+1. Worker recém-subido → `[SAUDAVEL] Matheus subiu há 1s e ainda não fechou o 1º ciclo` · `exit 0`
+2. `main.py` girando por 75s → `[SAUDAVEL] Matheus trabalhando · bateu há 15s · ciclo há 15s · 2 ciclos` · `exit 0`
+3. Processo morto → `[PROCESSO_PARADO] Matheus não bate há 4min — PC desligado ou worker caído` · `exit 2`
+4. Tabela vazia → `[SEM_BATIMENTO] nenhuma máquina bateu ainda nesta org` · `exit 1`
+
+Os quatro estados foram lidos da linha que o worker escreveu, não de mock.
+
+**O relógio deste PC está 23,3s à frente do banco.** Medido, não suposto — a
+comparação entre `now()` local e o `now()` do Postgres saiu de uma execução real.
+É pouco para doer hoje e é exatamente por isso que importa: a deriva de um PC
+esquecido só cresce, e ninguém vai conferir. Todo carimbo sai do `now()` do
+banco, e toda subtração de tempo acontece dentro do banco (`saude_workers()`),
+porque o health check roda **na mesma máquina** que escreve a batida. Fosse em
+Python, um PC dez minutos adiantado se declararia saudável para sempre.
+
+**O que NÃO está provado, e é honesto dizer: a tarefa nunca foi registrada.**
+`Register-ScheduledTask` cria uma tarefa que roda como você, na sua sessão — é
+sua, não minha (item 12b). O que foi verificado: os três `.ps1` fazem parse no
+host de PowerShell 5.1 desta máquina, o wrapper aceita exatamente os parâmetros
+que o registrador manda, nenhum usa sintaxe que o 5.1 não tem, e nenhum byte
+acima de 127 sobrou em nenhum deles.
+
+**Nove decisões que o código carrega:**
+
+- **Dois carimbos na mesma linha, não um.** `visto_em` é escrito por uma thread
+  em intervalo fixo (processo vivo); `ciclo_em` só avança quando um ciclo fecha
+  (loop girando). Com um carimbo só, o limite de "morto" teria que ser maior que
+  `MPT_TIMEOUT_SEG` — 20 min — e aí uma máquina **desligada** demoraria 20
+  minutos para aparecer como desligada. Com dois, processo morto aparece em 3
+  minutos e loop travado é outro diagnóstico, com outro nome.
+- **O Task Scheduler não cobre o caso que importa.** Ele reinicia processo que
+  morre e é cego para processo que ficou de pé sem trabalhar — MPT travado, rede
+  num buraco negro, espera que não volta. `ciclo_em` existe para isso: é a única
+  coisa no sistema que enxerga um worker vivo e inútil.
+- **`ciclo_em` nulo é um estado, não um defeito.** Custou uma correção: a
+  primeira batida carimbava `ciclo_em` na largada, o que fazia o `saude.py`
+  imprimir `ciclo há 1s · 0 ciclos` — uma frase que afirma e nega o mesmo fato.
+  Pior que feio: com `ciclo_em` nunca nulo, o ramo que o `saude.py` tem para
+  "subiu e ainda não ciclou" e a frase equivalente do painel eram código
+  inalcançável. Foi encontrada rodando de verdade, com 298 testes verdes.
+- **O painel RELATA; o `saude.py` JULGA.** Decidir "o loop travou" exige o
+  `MPT_TIMEOUT_SEG`, número do `.env` do worker que o navegador não tem como
+  saber. Então toda frase da faixa é um fato lido da linha ("bateu há 6min",
+  "40 ciclos"); o único número de opinião do painel, `SEM_SINAL_SEG`, controla a
+  **cor do ponto** e nunca o texto. Limite mal calibrado destaca uma frase
+  verdadeira em vez de inventar uma falsa — e dois vereditos para a mesma
+  pergunta seriam piores que um veredito incompleto.
+- **Gatilho é logon, não boot.** Boot com o PC trancado exige `-User`/`-Password`
+  guardados no Windows, e credencial não passa por aqui. Quem quiser que o worker
+  suba com a máquina trancada liga o auto-logon do Windows por conta própria —
+  está em `specs/_manual.md`. O teste cobra os dois lados: `-Password`,
+  `Get-Credential` e `ConvertTo-SecureString` ausentes, e `-AtLogOn` presente
+  (trocar o gatilho traria a senha de volta pela porta lateral).
+- **`ExecutionTimeLimit` zerado.** O padrão do Windows mata a tarefa em **72 h**.
+  Um worker que some no terceiro dia, sem erro nenhum, com o Task Scheduler
+  dizendo que a tarefa "terminou com sucesso", é a falha mais cara possível:
+  parece que o sistema está de pé.
+- **Nenhum acento em `.ps1`, e isso é teste.** O PowerShell 5.1 lê arquivo sem
+  BOM como ANSI (cp1252): acento em UTF-8 vira mojibake na tela e, dentro de um
+  `throw`, vira mensagem de erro ilegível na hora exata em que alguém precisa
+  lê-la. Escrevi errado na primeira vez — o teste pegou 10 arquivos-linha antes
+  de qualquer execução.
+- **A tabela guarda estado, não histórico — e nada de texto de erro.** Uma linha
+  por máquina, chaveada por hostname (o pid muda a cada reinício; chavear por
+  worker_id faria a tabela virar log de reinícios). Só contadores entram:
+  mensagem de exceção já vive em `videos.erro_msg`/`publicacoes.erro_msg`, que
+  passaram por `descrever_erro()` justamente para não carregar credencial.
+  Copiar texto cru para uma tabela nova seria superfície de vazamento sem
+  informação nova. É a única tabela do banco sem `updated_at`: aqui toda escrita
+  é uma batida, então ele seria sinônimo exato de `visto_em`.
+- **O batimento nunca derruba o worker.** Toda exceção da batida morre virando
+  um WARNING, e o loop nunca espera pela thread. Observação que mata o observado
+  é pior que não observar — perder uma batida custa uma linha de log, porque a
+  próxima reescreve o mesmo estado.
+
+**`saude.py` responde por exit code, não por texto:** `0` saudável, `1` sem
+batimento, `2` processo parado, `3` loop travado, `4` não sei. O `4` é
+deliberadamente distinto do `1`: Supabase fora do ar **não** é worker morto, e
+ensinar alguém a ignorar um alarme falso é como se perde o alarme verdadeiro.
+
+**Novas variáveis** (com padrão, ver `worker/.env.example`): `BATIMENTO_SEG`.
+
 ---
 
 ## 6. Worker — esqueleto de referência
@@ -884,6 +986,7 @@ if __name__ == "__main__":
 | TikTok rate limit | 6 requests/min por access_token | 429 |
 | Rótulo de IA | Obrigatório nas duas plataformas | Remoção do conteúdo |
 | Conteúdo repetitivo em massa | Política de conteúdo inautêntico do YouTube | Desmonetização do canal |
+| Tarefa do Task Scheduler | Morta em **72 h** se `ExecutionTimeLimit` não for zerado | Worker some no terceiro dia, e o agendador registra "concluída com êxito" |
 
 **Consequência de desenho:** 3 a 5 vídeos/dia com variação real de hook vale mais que 20 iguais. O gargalo nunca foi renderizar.
 
@@ -892,9 +995,9 @@ if __name__ == "__main__":
 ## 8. Ordem de execução
 
 ```
-[x] 1. Rodar a migration no Supabase                      (15 min)  ← 6 migrations, advisors limpo
+[x] 1. Rodar a migration no Supabase                      (15 min)  ← 8 migrations, advisors limpo
 [x] 2. Criar usuário de teste com app_metadata.org_id     (5 min)   ← virou public.membros + trigger
-[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 20/20
+[x] 3. Testar RLS: outra org não enxerga nada             (10 min)  ← rls_test.sql, 23/23
 [x] 4. Sprint 1 — worker esqueleto com render fake        (1h)      ← 27 testes verdes
 [x] 5. Subir MPT, abrir /docs, ler os endpoints           (30 min)  ← uv, sem Docker. 127.0.0.1:8080
 [x] 6. Sprint 2 — render de verdade                       (1h)      ← worker/mpt.py, 56 testes verdes
@@ -906,7 +1009,8 @@ if __name__ == "__main__":
 [ ] 10b. Deploy na Vercel + primeiro login pelo celular    (15 min)  ← SEU: caixa de e-mail é sua
 [x] 11. Sprint 5 — TikTok                                 (1h)      ← 216 testes, sem migration
 [ ] 11b. App no portal do TikTok + OAuth                  (20 min)  ← SEU: portal + autorizar_tiktok.py
-[ ] 12. Sprint 7 — Task Scheduler                         (20 min)
+[x] 12. Sprint 7 — Task Scheduler                         (20 min)  ← 298 testes, RLS 23/23
+[ ] 12b. Rodar Registrar-Worker.ps1 no seu PC             (2 min)   ← SEU: a tarefa roda como você
 ```
 
 **Pare no item 7 antes de decidir qualquer outra coisa.** Se um vídeo sai na pasta com a fila funcionando, o projeto está de pé. Todo o resto é acabamento.

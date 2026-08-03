@@ -91,7 +91,61 @@ remoção do conteúdo.
 
 ---
 
-## 5. Higiene do OneDrive
+## 5. Registrar o worker no Task Scheduler (item 12b do § 8)
+
+**Por quê:** a tarefa roda **como você**, na sua sessão do Windows. Criá-la é um
+comando de um minuto, mas o dono da tarefa é quem a registra — e o resto da
+Sprint 7 (batimento, health check, faixa no painel) já está provado contra o
+banco real sem ela.
+
+Num PowerShell qualquer — **não precisa de administrador**, a tarefa é sua e não
+do sistema — na raiz do projeto:
+
+```powershell
+pwsh worker/scripts/Registrar-Worker.ps1
+```
+
+Ele cria `\Atmosfera\Atmosfera Worker`: gatilho no **seu logon** com 1 min de
+atraso (no logon o Windows ainda está montando rede e o OneDrive ainda está
+hidratando arquivo), reinício automático em caso de queda (3×, 5 min de
+intervalo), sem limite de duração, e sem parar na bateria nem quando você volta
+a mexer no PC. Ele confere antes de registrar — `.env` ausente, `uv` fora do
+PATH ou `main.py` no lugar errado viram erro na hora, com a frase inteira — e
+relê a tarefa gravada no fim, para o "pronto" ser evidência e não promessa.
+
+Subir na hora, sem esperar o próximo logon:
+
+```powershell
+Start-ScheduledTask -TaskName 'Atmosfera Worker' -TaskPath '\Atmosfera\'
+```
+
+E o veredito do batimento, que é a pergunta que interessa:
+
+```bash
+cd worker && uv run saude.py
+```
+
+Para desfazer, `pwsh worker/scripts/Remover-Worker.ps1` — idempotente, não
+reclama se a tarefa não existir, e não encosta em `logs/`, `.env` nem token.
+
+**Opcional — subir com o PC trancado.** O gatilho é logon e não boot de
+propósito: boot exigiria guardar a senha da sua conta do Windows dentro da
+tarefa, e senha não passa por mim. Se você quiser que o worker suba mesmo com a
+máquina reiniciando sozinha de madrugada, o caminho é ligar o **auto-logon do
+Windows** por conta própria (`netplwiz` → desmarcar "Os usuários devem digitar
+um nome e uma senha"). Isso é uma escolha de segurança sua, e ela vale a pena
+pensar: com auto-logon, quem tem acesso físico à máquina tem a sua sessão — e
+dentro dela está o `.env` com a `service_role`.
+
+**Lembrete que vem do § 2:** com o app do Google ainda em *Testing*, o refresh
+token expira a cada 7 dias. Um worker que sobe sozinho e para de publicar em
+silêncio no oitavo dia é exatamente o modo de falha que a Sprint 7 existe para
+tornar visível — o `saude.py` vai dizer `SAUDAVEL`, porque o loop está girando;
+quem denuncia é o vídeo que não sobe.
+
+---
+
+## 6. Higiene do OneDrive
 
 `worker/` está dentro do OneDrive, então `token.json`, `tiktok_token.json` e
 `.env` — que carrega a `service_role` — sincronizam para a nuvem da Microsoft.

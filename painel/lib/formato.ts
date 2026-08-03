@@ -24,6 +24,27 @@ export function quando(iso: string | null | undefined): string {
   return dataCurta.format(data);
 }
 
+/**
+ * Um intervalo em algo que se lê de relance: "45s", "12min", "3h07".
+ *
+ * Mesma forma do `_humano()` do `worker/saude.py`, de propósito — as duas telas
+ * que respondem "o worker está vivo?" não podem falar dialetos diferentes de
+ * tempo. Isto aqui é apresentação, não julgamento: o que decide se um número é
+ * alarmante mora em `lib/saude.ts`, e a autoridade final é o `saude.py`.
+ */
+export function decorrido(segundos: number | string | null | undefined): string {
+  const n = typeof segundos === "string" ? Number(segundos) : segundos;
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  // Negativo só aconteceria com carimbos divergentes, mas "-3s" na tela faria
+  // quem lê duvidar do resto da linha.
+  const s = Math.max(0, Math.round(n));
+  if (s < 90) return `${s}s`;
+  if (s < 5400) return `${Math.floor(s / 60)}min`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}h${String(m).padStart(2, "0")}`;
+}
+
 export function duracao(segundos: number | string | null | undefined): string {
   // numeric do Postgres chega como string no PostgREST — não é sempre number.
   const n = typeof segundos === "string" ? Number(segundos) : segundos;

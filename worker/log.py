@@ -20,9 +20,14 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-# Identidade deste processo. Vai para `videos.locked_by`, então precisa
+# Identidade da MÁQUINA. É a chave da linha em `batimentos` (Sprint 7): a
+# pergunta do painel é "o PC está trabalhando?", e o pid muda a cada reinício.
+MAQUINA = socket.gethostname()
+
+# Identidade deste PROCESSO. Vai para `videos.locked_by`, então precisa
 # distinguir duas instâncias na mesma máquina — daí o pid junto do hostname.
-WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+# Em `batimentos.worker`, é o que faz um reinício aparecer sem coluna nova.
+WORKER_ID = f"{MAQUINA}-{os.getpid()}"
 
 _RESERVADOS = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).__dict__) | {
     "asctime",

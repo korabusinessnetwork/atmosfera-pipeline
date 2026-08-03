@@ -40,11 +40,13 @@ superfície de ataque inteira, e não é negociável.
   schema. Rodar `supabase db advisors --linked` depois de cada migration — o
   alvo é `No issues found`, não "só warnings".
 - Teste de RLS roda pelo CLI: `supabase db query --linked -f supabase/tests/rls_test.sql`.
-  **Vinte ✅** é definition-of-done de qualquer migration que toque tabela — e o
-  teste cresce junto com o schema: política nova sem caso novo não conta como pronta.
-  Os casos 09–12 cobrem `storage.objects` (o preview); os 13–19 cobrem a máquina
-  de estados, que é outra pergunta: RLS responde "esta linha é sua?", não "esta
-  transição é legal?".
+  **Vinte e três ✅** é definition-of-done de qualquer migration que toque tabela —
+  e o teste cresce junto com o schema: política nova sem caso novo não conta como
+  pronta. Os casos 09–12 cobrem `storage.objects` (o preview); os 13–19 cobrem a
+  máquina de estados, que é outra pergunta: RLS responde "esta linha é sua?", não
+  "esta transição é legal?"; os 20–22 cobrem o batimento, que responde uma
+  terceira: "quem pode *afirmar* isto?" — o painel lê e o worker escreve, nunca o
+  contrário.
 - **Multi-tenant desde o dia 1** — `org_id` em toda tabela, sempre via `public.current_org_id()`.
 - Nomes de domínio em português (`pauta`, `publicar`, `destravar_orfaos`), padrões técnicos em inglês.
 
