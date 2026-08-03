@@ -23,6 +23,8 @@
 -- é uma pergunta diferente de "esta linha é sua?". Os 20–22 são o batimento
 -- (Sprint 7), que só o worker escreve: forjar "worker vivo" numa máquina
 -- desligada esconderia exatamente a falha que a tabela existe para mostrar.
+-- Os 23–25 são a pauta manual (Rodada 3): o primeiro caminho de INSERT que a
+-- anon key alcança em todo o projeto — até aqui o painel só lia e transicionava.
 -- ============================================================
 
 create schema if not exists tests;
@@ -49,14 +51,26 @@ declare
   vid_ag    uuid;   -- org A, aguardando_aprovacao  (o que o gate deixa passar)
   vid_rend  uuid;   -- org A, renderizando          (o que o gate tem que barrar)
   vid_b     uuid;   -- org B, aguardando_aprovacao  (o vizinho)
+  crd_org     uuid; -- o que a pauta_nova carimbou, campo a campo
+  crd_origem  text;
+  crd_status  text;
+  crd_hook    text;
+  crd_roteiro text;
+  crd_tema    text;
+  furos       text;
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
 
-  insert into public.pautas (org_id, tema, status)
-  values (org_a, '[rls-test] pauta da org A', 'pronta') returning id into pauta_a;
-  insert into public.pautas (org_id, tema, status)
-  values (org_b, '[rls-test] pauta da org B', 'pronta') returning id into pauta_b;
+  -- O roteiro não é enfeite do seed: desde a Rodada 3 a constraint
+  -- `pautas_pronta_tem_roteiro` recusa `pronta` sem ele, porque pauta vazia só
+  -- falha lá na frente, dentro do worker, gastando uma das três tentativas.
+  insert into public.pautas (org_id, tema, roteiro, status)
+  values (org_a, '[rls-test] pauta da org A', '[rls-test] roteiro A', 'pronta')
+  returning id into pauta_a;
+  insert into public.pautas (org_id, tema, roteiro, status)
+  values (org_b, '[rls-test] pauta da org B', '[rls-test] roteiro B', 'pronta')
+  returning id into pauta_b;
 
   insert into public.videos (org_id, pauta_id, status)
   values (org_a, pauta_a, 'aguardando_aprovacao') returning id into vid_ag;
@@ -80,16 +94,16 @@ begin
   esperado := '5'; obtido := n::text; passou := (n = 5);
   return next;
 
-  -- pautas 2 (leitura + producao) · videos 3 (leitura + enfileirar + gate)
-  -- publicacoes 1 · membros 1 · batimentos 1 (só leitura) = 8. `for all` não
-  -- existe mais em lugar nenhum: ler e escrever precisam dizer coisas
+  -- pautas 3 (leitura + criar + producao) · videos 3 (leitura + enfileirar +
+  -- gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) = 9. `for all`
+  -- não existe mais em lugar nenhum: ler e escrever precisam dizer coisas
   -- diferentes.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
      and tablename in ('pautas','videos','publicacoes','membros','batimentos');
   teste := '02 · políticas por comando nas 5 tabelas';
-  esperado := '8'; obtido := n::text; passou := (n = 8);
+  esperado := '9'; obtido := n::text; passou := (n = 9);
   return next;
 
   -- ================= ORG A =================
@@ -449,6 +463,112 @@ begin
   esperado := '0 e 0';
   obtido := n::text || ' e ' || vazou::text;
   passou := (n = 0 and vazou = 0);
+  return next;
+
+  -- ================= PAUTA MANUAL (Rodada 3) =================
+  -- Todo caminho de escrita testado até aqui era uma TRANSIÇÃO: a linha já
+  -- existia e alguém queria mudar o estado dela. `pauta_nova` é o primeiro
+  -- INSERT do projeto alcançável pela anon key, e insert é onde o org_id nasce
+  -- — se ele nascer errado, nenhuma política adiante conserta, porque todas
+  -- comparam contra o valor que a própria linha carrega.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  begin
+    select org_id, origem, status, hook, roteiro, tema
+      into crd_org, crd_origem, crd_status, crd_hook, crd_roteiro, crd_tema
+      from public.pauta_nova('  [rls-test] pauta manual  ',
+                             '  roteiro com espaço nas pontas  ',
+                             '   ');            -- hook só com branco vira NULL
+  exception
+    when others then null;                      -- fica tudo nulo e o caso falha
+  end;
+
+  teste := '23 · pauta_nova carimba tenant/origem/status e apara o branco';
+  esperado := org_a::text || ' · manual · pronta · hook nulo · sem espaço';
+  obtido := coalesce(crd_org::text, '(não criou)')
+            || ' · ' || coalesce(crd_origem, '(null)')
+            || ' · ' || coalesce(crd_status, '(null)')
+            || ' · hook ' || coalesce('"' || crd_hook || '"', 'nulo')
+            || ' · "' || coalesce(crd_roteiro, '') || '"';
+  passou := (crd_org = org_a
+             and crd_origem = 'manual'
+             and crd_status = 'pronta'
+             and crd_hook is null
+             and crd_tema    = '[rls-test] pauta manual'
+             and crd_roteiro = 'roteiro com espaço nas pontas');
+  return next;
+
+  -- A RPC é a porta da frente, não a única porta: o PostgREST expõe a tabela e
+  -- um POST cru chega nela com a mesma sessão. Então o que a RPC recusa, a
+  -- política e o GRANT por coluna têm que recusar também. Cinco caminhos, um
+  -- veredito — e o `obtido` diz qual deles vazou, senão a linha vermelha não
+  -- ajudaria ninguém.
+  furos := '';
+
+  begin
+    perform public.pauta_nova('   ', 'roteiro');
+    furos := furos || 'tema-em-branco ';
+  exception when others then null;
+  end;
+
+  begin
+    perform public.pauta_nova('[rls-test] sem roteiro', '   ');
+    furos := furos || 'roteiro-em-branco ';
+  exception when others then null;
+  end;
+
+  begin
+    insert into public.pautas (org_id, tema, roteiro, status, origem)
+    values (org_a, '[rls-test] forjada', 'r', 'pronta', 'cowork');
+    furos := furos || 'origem-cowork ';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.pautas (org_id, tema, roteiro, status, origem)
+    values (org_b, '[rls-test] vizinha', 'r', 'pronta', 'manual');
+    furos := furos || 'org-alheia ';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.pautas (org_id, tema, roteiro, status, origem, prioridade)
+    values (org_a, '[rls-test] prioridade', 'r', 'pronta', 'manual', 99);
+    furos := furos || 'prioridade ';
+  exception when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '24 · nem em branco, nem origem forjada, nem org alheia';
+  esperado := 'tudo bloqueado';
+  obtido := case when furos = '' then 'tudo bloqueado'
+                 else 'PASSOU: ' || furos || ' — FURO GRAVE' end;
+  passou := (furos = '');
+  return next;
+
+  -- ================= ANÔNIMO NA PAUTA =================
+  -- Sem isso, a anon key que mora no navegador criaria pauta sem sessão. Não
+  -- vazaria dado de ninguém — `current_org_id()` é nulo e a RPC para antes —,
+  -- mas seria endpoint de escrita aberto na internet, e a diferença entre
+  -- "não escreve" e "não chega" é a que aparece na conta do banco.
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+
+  begin
+    perform public.pauta_nova('[rls-test] anon', 'roteiro');
+    bloqueou := false;
+  exception
+    when insufficient_privilege then bloqueou := true;
+  end;
+
+  execute 'reset role';
+
+  teste := '25 · anônimo não alcança pauta_nova';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'CRIOU — FURO GRAVE' end;
+  passou := bloqueou;
   return next;
 
   -- ---------- limpeza ----------

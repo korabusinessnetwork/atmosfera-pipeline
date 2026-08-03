@@ -145,7 +145,78 @@ quem denuncia é o vídeo que não sobe.
 
 ---
 
-## 6. Higiene do OneDrive
+## 6. As duas tarefas agendadas no Cowork (item 13b do § 8)
+
+**Por quê:** os itens 1–12 construíram tudo que acontece **depois** que uma pauta
+existe. Nada produz pauta. Com o worker no boot e a fila vazia, o sistema
+completo acorda a cada 30s, não acha nada e volta a dormir — para sempre. O
+formulário do painel resolve a ideia avulsa; o Cowork é o que enche a fila toda
+segunda sem o PC ligado.
+
+A conta do Cowork é sua e o prompt precisa do **seu** `org_id`. Nada disso passa
+por mim.
+
+### 6.1 Descobrir o `org_id`
+
+No SQL Editor do Supabase:
+
+```sql
+select org_id from public.membros where email = 'seu@email.com';
+```
+
+Esse uuid substitui o `'00000000-0000-0000-0000-000000000000'` do template de
+INSERT. **É o único valor do prompt que precisa ser trocado** — se ele ficar como
+está, o INSERT funciona e as 15 pautas caem numa org que não é a sua: elas
+existem no banco e não aparecem no painel, porque a RLS faz exatamente o que
+deve. O sintoma é "a tarefa rodou e não veio nada", que é o mais difícil de
+diagnosticar.
+
+### 6.2 Subir `memory/00_IDENTIDADE.md` para o Drive
+
+O prompt de segunda manda ler esse arquivo antes de escrever a primeira linha —
+é onde vivem tom de voz, o teto de 88 caracteres do hook e as sete regras do que
+nunca fazer. O Cowork **não enxerga o seu disco**; se o arquivo não estiver no
+Drive, ele escreve pauta genérica e nada avisa.
+
+Copie `memory/00_IDENTIDADE.md` para o Google Drive em `/Atmosfera/`. Quando você
+mexer nele aqui, suba de novo — o arquivo do Drive é uma cópia, e cópia velha é
+pior que arquivo ausente.
+
+### 6.3 Criar as duas tarefas
+
+| Tarefa | Cadência | Prompt | Conectores |
+|--------|----------|--------|------------|
+| Pauta semanal | segunda, 06:00 | `cowork/pauta-semanal.md` | Supabase MCP · Google Drive |
+| Relatório | sexta, 18:00 | `cowork/relatorio.md` | Supabase MCP · Google Drive |
+
+Em cada arquivo, o prompt é o bloco entre as crases — cole ele inteiro, sem o
+texto explicativo em volta. O que está fora do bloco é para você, não para o
+agente.
+
+**Os arquivos no git são a fonte da verdade.** A tarefa agendada é uma cópia que
+vive numa conta pessoal e não entra em diff. Quando os dois divergirem, corrija
+aqui e recole lá.
+
+### 6.4 O que saber antes de ligar
+
+- **O Cowork não avisa quando falha.** Nenhuma das duas tarefas notifica erro.
+  Relatório ausente na sexta é sintoma, não silêncio — e pauta que não entrou na
+  segunda só aparece como fila vazia na quarta. Por isso o estado vive nas
+  tabelas: se a tarefa quebrar, nada do que já existe se perde.
+- **Cada execução consome uso do plano** como uma sessão normal.
+- **Não cole a `service_role` no Cowork.** O conector do Supabase se autentica
+  sozinho; a chave que ignora RLS no banco inteiro continua só no `.env` local do
+  worker. Se algum campo pedir uma chave, é a errada.
+- **A tarefa de segunda só faz INSERT em `pautas`; a de sexta só faz SELECT.**
+  Está escrito nos dois prompts, e é o limite que mantém o Cowork como camada de
+  decisão — quem muda estado de vídeo é o worker e o gate humano, ninguém mais.
+- **Primeira execução: não espere segunda-feira.** Rode a tarefa à mão uma vez e
+  confira no painel se as pautas apareceram. Se aparecerem lá, o `org_id` está
+  certo — que é a única coisa que pode estar errada e não dá erro.
+
+---
+
+## 7. Higiene do OneDrive
 
 `worker/` está dentro do OneDrive, então `token.json`, `tiktok_token.json` e
 `.env` — que carrega a `service_role` — sincronizam para a nuvem da Microsoft.

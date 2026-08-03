@@ -18,6 +18,25 @@ export type EstadoDoLink = {
 
 export const LINK_INICIAL: EstadoDoLink = { erro: null, enviado: false };
 
+/**
+ * Estado do formulário de pauta.
+ *
+ * `criadas` é contador, não booleano — o formulário usa esse número como `key`
+ * para se remontar e limpar os campos sem nenhum estado controlado. Com um
+ * booleano só a primeira pauta limparia a tela: a segunda seguida ficaria com o
+ * texto da primeira nos campos, e a pessoa leria isso como "não enviou".
+ *
+ * No erro o contador NÃO muda, de propósito: o formulário fica de pé com o que
+ * foi digitado. Perder cinco linhas de roteiro por um blip de rede é o tipo de
+ * coisa que faz alguém parar de usar o painel.
+ */
+export type EstadoDaPauta = {
+  erro: string | null;
+  criadas: number;
+};
+
+export const PAUTA_INICIAL: EstadoDaPauta = { erro: null, criadas: 0 };
+
 export type VideoDaFila = {
   id: string;
   created_at: string;

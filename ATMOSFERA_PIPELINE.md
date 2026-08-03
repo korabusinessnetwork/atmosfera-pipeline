@@ -296,19 +296,34 @@ atmosfera-pipeline/
 │   └── .env.local                 # anon key — NUNCA commitar
 │
 ├── supabase/
-│   ├── migrations/                # 8 arquivos, carimbados pelo CLI
-│   ├── tests/rls_test.sql         # 23 casos — definition-of-done
+│   ├── migrations/                # 9 arquivos, carimbados pelo CLI
+│   ├── tests/rls_test.sql         # 26 casos — definition-of-done
 │   └── seed_membros.example.sql   # quem pode entrar no painel
 │
 ├── output/{pending,approved,published}/
 ├── MoneyPrinterTurbo/             # clone (gitignored) — `uv run main.py`, API em 127.0.0.1:8080
+├── cowork/                        # os prompts das tarefas agendadas, versionados
+│   ├── pauta-semanal.md
+│   └── relatorio.md
 ├── memory/
-│   ├── 00_IDENTIDADE.md
-│   ├── 03_DECISOES.md             # os ADRs da seção 0
-│   └── 04_PADROES.md
+│   └── 00_IDENTIDADE.md           # tom de voz e estética — o Cowork lê pelo Drive
 ├── CLAUDE.md
 └── ATMOSFERA_PIPELINE.md          # este arquivo
 ```
+
+**`memory/` tem um arquivo só, e a ausência dos outros dois é decisão.** O
+esboço original previa `03_DECISOES.md` (os ADRs do § 0) e `04_PADROES.md` (as
+convenções do `CLAUDE.md`). Escrevê-los seria copiar dois documentos que já
+existem e são lidos automaticamente em toda sessão — e cópia não fica parada:
+na primeira divergência passa a existir uma versão certa e uma errada, sem nada
+na tela dizendo qual é qual. `00_IDENTIDADE.md` fica porque é o único dos três
+que **não** duplica nada: é a única descrição de tom de voz do projeto, e é
+lido de fora do repositório, pelo Cowork, que não enxerga o `CLAUDE.md`.
+
+**`cowork/` guarda o prompt, não o agendamento.** A tarefa mora numa conta
+pessoal fora do git; o texto que ela roda mora aqui. Quando divergirem, o
+arquivo é que vale. Sem isso, o comportamento do produtor de pauta viveria só
+dentro de um formulário web que ninguém revisa em diff.
 
 ---
 
@@ -316,42 +331,37 @@ atmosfera-pipeline/
 
 Cowork = **camada de decisão**. Roda remoto, agendado, com o PC desligado. Nunca toca arquivo local.
 
-### Tarefa agendada 1 — Pauta semanal
-**Cadência:** segunda, 06:00
-**Conectores:** Supabase MCP, Notion, Google Drive
+**Os dois prompts saíram deste arquivo e viraram `cowork/*.md`.** Ficaram aqui
+até a Rodada 3 como esboço; foram para arquivo próprio quando passaram a citar
+nome de coluna, valor de `check` e SQL — coisa que quebra em silêncio quando o
+schema anda. Lá cada nome está conferido contra a migration que o criou, e a
+tabela de origem está escrita ao lado.
 
-```
-Você é o estrategista de conteúdo do Atmosfera Viral.
+| Tarefa | Cadência | Prompt | Escreve? |
+|---|---|---|---|
+| Pauta semanal | segunda, 06:00 | `cowork/pauta-semanal.md` | `insert` em `pautas`, e mais nada |
+| Relatório | sexta, 18:00 | `cowork/relatorio.md` | nada — só `select` |
 
-1. Consulte a tabela `publicacoes` no Supabase e identifique os 5 vídeos
-   com melhor performance dos últimos 30 dias.
-2. Consulte `memory/00_IDENTIDADE.md` no Drive para o tom de voz.
-3. Gere 15 pautas novas seguindo a estética: cinematográfica, escura,
-   emoção acima de informação, texto mínimo, espaço negativo.
-4. Para cada pauta produza:
-   - tema (1 linha)
-   - roteiro (5 linhas sequenciais, 8–12s total)
-   - hook (a primeira linha, que segura os primeiros 1,5s)
-   - titulo (YouTube, até 60 caracteres)
-   - descricao (2 linhas + as hashtags fixas)
-5. INSERT em `public.pautas` com status='pronta', origem='cowork', org_id=<SEU_ORG_ID>.
-6. Ao final, escreva um resumo de 5 linhas com os 3 ângulos mais fortes.
+**Conectores:** Supabase MCP e Google Drive. (O Notion estava no esboço e não é
+usado: nada do ciclo passa por lá, e conector a mais é superfície a mais.)
 
-Não crie tabelas. Não altere schema. Apenas INSERT em `pautas`.
-```
+**Três coisas que só se descobrem escrevendo os prompts de verdade:**
 
-### Tarefa agendada 2 — Relatório
-**Cadência:** sexta, 18:00
-
-```
-Consulte `publicacoes` e `videos` no Supabase dos últimos 7 dias.
-Produza um relatório curto:
-- quantos renderizaram, quantos foram aprovados, quantos publicados
-- taxa de reprovação e os motivos mais comuns (campo erro_msg)
-- quais hooks tiveram melhor retenção
-- 3 recomendações para a pauta da próxima semana
-Salve como markdown no Drive em /Atmosfera/relatorios/.
-```
+- **O Cowork não é `authenticated`.** O MCP fala com o banco por credencial
+  administrativa, então `current_org_id()` devolve `null` ali. A RLS não bloqueia
+  o Cowork **e também não carimba nada por ele**: o `org_id` correto é
+  responsabilidade do prompt, literal, e é a diferença mais importante entre
+  escrever pelo Cowork e escrever pelo painel.
+- **Retenção não existe neste banco.** O esboço mandava relatar "quais hooks
+  tiveram melhor retenção", e nenhuma coluna guarda view ou watch time. Um
+  relatório semanal com essa seção estaria inventando número plausível toda
+  sexta. O prompt entrega a lista de hooks publicados com link, para conferência
+  no Studio, e diz que a métrica não é coletada. Puxar a Analytics API está no
+  § 9.
+- **`videos.erro_msg` significa duas coisas.** Falha de render escreve erro
+  técnico; `reprovar_video` escreve ali o motivo humano. Agrupar os dois em
+  "motivos mais comuns" mistura problema de código com problema de conteúdo — o
+  relatório separa por `status`.
 
 **Limite a saber:** cada run consome uso do plano como uma sessão normal, e o Cowork não notifica falha. Por isso o estado vive no Supabase, não na cabeça do agente — se a tarefa quebrar, a fila continua íntegra.
 
@@ -1011,7 +1021,17 @@ if __name__ == "__main__":
 [ ] 11b. App no portal do TikTok + OAuth                  (20 min)  ← SEU: portal + autorizar_tiktok.py
 [x] 12. Sprint 7 — Task Scheduler                         (20 min)  ← 298 testes, RLS 23/23
 [ ] 12b. Rodar Registrar-Worker.ps1 no seu PC             (2 min)   ← SEU: a tarefa roda como você
+[x] 13. Pauta manual — a fila ganha um produtor           (1h)      ← 298 testes, RLS 26/26
+[ ] 13b. Configurar as 2 tarefas no Cowork                (15 min)  ← SEU: a conta do Cowork é sua
 ```
+
+**Item 13 — por que veio depois do 12.** Os itens 1–12 construíram tudo que
+acontece **depois** de uma pauta existir: claim, render, pós-processo, gate,
+YouTube, TikTok, batimento, agendador. Nenhum deles escrevia em `pautas`. Com o
+worker no boot e nada produzindo pauta, o sistema completo acordava a cada 30 s,
+não achava nada e voltava a dormir — para sempre. O `origem text default
+'cowork', -- cowork | manual` do § 2 declarava um valor que código nenhum
+produzia; agora o painel produz.
 
 **Pare no item 7 antes de decidir qualquer outra coisa.** Se um vídeo sai na pasta com a fila funcionando, o projeto está de pé. Todo o resto é acabamento.
 
@@ -1073,3 +1093,13 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 - Auditoria do TikTok Content Posting API (2–4 semanas) para liberar direct post público.
 - Aumento de cota do YouTube via formulário de audit.
 - Segundo canal / multi-tenant real (o schema já suporta).
+- **Métrica de verdade: YouTube Analytics API → tabela `metricas`.** Hoje o banco
+  sabe que publicou e não sabe se alguém assistiu — `publicacoes` guarda `url`,
+  `status` e carimbo de tempo, nada mais. É por isso que o relatório de sexta
+  lista os hooks publicados em vez de ranquear por retenção
+  (`cowork/relatorio.md`). Sem isso o ciclo não fecha: a pauta de segunda se
+  ajusta por impressão, não por dado. É a coisa mais valiosa da lista, e a única
+  que muda como o conteúdo é decidido.
+- Editar e descartar pauta pelo painel. Criar e enfileirar fecham o uso normal;
+  editar abre "e se já estiver `em_producao`?", que é uma máquina de estados
+  nova, não um formulário a mais.

@@ -1,16 +1,22 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import BotaoEnfileirar from "@/components/BotaoEnfileirar";
+import FormularioDePauta from "@/components/FormularioDePauta";
 import Vazio from "@/components/Vazio";
 import { quando } from "@/lib/formato";
 import type { PautaPronta } from "@/lib/tipos";
 
 /**
- * Pautas prontas — o que o Cowork escreveu na segunda de manhã e ainda não
- * virou render.
+ * Pautas prontas — o que o Cowork escreveu na segunda de manhã, mais o que foi
+ * digitado aqui, e que ainda não virou render.
  *
  * Só `pronta` aparece. `em_producao` já tem vídeo na fila e mostrá-la
  * convidaria a enfileirar duas vezes a mesma pauta; a RPC recusaria (P0001),
  * mas recusar é pior do que não oferecer.
+ *
+ * O formulário fica ACIMA da lista e aparece mesmo com a lista vazia — é o
+ * único caso em que a tela vazia não é um beco. Até a Rodada 3 ela mandava a
+ * pessoa "inserir à mão no Supabase", que é um painel admitindo não servir para
+ * a primeira coisa que alguém quer fazer.
  */
 export default async function Pautas() {
   const supabase = await clienteServidor();
@@ -33,17 +39,17 @@ export default async function Pautas() {
 
   const pautas = (data ?? []) as PautaPronta[];
 
-  if (pautas.length === 0) {
-    return (
-      <Vazio
-        titulo="Nenhuma pauta pronta."
-        detalhe="O Cowork escreve as pautas da semana na segunda, 06:00. Enquanto isso, dá para inserir uma à mão no Supabase com status 'pronta'."
-      />
-    );
-  }
-
   return (
     <div className="flex flex-col gap-3">
+      <FormularioDePauta />
+
+      {pautas.length === 0 && (
+        <Vazio
+          titulo="Nenhuma pauta pronta."
+          detalhe="O Cowork escreve as pautas da semana na segunda, 06:00. Até lá — ou quando a ideia não puder esperar — use o formulário acima."
+        />
+      )}
+
       {pautas.map((pauta) => (
         <article
           key={pauta.id}

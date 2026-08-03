@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 
 import { clienteServidor } from "@/lib/supabase/server";
 import { sessaoAtual } from "@/lib/supabase/claims";
-import { ACAO_OK, type EstadoDaAcao } from "@/lib/tipos";
+import {
+  ACAO_OK,
+  type EstadoDaAcao,
+  type EstadoDaPauta,
+} from "@/lib/tipos";
 
 /**
  * Server Action é um endpoint POST alcançável direto, não só pelo botão.
@@ -46,6 +50,11 @@ function traduzir(erro: ErroDoPostgrest, padrao: string): string {
   // 42501 = insufficient_privilege, PGRST301 = JWT inválido/expirado.
   if (codigo === "42501" || codigo === "PGRST301") {
     return "Sua sessão perdeu a permissão. Saia e entre de novo.";
+  }
+  // 22023 = invalid_parameter_value: campo obrigatório em branco. Chega aqui
+  // porque o `required` do navegador aceita "   " e o btrim da RPC não.
+  if (codigo === "22023") {
+    return "Tema e roteiro são obrigatórios.";
   }
   return padrao;
 }
@@ -115,6 +124,59 @@ export async function enfileirarPauta(
 
   refresh();
   return ACAO_OK;
+}
+
+/**
+ * Cria pauta manual.
+ *
+ * `org_id`, `status` e `origem` NÃO são enviados daqui — quem carimba é a RPC,
+ * e a política `pautas_criar` recusa qualquer outra combinação. Se o cliente
+ * pudesse mandar `origem`, a coluna pararia de distinguir o que o Cowork
+ * escreveu do que uma pessoa digitou, que é exatamente o que o relatório de
+ * sexta-feira lê.
+ */
+export async function criarPauta(
+  anterior: EstadoDaPauta,
+  formData: FormData,
+): Promise<EstadoDaPauta> {
+  const { supabase } = await exigirSessao();
+
+  // Cortesia, não validação: quem decide o que é branco é o btrim da RPC, e
+  // quem recusa é a constraint. O corte de tamanho existe só para um Ctrl+V no
+  // campo errado não virar 2 MB de request.
+  const campo = (nome: string, limite: number) =>
+    String(formData.get(nome) ?? "")
+      .trim()
+      .slice(0, limite) || null;
+
+  const tema = campo("tema", 300);
+  const roteiro = campo("roteiro", 5000);
+
+  // Atalho para o caso comum, com a mesma frase que o 22023 produziria. Poupa
+  // uma ida ao banco; não substitui a checagem de lá, que é a que vale.
+  if (!tema || !roteiro) {
+    return { ...anterior, erro: "Tema e roteiro são obrigatórios." };
+  }
+
+  const { error } = await supabase.rpc("pauta_nova", {
+    p_tema: tema,
+    p_roteiro: roteiro,
+    p_hook: campo("hook", 300),
+    p_titulo: campo("titulo", 100),
+    p_descricao: campo("descricao", 2000),
+  });
+  if (error) {
+    // P0001 aqui só significa uma coisa: sessão sem org. O layout do grupo
+    // (painel) já barra essa conta antes da tela, mas action é POST direto.
+    const padrao =
+      error.code === "P0001"
+        ? "Sua conta ainda não está vinculada a uma organização."
+        : "Não deu para criar a pauta agora. Tente de novo.";
+    return { ...anterior, erro: traduzir(error, padrao) };
+  }
+
+  refresh();
+  return { erro: null, criadas: anterior.criadas + 1 };
 }
 
 export async function sair() {
