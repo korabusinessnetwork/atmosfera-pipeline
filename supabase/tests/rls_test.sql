@@ -25,6 +25,10 @@
 -- desligada esconderia exatamente a falha que a tabela existe para mostrar.
 -- Os 23–25 são a pauta manual (Rodada 3): o primeiro caminho de INSERT que a
 -- anon key alcança em todo o projeto — até aqui o painel só lia e transicionava.
+-- Os 26–28 são o auto-enfileirar (Rodada 4): o trigger que leva pauta de máquina
+-- (ollama/cowork) até o gate sozinha, sem tocar o gate. Aqui a pergunta é uma
+-- quarta: "esta pauta vira trabalho automaticamente?" — sim para máquina, não
+-- para a manual, e nunca com origem fora do check.
 -- ============================================================
 
 create schema if not exists tests;
@@ -58,6 +62,9 @@ declare
   crd_roteiro text;
   crd_tema    text;
   furos       text;
+  pauta_ol    uuid; -- pauta ollama que o trigger deve enfileirar (Rodada 4)
+  pauta_ma    uuid; -- pauta manual que o trigger deve IGNORAR
+  pa_status   text;
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -65,11 +72,18 @@ begin
   -- O roteiro não é enfeite do seed: desde a Rodada 3 a constraint
   -- `pautas_pronta_tem_roteiro` recusa `pronta` sem ele, porque pauta vazia só
   -- falha lá na frente, dentro do worker, gastando uma das três tentativas.
-  insert into public.pautas (org_id, tema, roteiro, status)
-  values (org_a, '[rls-test] pauta da org A', '[rls-test] roteiro A', 'pronta')
+  --
+  -- `origem = 'manual'` é deliberado desde a Rodada 4: o trigger
+  -- `t_pautas_auto_enfileirar` enfileira sozinho pauta pronta de produtor de
+  -- MÁQUINA (cowork/ollama). Um seed sem `origem` cairia no default 'cowork' e
+  -- dispararia o trigger — nasceriam vídeos `na_fila` a mais e as pautas iriam
+  -- para `em_producao`, quebrando os casos de estado abaixo. Manual fica `pronta`
+  -- e espera o botão, que é o estado controlado que esses casos precisam.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] pauta da org A', '[rls-test] roteiro A', 'pronta', 'manual')
   returning id into pauta_a;
-  insert into public.pautas (org_id, tema, roteiro, status)
-  values (org_b, '[rls-test] pauta da org B', '[rls-test] roteiro B', 'pronta')
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_b, '[rls-test] pauta da org B', '[rls-test] roteiro B', 'pronta', 'manual')
   returning id into pauta_b;
 
   insert into public.videos (org_id, pauta_id, status)
@@ -568,6 +582,62 @@ begin
   teste := '25 · anônimo não alcança pauta_nova';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'CRIOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= AUTO-ENFILEIRAR (Rodada 4) =================
+  -- Volta ao papel de dono: o produtor de pauta local roda como service_role,
+  -- que ignora RLS — é esse contexto que o trigger enxerga, não o de sessão.
+  -- Inserir aqui (sem `set role`) é exatamente a escrita do gerador.
+
+  -- Uma pauta pronta de MÁQUINA nasce e o trigger a enfileira sozinha: o vídeo
+  -- aparece em `na_fila` e a pauta anda para `em_producao`. É o "auto até o gate"
+  -- inteiro numa linha — e o gate continua depois, em aguardando_aprovacao.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] ollama', '[rls-test] roteiro ol', 'pronta', 'ollama')
+  returning id into pauta_ol;
+
+  select count(*) into n
+    from public.videos
+   where pauta_id = pauta_ol and status = 'na_fila';
+  select status into pa_status from public.pautas where id = pauta_ol;
+
+  teste := '26 · pauta ollama pronta é enfileirada pelo trigger';
+  esperado := '1 vídeo na_fila · pauta em_producao';
+  obtido := n::text || ' vídeo na_fila · pauta ' || coalesce(pa_status, '(null)');
+  passou := (n = 1 and pa_status = 'em_producao');
+  return next;
+
+  -- A pauta MANUAL nasce pronta e o trigger NÃO a toca: quem digitou no painel
+  -- aperta o botão quando quiser. Sem isso, o auto-enfileirar tiraria a escolha
+  -- de quem já está na tela.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] manual nao enfileira', '[rls-test] roteiro ma', 'pronta', 'manual')
+  returning id into pauta_ma;
+
+  select count(*) into n from public.videos where pauta_id = pauta_ma;
+  select status into pa_status from public.pautas where id = pauta_ma;
+
+  teste := '27 · pauta manual pronta NÃO é enfileirada';
+  esperado := '0 vídeo · pauta pronta';
+  obtido := n::text || ' vídeo · pauta ' || coalesce(pa_status, '(null)');
+  passou := (n = 0 and pa_status = 'pronta');
+  return next;
+
+  -- Origem fora do vocabulário é recusada pelo check. `origem` carrega
+  -- significado (o relatório de sexta a lê); typo que passasse viraria uma
+  -- quarta categoria fantasma que ninguém consegue explicar depois.
+  begin
+    insert into public.pautas (org_id, tema, roteiro, status, origem)
+    values (org_a, '[rls-test] origem torta', 'r', 'pronta', 'xpto');
+    bloqueou := false;
+  exception
+    when check_violation then bloqueou := true;
+  end;
+
+  teste := '28 · origem fora de (cowork,manual,ollama) é recusada';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end;
   passou := bloqueou;
   return next;
 

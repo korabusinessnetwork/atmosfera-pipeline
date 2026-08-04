@@ -216,7 +216,73 @@ aqui e recole lá.
 
 ---
 
-## 7. Higiene do OneDrive
+## 7. Ativar o produtor de pauta local com Ollama (Rodada 4)
+
+**Por quê:** o Cowork (seção 6) é o único ponto do sistema que gasta uso do
+plano. O produtor local faz o mesmo trabalho da pauta de segunda usando um LLM
+que roda no seu PC — de graça, offline, sem token. Tirando o Cowork, **nada no
+sistema depende mais de token**: se o plano zerar, a fila continua girando.
+
+É a alternativa à seção 6, não um passo a mais: escolha um dos dois para produzir
+a pauta de segunda. O relatório de sexta, por enquanto, continua no Cowork.
+
+### 7.1 Instalar o Ollama e puxar um modelo
+
+1. Instale o Ollama: https://ollama.com
+2. Puxe um modelo:
+   ```powershell
+   ollama pull llama3.1
+   ```
+   `qwen2.5` também serve. Modelo maior escreve hook melhor e pesa mais no PC.
+
+### 7.2 Testar a qualidade do hook ANTES de agendar
+
+O hook é o produto (§7 do documento mestre: o gargalo nunca foi renderizar).
+Modelo local escreve hook mais fraco que o Claude — então rode à mão primeiro e
+olhe o resultado no painel antes de confiar a produção a ele:
+
+```powershell
+cd worker
+uv run pauta_local.py
+```
+
+Ele lê `memory/00_IDENTIDADE.md`, gera as pautas e — pelo trigger — cada uma já
+entra na fila até o gate. Abra o painel e veja se os hooks prestam. Se estiverem
+fracos, troque o modelo em `worker/.env` (`OLLAMA_MODEL=`), não o prompt: a voz
+da marca mora no `00_IDENTIDADE.md`, que é onde a identidade se ajusta.
+
+### 7.3 Agendar (segunda 06:00 ou quando a fila esvaziar)
+
+Mesma ideia do worker (seção 5), tarefa própria. Um gatilho de horário simples,
+no PowerShell (a tarefa roda como você, sem senha):
+
+```powershell
+$acao = New-ScheduledTaskAction -Execute 'C:\Users\bonas\.local\bin\uv.exe' `
+  -Argument 'run pauta_local.py' `
+  -WorkingDirectory 'C:\Users\bonas\OneDrive\Documentos\Projetos\atmosfera-pipeline\worker'
+$gatilho = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 6:00am
+Register-ScheduledTask -TaskName 'Atmosfera Pauta' -TaskPath '\Atmosfera\' `
+  -Action $acao -Trigger $gatilho
+```
+
+**Antes de agendar, o worker precisa estar de pé** (seção 5) — senão a pauta
+entra na fila e ninguém renderiza. E o Ollama tem de estar rodando no horário: se
+o PC estiver ligado, `ollama serve` sobe sozinho como serviço; confira.
+
+### 7.4 O que saber
+
+- **Backpressure automático.** Se a fila já tem 20 vídeos vivos (não aprovados),
+  o gerador não escreve nada e diz por quê. Pauta em cima de fila cheia só
+  afunda o que existe. Ajuste em `PAUTA_LOCAL_TETO` se precisar.
+- **Falhar aqui não quebra nada.** O gerador é processo separado. Ollama fora do
+  ar = a tarefa falha, loga, e a fila fica intacta — o estado vive nas tabelas.
+- **PC ligado é requisito.** Diferente do Cowork (que roda na nuvem com o PC
+  desligado), o Ollama é local. Como o worker já exige o PC ligado, na prática
+  não muda nada — mas é a diferença de desenho entre os dois.
+
+---
+
+## 8. Higiene do OneDrive
 
 `worker/` está dentro do OneDrive, então `token.json`, `tiktok_token.json` e
 `.env` — que carrega a `service_role` — sincronizam para a nuvem da Microsoft.

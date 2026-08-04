@@ -42,6 +42,68 @@ def criar_cliente(cfg: Config) -> Client:
     return create_client(cfg.supabase_url, cfg.supabase_service_role_key)
 
 
+# ============================================================ pauta local (R4)
+
+# Estados de um vídeo que ainda não passou pelo gate humano. É o que o produtor
+# de pauta local conta para não afogar a fila: pauta nova em cima de trabalho
+# que ninguém aprovou só empurra o gargalo, e o gargalo nunca foi renderizar.
+FILA_VIVA = ("na_fila", "renderizando", "aguardando_aprovacao")
+
+
+def inserir_pauta(
+    sb: Client,
+    org_id: str,
+    tema: str,
+    roteiro: str,
+    hook: str | None = None,
+    titulo: str | None = None,
+    descricao: str | None = None,
+) -> str:
+    """Insere uma pauta pronta de origem 'ollama'. Devolve o id.
+
+    `status` e `origem` são carimbados aqui, não recebidos: o produtor não
+    escolhe — é a mesma disciplina da `pauta_nova` do painel, que fixa os dois
+    no servidor. E é isso que o trigger `t_pautas_auto_enfileirar` espera para
+    enfileirar sozinho até o gate.
+
+    Campos opcionais só entram se vierem preenchidos: hook e título vazios são
+    legítimos (o postprocess não desenha a cartela; o YouTube cai para o tema).
+    """
+    linha: dict[str, Any] = {
+        "org_id": org_id,
+        "tema": tema,
+        "roteiro": roteiro,
+        "status": "pronta",
+        "origem": "ollama",
+    }
+    if hook:
+        linha["hook"] = hook
+    if titulo:
+        linha["titulo"] = titulo
+    if descricao:
+        linha["descricao"] = descricao
+
+    resposta = sb.table("pautas").insert(linha).execute()
+    return resposta.data[0]["id"]
+
+
+def contar_fila_viva(sb: Client, org_id: str) -> int:
+    """Vídeos desta org ainda não decididos pelo gate humano.
+
+    Filtra por org — ao contrário do `claim_proximo_video`, que atende a fila
+    inteira — porque o produtor local é de UM tenant: ele tem o `ORG_ID` do
+    `.env` e a pergunta é sobre a própria fila, não a do vizinho.
+    """
+    resposta = (
+        sb.table("videos")
+        .select("id", count="exact")
+        .eq("org_id", org_id)
+        .in_("status", list(FILA_VIVA))
+        .execute()
+    )
+    return int(resposta.count or 0)
+
+
 def claim_proximo_video(sb: Client, worker_id: str) -> dict[str, Any] | None:
     """Trava o próximo vídeo da fila para este worker.
 

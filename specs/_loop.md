@@ -9,6 +9,62 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 4 — Pauta local com Ollama + auto-enfileirar · 2026-08-03
+
+**Spec:** `specs/pauta-local-ollama.md`
+
+**Review:** ✅ aprovado, 20/20 critérios com evidência em linha. Portões:
+**322 testes do worker** (eram 298 — +24 de `test_pauta_local.py`) · RLS
+**29 ✅ / 0 ❌** (eram 26) · advisors de **performance** `No issues found` ·
+`next build` limpo, cinco rotas de app dinâmicas + proxy.
+
+**A única nota do advisor de segurança não é desta rodada:** um WARN
+`auth_leaked_password_protection` (checagem do HaveIBeenPwned desligada). É um
+toggle de dashboard do Auth, não sai de migration nenhuma, e é irrelevante aqui
+— o painel é magic link, sem senha. O que o critério 6 realmente cobra —
+"o trigger não pode reintroduzir `security definer` chamável por `authenticated`"
+— está cumprido: a função de trigger é `plpgsql` comum com `set search_path = ''`,
+sem `security definer`, e o advisor de performance (o que muda de schema toca) veio limpo.
+
+**A decisão da rodada: o auto-enfileirar é trigger, e é INSERT-only por causa de
+dois bugs concretos.** "Mudança de comportamento começa no schema" (CLAUDE.md):
+`t_pautas_auto_enfileirar` roda `AFTER INSERT` com
+`when (new.status = 'pronta' and new.origem in ('cowork','ollama'))` e cria o
+`videos.na_fila` no banco — o produtor (`pauta_local.py`) só escreve em `pautas`,
+nunca toca estado de vídeo (ADR-07 preservado). Fosse `UPDATE→pronta` apareceriam
+dois bugs: (a) o próprio `update ... 'em_producao'` logo abaixo re-dispararia o
+trigger em recursão; (b) `reprovar_video` devolve a pauta a `pronta` — em UPDATE,
+reprovar re-renderizaria sozinho e o gate humano viraria decoração. É a mesma
+regra de "falha de publicação vai para `erro`, não volta para `aprovado`". Pauta
+`manual` fica de fora do `when`: quem digitou já está no painel e aperta o botão.
+
+**O gate continua sendo o gate.** A corrente anda sozinha de `pronta` →
+`na_fila` → `renderizando` → `aguardando_aprovacao` e **para**. Aprovar e publicar
+seguem exigindo o humano (ADR-06). O "auto até o gate" que o dono escolheu.
+
+**Por que Ollama zera o token:** o Cowork era o único ponto do sistema que
+consumia uso do plano. `pauta_local.py` prompta um LLM local (grátis) e reusa
+`config.carregar()` — zero secret novo. Parser defensivo (fence de markdown,
+prosa em volta, objeto-único vs array; texto de LLM nunca `eval`/`exec`),
+backpressure inclusivo (`>= PAUTA_LOCAL_TETO`, não gera em cima de fila não
+aprovada) e POST sem retry (regra da casa "retry só em GET" — a tarefa agendada é
+a retentativa natural).
+
+**Correção durante o build:** o dublê `SessaoFake` usava `None` como sentinela de
+"não passei", colidindo com `corpo=None` de propósito — o teste do body não-JSON
+caía no ramo errado. Trocado por um sentinela `_AUSENTE`. 1 vermelho → 322 verdes.
+
+**Commit:** `feat: pauta local com Ollama + auto-enfileirar (rodada 4)` na branch
+`rodada-4-pauta-local-ollama`.
+
+**Pendente de decisão:** nenhuma no código. Passos humanos (não viram rodada, vão
+para `specs/_manual.md`): instalar o Ollama + `ollama pull`, e agendar o gerador.
+
+**Próximo item recomendado:** relatório de sexta local com Ollama (§9) — fecha a
+última dependência de token do Cowork; é `SELECT` + texto, mais barato que a pauta.
+
+---
+
 ## Rodada 3 — Pauta manual, a fila ganha um produtor (item 13) · 2026-08-02
 
 **Spec:** `specs/pauta-manual.md`

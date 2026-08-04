@@ -115,7 +115,7 @@ create table public.pautas (
   status       text not null default 'rascunho'
                check (status in ('rascunho','pronta','em_producao','consumida','descartada')),
   prioridade   int not null default 0,
-  origem       text default 'cowork',     -- cowork | manual
+  origem       text default 'cowork',     -- cowork | manual | ollama (check desde a Rodada 4)
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
@@ -330,6 +330,15 @@ dentro de um formulário web que ninguém revisa em diff.
 ## 4. O que você faz no COWORK
 
 Cowork = **camada de decisão**. Roda remoto, agendado, com o PC desligado. Nunca toca arquivo local.
+
+**A pauta de segunda ganhou um irmão local na Rodada 4.** O Cowork é o único
+ponto do sistema que consome uso do plano; `worker/pauta_local.py` faz o mesmo
+trabalho com um LLM local (Ollama), de graça e offline, e quem escolhe entre os
+dois é o dono (`specs/_manual.md` § 7). Os dois escrevem em `pautas` e param aí —
+o vídeo nasce do trigger `t_pautas_auto_enfileirar`, não do produtor, e o gate
+humano continua sendo o gate. O produtor local troca "PC desligado" por "sem
+token"; como o worker já exige o PC ligado, o custo real é a qualidade do hook,
+que num modelo pequeno é mais fraca. O relatório de sexta segue só no Cowork.
 
 **Os dois prompts saíram deste arquivo e viraram `cowork/*.md`.** Ficaram aqui
 até a Rodada 3 como esboço; foram para arquivo próprio quando passaram a citar
@@ -1089,7 +1098,8 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 ## 9. Backlog (não fazer agora)
 
 - MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) → controle por linguagem natural pelo celular. Pluga em cima do que já existe, sem retrabalho.
-- Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e reprova os de legenda cortada".
+- Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e reprova os de legenda cortada". **É o caminho sancionado para mais autonomia:** um QC automático que reprova o quebrado, não um auto-aprovar às cegas — o gate deixa de ser humano sem cegar o pipeline.
+- **Relatório de sexta local com Ollama.** A Rodada 4 trocou a *pauta* de segunda do Cowork por um produtor local (`worker/pauta_local.py`) — zerou o token na produção de pauta. O relatório ainda roda no Cowork; movê-lo para o Ollama fecha a última dependência de token. É `SELECT` + texto, então a qualidade importa menos que na pauta — candidato bom para a próxima rodada.
 - Auditoria do TikTok Content Posting API (2–4 semanas) para liberar direct post público.
 - Aumento de cota do YouTube via formulário de audit.
 - Segundo canal / multi-tenant real (o schema já suporta).

@@ -80,6 +80,20 @@ class Config:
     # informação, porque quem escreve é uma thread e não o loop.
     batimento_seg: int = 60
 
+    # Pauta local com Ollama (Rodada 4). O produtor de pauta roda no PC ao lado
+    # do worker e substitui o Cowork da pauta de segunda — zerando a última
+    # dependência de token do sistema. Tudo com padrão: a instalação sobe
+    # funcionando contra um Ollama local no porto de sempre.
+    #
+    # `identidade` aponta para o arquivo que o § 4 manda o produtor ler antes de
+    # escrever a primeira linha. Fica na RAIZ do repo (memory/), fora de worker/,
+    # porque o Cowork também o lê pelo Drive — é a única cópia da voz da marca.
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1"
+    pauta_local_n: int = 15
+    pauta_local_teto: int = 20
+    identidade: Path = RAIZ.parent / "memory" / "00_IDENTIDADE.md"
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -200,6 +214,14 @@ def carregar(env_path: Path | None = None) -> Config:
     # continuar renderizando e publicando no YouTube nesse meio-tempo.
     tiktok_token = _caminho("TIKTOK_TOKEN", RAIZ / "tiktok_token.json")
 
+    # Ollama: mesmo tratamento do MPT_URL — tira a barra do fim e exige http(s).
+    # O modelo é validado só como texto: se ele não estiver puxado (`ollama pull`),
+    # quem reclama, com instrução, é o `pauta_local.py` na hora de gerar — do
+    # mesmo jeito que o OAuth do YouTube não é pré-requisito do loop.
+    ollama_url = _texto("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+    if not ollama_url.startswith(("http://", "https://")):
+        raise ConfigInvalida("OLLAMA_URL precisa começar com http:// ou https://.")
+
     return Config(
         supabase_url=url,
         supabase_service_role_key=chave,
@@ -225,4 +247,9 @@ def carregar(env_path: Path | None = None) -> Config:
         tiktok_client_secret=_texto("TIKTOK_CLIENT_SECRET", ""),
         tiktok_redirect_uri=_texto("TIKTOK_REDIRECT_URI", ""),
         batimento_seg=_inteiro("BATIMENTO_SEG", 60),
+        ollama_url=ollama_url,
+        ollama_model=_texto("OLLAMA_MODEL", "llama3.1"),
+        pauta_local_n=_inteiro("PAUTA_LOCAL_N", 15),
+        pauta_local_teto=_inteiro("PAUTA_LOCAL_TETO", 20),
+        identidade=_caminho("IDENTIDADE_PATH", RAIZ.parent / "memory" / "00_IDENTIDADE.md"),
     )
