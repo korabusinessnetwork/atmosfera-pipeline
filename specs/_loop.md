@@ -9,6 +9,59 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 15 — Editar pauta pelo painel (conteúdo de uma pronta) · 2026-08-04
+
+**Spec:** `specs/editar-pauta.md`
+
+**Review:** ✅ aprovado sem ressalvas, 8/8 com evidência. Portões: **`next build`
+verde** + TypeScript ok · **435 testes do worker** intactos (`worker/` não tocado) ·
+`rls_test.sql` **41 casos** (00–40, era 36), case 02 **segue 11** (sem política nova).
+
+**O que entrou:** em cada pauta pronta de `/pautas`, um `<details>` **Editar**
+pré-preenchido (`FormularioDeEdicao`) → server action `editarPauta` → RPC
+`editar_pauta` (SECURITY INVOKER, `for update`, edita só `tema/roteiro/hook/titulo/
+descricao` de uma `pronta`, P0001/P0002/22023). A guarda é o trigger
+`t_pautas_guarda_edicao` (BEFORE UPDATE, `when` conteúdo mudou). Migration
+`20260804170000_editar_pauta.sql` (grant de coluna + trigger + RPC; **nenhuma política
+nova**). `Campo`/`CLASSE_CAMPO` saíram de `FormularioDePauta` para `CamposDePauta.tsx`
+(criar e editar compartilham). Fecha o item "editar e descartar" do § 9 (descartar foi
+R14).
+
+**Decisões:** trigger de novo, pela ressalva da R14 — mas a correlação aqui é
+old-status × *qual coluna mudou* (não old×new-status). O `when` do trigger compara
+`new.col is distinct from old.col` das 5 colunas de conteúdo, o que deixa
+enfileirar/reprovar (status-only) passarem sem exceção explícita. Editar só de
+`pronta`: em_producao tem render rodando com o texto atual (cancelar-render é do
+worker). Casos 36–40 provam: edição de pronta passa, em_producao é barrada até no
+PATCH cru, org alheia (P0002) e branco (22023) recusados.
+
+**Aprendido:** (1) RPC SECURITY INVOKER **ainda precisa do GRANT de coluna** — roda
+com o privilégio de quem chama; encapsular a lógica não encapsula o privilégio. (2) a
+correlação da R14 tem uma segunda forma (estado × coluna-alterada), e a técnica
+reutilizável é o `when` do trigger comparando `is distinct from` das colunas guardadas.
+Em `specs/editar-pauta.md` § 9.
+
+**Desvio menor:** o `<details>` Editar ficou entre enfileirar e descartar (spec dizia
+"acima de ambos") — enfileirar (primária) no topo, descartar (destrutiva) por último.
+
+**Commit:** `6750d75` na branch `main` (push direto autorizado). Ledger em commit
+separado. Nota no vault: `2026-08-04-6750d75.md`.
+
+**Pendente de decisão:** nenhuma. Passos humanos acumulados (não bloqueiam): aplicar as
+migrations pendentes — R11 `20260804150153_metricas_youtube.sql`, R14
+`20260804160000_descartar_pauta.sql`, R15 `20260804170000_editar_pauta.sql` — e rodar
+`advisors --linked` + `rls_test.sql` (alvo 41 ✅). O sandbox não alcança o Supabase.
+
+**Próximo item recomendado:** as rodadas não-manuais de conteúdo do painel acabaram —
+criar, enfileirar, aprovar, reprovar, descartar e editar cobrem o uso normal. O que
+resta é **QC automático dos pendentes** (§ 9, "caminho sancionado para mais
+autonomia": revisor em lote que reprova legenda cortada) — mas mexe na integridade do
+gate humano, que o `CLAUDE.md` marca como inegociável, então é decisão do dono; ou
+**fine-tuning (LoRA)**, que depende de `metricas` cheia (migrations aplicadas + tempo
+coletando). Ambos param no dono.
+
+---
+
 ## Rodada 14 — Descartar pauta pelo painel (pronta → descartada) · 2026-08-04
 
 **Spec:** `specs/descartar-pauta.md`
