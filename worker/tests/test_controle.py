@@ -71,3 +71,20 @@ def test_cor_por_codigo_de_saude():
 
 def test_cor_codigo_desconhecido_e_cinza():
     assert c.cor_do_veredito(99) == c.CINZA
+
+
+# ---------------------------------------------------------- _rgb / _mistura
+def test_rgb_desmonta_hex():
+    assert c._rgb("#ffffff") == (255, 255, 255)
+    assert c._rgb("#000000") == (0, 0, 0)
+    assert c._rgb("#58a6ff") == (0x58, 0xA6, 0xFF)
+
+
+def test_mistura_pesos_extremos():
+    # peso 0 = fundo puro; peso 1 = cor pura.
+    assert c._mistura("#ffffff", "#000000", 0.0) == "#000000"
+    assert c._mistura("#ffffff", "#000000", 1.0) == "#ffffff"
+
+
+def test_mistura_meio_a_meio():
+    assert c._mistura("#ffffff", "#000000", 0.5) == "#808080"

@@ -26,18 +26,6 @@ from typing import Any
 
 TAREFA = "Atmosfera Worker"
 
-# Ordem do ciclo de vida (ATMOSFERA_PIPELINE.md § 1). O gate humano é o único
-# estágio destacado: é onde a corrente para de propósito e espera uma pessoa.
-ESTAGIOS = [
-    ("na_fila", "Na fila"),
-    ("renderizando", "Renderizando"),
-    ("aguardando_aprovacao", "Aguardando aprovação"),
-    ("aprovado", "Aprovado"),
-    ("reprovado", "Reprovado"),
-    ("publicando", "Publicando"),
-    ("publicado", "Publicado"),
-    ("erro", "Erro"),
-]
 GATE = "aguardando_aprovacao"
 
 # Sondagem curta: um serviço lento não pode congelar a janela.
@@ -53,6 +41,20 @@ LARANJA = "#d29922"
 VERMELHO = "#f85149"
 CINZA = "#6e7681"
 AZUL = "#58a6ff"
+ROXO = "#a371f7"
+
+# A espinha do fluxo desenhada no painel: (status, rótulo, cor de acento). São os
+# 6 estágios do caminho feliz, na ordem em que um vídeo os percorre. Os ramos que
+# saem da esteira — reprovado, erro — e as pautas na entrada viram chips no rodapé,
+# para a espinha ficar limpa e legível de relance no celular.
+FLUXO = [
+    ("na_fila", "Na fila", AZUL),
+    ("renderizando", "Renderizando", LARANJA),
+    ("aguardando_aprovacao", "Aprovação — você decide", ROXO),
+    ("aprovado", "Aprovado", VERDE),
+    ("publicando", "Publicando", LARANJA),
+    ("publicado", "Publicado", VERDE),
+]
 
 # Windows: rodar subprocess sem piscar console.
 _SEM_JANELA = 0x08000000 if sys.platform == "win32" else 0
@@ -334,6 +336,18 @@ def rodar_status() -> int:
 # ------------------------------------------------------------------- GUI
 
 
+def _rgb(hexcor: str) -> tuple[int, int, int]:
+    h = hexcor.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _mistura(cor: str, fundo: str, peso: float) -> str:
+    """Mistura `cor` sobre `fundo` com `peso` (0..1). Para tingir nó ativo de leve."""
+    a, b = _rgb(cor), _rgb(fundo)
+    m = tuple(round(b[i] + (a[i] - b[i]) * peso) for i in range(3))
+    return f"#{m[0]:02x}{m[1]:02x}{m[2]:02x}"
+
+
 def abrir_janela() -> int:
     """Monta e roda a janela Tkinter. Import de Tk aqui dentro: o modo --status
     e os testes não precisam de display."""
@@ -355,105 +369,125 @@ def abrir_janela() -> int:
     raiz = tk.Tk()
     raiz.title("Atmosfera — Controle")
     raiz.configure(bg=BG)
-    raiz.minsize(420, 560)
+    raiz.minsize(360, 620)
 
     estado_atual: dict[str, Estado | None] = {"e": None}
     ocupado = {"v": False}
+    fase = {"p": True}   # alterna a cada tique para pulsar o estágio ativo
 
     def fonte(tam: int, negrito: bool = False) -> tuple:
         return ("Segoe UI", tam, "bold" if negrito else "normal")
 
-    # ---- cabeçalho: estado do worker + botão liga/pausa
-    topo = tk.Frame(raiz, bg=CARD, padx=16, pady=14)
-    topo.pack(fill="x", padx=12, pady=(12, 6))
+    # ================= topo: um cartão só, estado + botão gigante =========
+    topo = tk.Frame(raiz, bg=CARD)
+    topo.pack(fill="x", padx=12, pady=(12, 8))
 
-    lbl_titulo = tk.Label(topo, text="Worker", bg=CARD, fg=FRACO, font=fonte(10))
-    lbl_titulo.pack(anchor="w")
-    lbl_estado = tk.Label(topo, text="…", bg=CARD, fg=FG, font=fonte(18, True))
-    lbl_estado.pack(anchor="w", pady=(2, 10))
+    lbl_estado = tk.Label(topo, text="…", bg=CARD, fg=FG, font=fonte(22, True))
+    lbl_estado.pack(anchor="w", padx=16, pady=(14, 2))
+    lbl_batimento = tk.Label(
+        topo, text="", bg=CARD, fg=FRACO, font=fonte(9), wraplength=320, justify="left"
+    )
+    lbl_batimento.pack(anchor="w", padx=16, pady=(0, 12))
 
     botao = tk.Button(
-        topo,
-        text="…",
-        font=fonte(13, True),
-        relief="flat",
-        cursor="hand2",
-        padx=14,
-        pady=8,
+        topo, text="…", font=fonte(15, True), relief="flat", cursor="hand2",
+        bd=0, activeforeground=BG, pady=14,
     )
-    botao.pack(fill="x")
+    botao.pack(fill="x", padx=16, pady=(0, 16))
 
-    lbl_batimento = tk.Label(
-        topo, text="", bg=CARD, fg=FRACO, font=fonte(9), wraplength=360, justify="left"
-    )
-    lbl_batimento.pack(anchor="w", pady=(10, 0))
+    # ================= a esteira (Canvas desenhado) =======================
+    canvas = tk.Canvas(raiz, bg=BG, highlightthickness=0, height=380)
+    canvas.pack(fill="both", expand=True, padx=12)
 
-    # ---- dependências
-    deps = tk.Frame(raiz, bg=CARD, padx=16, pady=12)
-    deps.pack(fill="x", padx=12, pady=6)
-    tk.Label(deps, text="Dependências", bg=CARD, fg=FRACO, font=fonte(10)).pack(anchor="w")
-    linha_deps = tk.Frame(deps, bg=CARD)
-    linha_deps.pack(anchor="w", pady=(6, 0))
+    def desenhar_esteira(e: Estado | None) -> None:
+        canvas.delete("all")
+        # winfo_width() é 1 antes do primeiro mapeamento — o <Configure> redesenha
+        # com a largura real assim que a janela aparece; até lá, um padrão sensato.
+        largura = canvas.winfo_width()
+        if largura < 50:
+            largura = 336
+        x1, x2 = 6, largura - 6
+        col = x1 + 26                       # coluna dos pontos e conectores
+        topo_y, alt, gap = 6, 48, 18
+        centros = [topo_y + alt / 2 + i * (alt + gap) for i in range(len(FLUXO))]
+
+        # conectores primeiro, para os nós ficarem por cima
+        for i in range(len(FLUXO) - 1):
+            n_prox = (e.fila.get(FLUXO[i + 1][0], 0) if e and e.supabase else 0)
+            cor = FLUXO[i + 1][2] if n_prox else "#262c36"
+            canvas.create_line(col, centros[i] + alt / 2, col, centros[i + 1] - alt / 2,
+                               fill=cor, width=3)
+
+        for i, (chave, rotulo, accent) in enumerate(FLUXO):
+            n = e.fila.get(chave, 0) if (e and e.supabase) else None
+            tem = bool(n)
+            cy = centros[i]
+            y1, y2 = cy - alt / 2, cy + alt / 2
+            gate = chave == GATE
+            ativo = chave == "renderizando" and tem
+
+            # fundo do nó: tinge de leve quando tem item; pulsa quando renderiza
+            if ativo:
+                fundo = _mistura(accent, CARD, 0.42 if fase["p"] else 0.22)
+            elif tem:
+                fundo = _mistura(accent, CARD, 0.16)
+            else:
+                fundo = CARD
+            borda = accent if tem else "#262c36"
+            larg_borda = 3 if (gate and tem) or ativo else 1
+            _rrect(canvas, x1, y1, x2, y2, 12, fill=fundo, outline=borda, width=larg_borda)
+
+            canvas.create_oval(col - 6, cy - 6, col + 6, cy + 6,
+                               fill=accent if tem else "#30363d", outline="")
+            canvas.create_text(col + 22, cy - 8 if gate else cy, anchor="w",
+                               text=rotulo, fill=FG if tem else FRACO,
+                               font=fonte(11, tem or gate))
+            if gate:
+                canvas.create_text(col + 22, cy + 10, anchor="w",
+                                   text="toque/aprovado no celular",
+                                   fill=ROXO, font=fonte(8))
+            canvas.create_text(x2 - 18, cy, anchor="e",
+                               text=("—" if n is None else str(n)),
+                               fill=accent if tem else FRACO, font=fonte(20, True))
+
+    # ================= rodapé: deps + chips + carimbo =====================
+    rodape = tk.Frame(raiz, bg=CARD)
+    rodape.pack(fill="x", padx=12, pady=(8, 12))
+
+    linha_deps = tk.Frame(rodape, bg=CARD)
+    linha_deps.pack(anchor="w", padx=16, pady=(12, 4))
     pontos: dict[str, tk.Label] = {}
     for chave, rotulo in (("ollama", "Ollama"), ("mpt", "MPT"), ("supabase", "Supabase")):
         cel = tk.Frame(linha_deps, bg=CARD)
-        cel.pack(side="left", padx=(0, 16))
-        p = tk.Label(cel, text="●", bg=CARD, fg=CINZA, font=fonte(12))
+        cel.pack(side="left", padx=(0, 14))
+        p = tk.Label(cel, text="●", bg=CARD, fg=CINZA, font=fonte(11))
         p.pack(side="left")
-        tk.Label(cel, text=rotulo, bg=CARD, fg=FG, font=fonte(10)).pack(side="left", padx=(4, 0))
+        tk.Label(cel, text=rotulo, bg=CARD, fg=FG, font=fonte(10)).pack(side="left", padx=(3, 0))
         pontos[chave] = p
-
     botao_mpt = tk.Button(
-        deps, text="Subir MPT", font=fonte(10), relief="flat", cursor="hand2",
-        bg="#30363d", fg=FG, padx=10, pady=4,
+        linha_deps, text="▶ subir", font=fonte(9, True), relief="flat", cursor="hand2",
+        bd=0, bg=LARANJA, fg=BG, padx=8,
     )
-    lbl_footage = tk.Label(deps, text="", bg=CARD, fg=AZUL, font=fonte(9))
-    lbl_footage.pack(anchor="w", pady=(8, 0))
 
-    # ---- fluxo da fila
-    fluxo = tk.Frame(raiz, bg=CARD, padx=16, pady=12)
-    fluxo.pack(fill="both", expand=True, padx=12, pady=6)
-    tk.Label(fluxo, text="Fluxo da fila", bg=CARD, fg=FRACO, font=fonte(10)).pack(anchor="w", pady=(0, 6))
-    linhas_fluxo: dict[str, tk.Label] = {}
-    for chave, rotulo in ESTAGIOS:
-        row = tk.Frame(fluxo, bg=CARD)
-        row.pack(fill="x", pady=1)
-        destaque = chave == GATE
-        marca = "  ⟵ gate humano" if destaque else ""
-        tk.Label(
-            row, text=rotulo + marca, bg=CARD,
-            fg=(AZUL if destaque else FG), font=fonte(11, destaque),
-        ).pack(side="left")
-        val = tk.Label(row, text="—", bg=CARD, fg=FG, font=fonte(11, True))
-        val.pack(side="right")
-        linhas_fluxo[chave] = val
-    lbl_pautas = tk.Label(fluxo, text="", bg=CARD, fg=FRACO, font=fonte(9))
-    lbl_pautas.pack(anchor="w", pady=(8, 0))
+    lbl_chips = tk.Label(rodape, text="", bg=CARD, fg=FRACO, font=fonte(9))
+    lbl_chips.pack(anchor="w", padx=16, pady=(0, 2))
+    lbl_quando = tk.Label(rodape, text="", bg=CARD, fg=FRACO, font=fonte(8))
+    lbl_quando.pack(anchor="w", padx=16, pady=(0, 12))
 
-    # ---- rodapé
-    rodape = tk.Frame(raiz, bg=BG)
-    rodape.pack(fill="x", padx=12, pady=(0, 12))
-    lbl_quando = tk.Label(rodape, text="", bg=BG, fg=FRACO, font=fonte(8))
-    lbl_quando.pack(side="left")
-    tk.Button(
-        rodape, text="Atualizar", font=fonte(9), relief="flat", cursor="hand2",
-        bg="#30363d", fg=FG, padx=8, command=lambda: disparar_refresh(),
-    ).pack(side="right")
-
-    # ---- render do estado na tela
+    # ================= pintura ============================================
     def pintar(e: Estado) -> None:
         estado_atual["e"] = e
         rotulos = {
-            "Running": ("no ar", VERDE, "Pausar sistema", VERMELHO),
-            "Ready": ("parado (habilitado)", LARANJA, "Ligar sistema", VERDE),
-            "Disabled": ("pausado", CINZA, "Ligar sistema", VERDE),
-            "ausente": ("tarefa não registrada", VERMELHO, "—", CINZA),
-            "?": ("desconhecido", CINZA, "Ligar sistema", VERDE),
+            "Running": ("● NO AR", VERDE, "❚❚  Pausar sistema", VERMELHO),
+            "Ready": ("parado", LARANJA, "▶  Ligar sistema", VERDE),
+            "Disabled": ("pausado", CINZA, "▶  Ligar sistema", VERDE),
+            "ausente": ("não registrado", VERMELHO, "—", CINZA),
+            "?": ("?", CINZA, "▶  Ligar sistema", VERDE),
         }
         texto, cor, acao, cor_botao = rotulos.get(e.tarefa, rotulos["?"])
         lbl_estado.config(text=texto, fg=cor)
         if e.tarefa == "ausente":
-            botao.config(text="registrar worker primeiro", state="disabled", bg=CINZA, fg=BG)
+            botao.config(text="registre o worker primeiro", state="disabled", bg=CINZA, fg=BG)
         else:
             botao.config(text=acao, state="normal", bg=cor_botao, fg=BG)
         lbl_batimento.config(text=e.veredito_frase, fg=e.veredito_cor)
@@ -461,28 +495,22 @@ def abrir_janela() -> int:
         for chave, valor in (("ollama", e.ollama), ("mpt", e.mpt), ("supabase", e.supabase)):
             pontos[chave].config(fg=VERDE if valor else VERMELHO)
         if e.mpt is False:
-            botao_mpt.pack(anchor="w", pady=(10, 0))
+            botao_mpt.pack(side="left", padx=(6, 0))
         else:
             botao_mpt.pack_forget()
-        lbl_footage.config(text=f"Footage: {e.footage}")
 
-        for chave, _ in ESTAGIOS:
-            n = e.fila.get(chave, 0)
-            val = linhas_fluxo[chave]
-            val.config(text=str(n) if e.supabase else "—")
-            if chave == "erro" and n:
-                val.config(fg=VERMELHO)
-            elif chave == GATE and n:
-                val.config(fg=AZUL)
-            else:
-                val.config(fg=FG)
-        lbl_pautas.config(
-            text=(f"{e.pautas_prontas} pautas prontas na esteira" if e.supabase else "")
-        )
-        if e.aviso:
-            lbl_quando.config(text=f"{e.aviso}")
+        if e.supabase:
+            rep, err = e.fila.get("reprovado", 0), e.fila.get("erro", 0)
+            partes = [f"Pautas prontas: {e.pautas_prontas}", f"Reprovado: {rep}"]
+            if err:
+                partes.append(f"⚠ Erro: {err}")
+            lbl_chips.config(text="   ·   ".join(partes), fg=VERMELHO if err else FRACO)
+            lbl_quando.config(text=f"footage: {e.footage}   ·   atualiza sozinho · {e.quando}")
         else:
-            lbl_quando.config(text=f"Atualizado às {e.quando}")
+            lbl_chips.config(text=e.aviso, fg=LARANJA)
+            lbl_quando.config(text=f"footage: {e.footage}")
+
+        desenhar_esteira(e)
 
     # ---- refresh assíncrono (I/O fora da thread do Tk)
     def disparar_refresh() -> None:
@@ -494,6 +522,15 @@ def abrir_janela() -> int:
     def agendar() -> None:
         disparar_refresh()
         raiz.after(5000, agendar)
+
+    def pulsar() -> None:
+        # Só a esteira redesenha, e só quando há algo renderizando — dá vida ao
+        # "acontecendo" sem gastar redesenho quando nada se move.
+        fase["p"] = not fase["p"]
+        e = estado_atual["e"]
+        if e and e.supabase and e.fila.get("renderizando", 0):
+            desenhar_esteira(e)
+        raiz.after(650, pulsar)
 
     # ---- ações de controle (subprocess fora da thread do Tk)
     def acao_toggle() -> None:
@@ -528,10 +565,21 @@ def abrir_janela() -> int:
 
     botao.config(command=acao_toggle)
     botao_mpt.config(command=acao_mpt)
+    canvas.bind("<Configure>", lambda _e: (estado_atual["e"] and desenhar_esteira(estado_atual["e"])))
 
     agendar()
+    pulsar()
     raiz.mainloop()
     return 0
+
+
+def _rrect(cv, x1, y1, x2, y2, r, **kw):
+    """Retângulo de cantos arredondados no Canvas (create_polygon suavizado)."""
+    pontos = [
+        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+        x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+    ]
+    return cv.create_polygon(pontos, smooth=True, **kw)
 
 
 def main() -> int:
