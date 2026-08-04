@@ -45,6 +45,16 @@ levantar `TypeError`. `sorted` estável mantém a ordem de geração no empate.
 **Padrão reforçado (Rodada 6):** `_booleano` nasceu como helper puro testável, pela
 mesma razão que `_fonte_video` — `carregar()` inteiro depende do ambiente.
 
+**Próximo item recomendado:** Relatório de sexta local com Ollama (backlog § 9) —
+é a última dependência de token do plano; move o `SELECT` + texto do Cowork para o
+mesmo Ollama local que a Rodada 4 já trouxe, de graça e sem passo humano.
+
+**Ressalva honesta:** o sistema está inteiro construído e **nunca publicou um
+vídeo**. Todos os itens `[ ]` restantes do § 8 são passos SEUS (OAuth do YouTube/
+TikTok, deploy na Vercel, registrar o worker, tarefas do Cowork) — código nenhum
+os destrava. Mais uma rodada de código pole um pipeline que nunca rodou ponta a
+ponta até uma plataforma real.
+
 ---
 
 ## Rodada 6 — Footage variado via Pexels · 2026-08-04
