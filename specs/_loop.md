@@ -9,6 +9,51 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 13 — Gerador de pauta consome a métrica (few-shot dos vencedores) · 2026-08-04
+
+**Spec:** `specs/consumir-metrica-gerador.md`
+
+**Review:** ✅ aprovado sem ressalvas, 10/10 com evidência. Portões: **435 testes do
+worker** (eram 421: +14 em `test_pauta_local.py`/`test_config.py`) · **nenhuma
+migration** (leitura pura) · RLS/schema intactos.
+
+**O que entrou:** o gerador local (`pauta_local.py`) injeta os hooks de maior
+retenção real (`db.hooks_por_retencao`, o mesmo embed da R12) como bloco few-shot de
+"vencedores comprovados" no prompt de geração — `formatar_vencedores` (achata +
+filtra) e `montar_bloco_vencedores` (monta o bloco; vazio → ""). Fecha o loop: R12
+fez o relatório ler retenção, R13 faz o gerador ler. Nova config
+`PAUTA_LOCAL_VENCEDORES` (default 5).
+
+**Decisões:** few-shot é o ÚNICO caminho da métrica para o gerador — o juiz pontua
+candidatos recém-nascidos, sem retenção; a métrica só entra como exemplo, nunca como
+nota. Não contradiz a R7 ("inferência não faz aprender"): few-shot é contexto, não
+treino. Número da tabela, determinístico. Degrada em dois níveis: métrica vazia →
+bloco vazio (prompt idêntico ao de antes); leitura que LEVANTA (a tabela `metricas`
+pode não existir — migration da R11 ainda pendente) → WARNING e segue.
+
+**Corrigido sozinho (na review):** filtro de `formatar_vencedores` passou de
+`retencao is not None` para `retencao > 0` — o coletor grava `0.0` (não null) para
+vídeo recém-publicado sem dado da Analytics, e um hook de 0% viraria "vencedor" no
+few-shot, ensinando pelo avesso.
+
+**Aprendido:** (1) `0.0` na `metricas` não é "sem dado" — é "ninguém reteve"; todo
+consumidor da tabela deve filtrar por retenção **positiva**, não por presença;
+(2) few-shot é o único caminho da métrica para o gerador (o juiz não serve). Em
+`specs/consumir-metrica-gerador.md` § 9.
+
+**Commit:** `85fe5ef` na branch `main` (push direto autorizado). Nota no vault:
+`2026-08-04-85fe5ef.md`.
+
+**Próximo item recomendado:** **acumular histórico de métrica + fine-tuning (LoRA)** —
+com os dois consumidores lendo retenção, o próximo salto não é mais um leitor, é
+mudar os pesos: treinar um adaptador sobre os hooks que performaram. Depende de
+`metricas` cheia (migration aplicada + tempo rodando o coletor), então é meio manual
+meio código — provavelmente entra depois que o dono aplicar o item 14b e o histórico
+acumular. Alternativa 100% não-manual agora: **editar/descartar pauta pelo painel**
+(§ 9 do doc mestre), que não depende de nenhum passo humano pendente.
+
+---
+
 ## Rodada 12 — Relatório de sexta consome a métrica (retenção) · 2026-08-04
 
 **Spec:** `specs/consumir-metrica-relatorio.md`
