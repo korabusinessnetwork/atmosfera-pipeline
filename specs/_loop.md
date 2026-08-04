@@ -9,6 +9,48 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 14 — Descartar pauta pelo painel (pronta → descartada) · 2026-08-04
+
+**Spec:** `specs/descartar-pauta.md`
+
+**Review:** ✅ aprovado sem ressalvas, 8/8 com evidência. Portões: **`next build`
+verde** + TypeScript ok · **435 testes do worker** intactos (`worker/` não tocado) ·
+`rls_test.sql` **36 casos** (00–35, era 32), case 02 = **11 políticas**.
+
+**O que entrou:** botão **Descartar** em `/pautas` (`BotaoDescartar`, confirmação em
+dois toques) → server action `descartarPauta` → RPC `descartar_pauta` (SECURITY
+INVOKER, `for update`, só `pronta → descartada`, P0001/P0002). A guarda da transição
+é o trigger `t_pautas_guarda_descarte` (BEFORE UPDATE), não a política. `descartada`
+é terminal (fora de todo USING). Migration `20260804160000_descartar_pauta.sql`.
+
+**Decisões:** trigger, não política, porque política de UPDATE não correlaciona
+old×new — o USING vê a linha antiga, o WITH CHECK a nova, e permissivas somam por OR;
+`pautas_producao` (USING aceita `em_producao`) + `pautas_descartar` (WITH CHECK aceita
+`descartada`) deixariam `em_producao→descartada` escapar. O trigger vê OLD e NEW e
+fecha, inclusive no PATCH cru. Casos 32–35 provam: happy path pela RPC, guarda do
+`em_producao`, terminal (0 linhas ao ressuscitar), org alheia (P0002).
+
+**Aprendido:** (1) o lema "o gate é a política" (Sprint 6) só vale para tabela com
+**uma** transição (como `videos_gate`); quando o conjunto de estados-de-origem legais
+varia por estado-de-destino, o guarda é trigger, não política. (2) terminal = ausência
+do USING, não presença de uma trava. Em `specs/descartar-pauta.md` § 9.
+
+**Commit:** `4621353` na branch `main` (push direto autorizado). Ledger em commit
+separado. Nota no vault: `2026-08-04-4621353.md`.
+
+**Pendente de decisão:** nenhuma. Passos humanos acumulados (não bloqueiam): aplicar
+a migration da R14 (`20260804160000`) + a da R11 (`20260804150153_metricas_youtube.sql`),
+rodar `advisors --linked` e `rls_test.sql` (alvo 36 ✅) — o sandbox não alcança o
+Supabase. Ver `specs/_manual.md`.
+
+**Próximo item recomendado:** **editar pauta pelo painel** — última metade do item
+"editar e descartar" do § 9; abre "e se já estiver `em_producao`?", uma máquina de
+estados nova (decisão de produto, provável parada no `/spec`). Alternativa 100%
+não-manual e mais rasa: **QC automático dos pendentes** (§ 9, backlog) — um revisor em
+lote que reprova legenda cortada, sem tocar schema.
+
+---
+
 ## Rodada 13 — Gerador de pauta consome a métrica (few-shot dos vencedores) · 2026-08-04
 
 **Spec:** `specs/consumir-metrica-gerador.md`
