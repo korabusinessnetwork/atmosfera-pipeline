@@ -1176,6 +1176,14 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   de verdade (LoRA sobre hooks que performaram) precisa **desta tabela cheia**;
   a coleta existe e os dois consumidores já leem — agora é acumular histórico para
   poder treinar. Esse é o próximo salto de qualidade, não mais um consumidor.
-- Editar e descartar pauta pelo painel. Criar e enfileirar fecham o uso normal;
-  editar abre "e se já estiver `em_producao`?", que é uma máquina de estados
-  nova, não um formulário a mais.
+- ~~Editar e descartar pauta pelo painel.~~ **Descartar FEITO na Rodada 14**
+  (`descartar_pauta` + `BotaoDescartar` + trigger `t_pautas_guarda_descarte`): o
+  botão em `/pautas` leva `pronta → descartada` (terminal), com confirmação em dois
+  toques. A rodada mostrou uma ressalva ao lema "o gate é a política" da Sprint 6:
+  a transição `pronta → descartada` **permitida** enquanto `em_producao → descartada`
+  é **barrada** é uma correlação entre o estado antigo e o novo, e política de
+  UPDATE não pareia os dois lados (USING vê o antigo, WITH CHECK vê o novo, nunca
+  juntos; permissivas somam por OR). Quem pareia é um trigger BEFORE UPDATE — o
+  gate segue no banco, só que via trigger, não política. **Editar continua fora:**
+  abre "e se já estiver `em_producao`?", que é máquina de estados nova, não um
+  formulário a mais.

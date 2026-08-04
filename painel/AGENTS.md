@@ -31,8 +31,9 @@ Custa caro reaprender:
 - **Server Action é um POST alcançável direto.** Toda action confere a sessão
   dentro dela — o proxy protege URLs, e action não é URL.
 - **Transição de estado é do banco.** O painel só chama `aprovar_video`,
-  `reprovar_video` e `enfileirar_pauta`. `update` direto em `videos.status` é
-  recusado pela política e não deve ser tentado.
+  `reprovar_video`, `enfileirar_pauta` e `descartar_pauta`. `update` direto em
+  `videos.status`/`pautas.status` é recusado pela política (e, no caso do
+  descarte, pelo trigger `t_pautas_guarda_descarte`) e não deve ser tentado.
 - **Mensagem de erro é escrita à mão.** `traduzir()` em `app/acoes.ts` mapeia
   SQLSTATE para uma frase; `error.message` do PostgREST nunca vai para a tela.
 - Mobile-first de verdade: alvo de toque com no mínimo 48px de altura, navegação

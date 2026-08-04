@@ -34,6 +34,13 @@
 -- só a sua org, o worker escreve com service_role, e ninguém logado escreve nem o
 -- anônimo lê (inflar a própria retenção transformaria em ficção o dado que decide
 -- a pauta).
+-- Os 32–35 são o descarte de pauta (Rodada 14): pronta -> descartada, terminal. A
+-- pergunta é uma sexta: "esta pauta pode ser MORTA, e a partir de qual estado?".
+-- A política de update NÃO pareia estado antigo com novo (uma metade vê a linha
+-- velha, a outra a nova, e políticas permissivas somam por OR), então
+-- em_producao -> descartada escaparia dela — quem fecha é o trigger
+-- `t_pautas_guarda_descarte`, que vê OLD e NEW. Aqui se prova que o descarte legítimo
+-- passa, o proibido é barrado até no PATCH cru, e descartada não ressuscita.
 -- ============================================================
 
 create schema if not exists tests;
@@ -115,16 +122,17 @@ begin
   esperado := '6'; obtido := n::text; passou := (n = 6);
   return next;
 
-  -- pautas 3 (leitura + criar + producao) · videos 3 (leitura + enfileirar +
-  -- gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) · metricas 1
-  -- (só leitura) = 10. `for all` não existe mais em lugar nenhum: ler e escrever
-  -- precisam dizer coisas diferentes.
+  -- pautas 4 (leitura + criar + producao + descartar) · videos 3 (leitura +
+  -- enfileirar + gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) ·
+  -- metricas 1 (só leitura) = 11. `for all` não existe mais em lugar nenhum: ler e
+  -- escrever precisam dizer coisas diferentes. A `pautas_descartar` (Rodada 14) é a
+  -- 4ª de pautas — abre a PORTA para descartada; o trigger é a fechadura.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
      and tablename in ('pautas','videos','publicacoes','membros','batimentos','metricas');
   teste := '02 · políticas por comando nas 6 tabelas';
-  esperado := '10'; obtido := n::text; passou := (n = 10);
+  esperado := '11'; obtido := n::text; passou := (n = 11);
   return next;
 
   -- ================= ORG A =================
@@ -730,6 +738,77 @@ begin
   esperado := '0';
   obtido := n::text;
   passou := (n = 0);
+  return next;
+
+  -- ================= DESCARTAR PAUTA (Rodada 14) =================
+  -- pronta -> descartada, terminal. Reusa duas pautas já semeadas: `pauta_ma`
+  -- (manual, ficou `pronta` no caso 27) para o descarte legítimo, e `pauta_ol`
+  -- (ollama, o trigger a levou a `em_producao` no caso 26) para provar que a guarda
+  -- barra o descarte a partir de produção — inclusive no PATCH cru, não só pela RPC.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  -- Caminho feliz pela porta da frente. A RPC devolve a linha; a pauta fica
+  -- descartada e some da lista de prontas do painel.
+  begin
+    select count(*) into n from public.descartar_pauta(pauta_ma);
+  exception
+    when others then n := -1;
+  end;
+  select status into pa_status from public.pautas where id = pauta_ma;
+
+  teste := '32 · descartar_pauta move pronta -> descartada';
+  esperado := '1 linha · descartada';
+  obtido := n::text || ' linha · ' || coalesce(pa_status, '(null)');
+  passou := (n = 1 and pa_status = 'descartada');
+  return next;
+
+  -- O furo que a política sozinha deixaria: em_producao -> descartada por PATCH cru
+  -- (sem passar pela RPC). O USING da producao inclui em_producao e o WITH CHECK da
+  -- descartar inclui descartada, então a RLS deixaria — quem recusa é o trigger.
+  -- A pauta tem que continuar em_producao depois da tentativa.
+  begin
+    update public.pautas set status = 'descartada' where id = pauta_ol;
+    bloqueou := false;
+  exception
+    when others then bloqueou := true;
+  end;
+  select status into pa_status from public.pautas where id = pauta_ol;
+
+  teste := '33 · guarda barra em_producao -> descartada (PATCH cru)';
+  esperado := 'bloqueado · segue em_producao';
+  obtido := (case when bloqueou then 'bloqueado' else 'PASSOU — FURO GRAVE' end)
+            || ' · ' || coalesce(pa_status, '(null)');
+  passou := (bloqueou and pa_status = 'em_producao');
+  return next;
+
+  -- Descartada é terminal: fora do USING de toda política de update, então tentar
+  -- ressuscitar não dá erro — simplesmente não acha a linha (0 afetadas).
+  update public.pautas set status = 'pronta' where id = pauta_ma;
+  get diagnostics n = row_count;
+  select status into pa_status from public.pautas where id = pauta_ma;
+
+  teste := '34 · descartada é terminal (não ressuscita pela anon key)';
+  esperado := '0 linhas · segue descartada';
+  obtido := n::text || ' linhas · ' || coalesce(pa_status, '(null)');
+  passou := (n = 0 and pa_status = 'descartada');
+  return next;
+
+  -- A RPC é invoker: a pauta da org B não existe nesta sessão, então o for update
+  -- não a encontra e cai no P0002 (= no_data_found do plpgsql).
+  begin
+    perform public.descartar_pauta(pauta_b);
+    bloqueou := false;
+  exception
+    when no_data_found then bloqueou := true;
+  end;
+
+  execute 'reset role';
+
+  teste := '35 · org A não descarta pauta da org B pela RPC';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'DESCARTOU — FURO GRAVE' end;
+  passou := bloqueou;
   return next;
 
   -- ---------- limpeza ----------

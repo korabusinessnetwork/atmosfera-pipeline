@@ -126,6 +126,32 @@ export async function enfileirarPauta(
   return ACAO_OK;
 }
 
+export async function descartarPauta(
+  _anterior: EstadoDaAcao,
+  formData: FormData,
+): Promise<EstadoDaAcao> {
+  const { supabase } = await exigirSessao();
+  const pautaId = String(formData.get("pautaId") ?? "");
+  if (!pautaId) return { erro: "Pauta não identificada." };
+
+  const { error } = await supabase.rpc("descartar_pauta", {
+    p_pauta_id: pautaId,
+  });
+  if (error) {
+    // P0001 = a pauta saiu de 'pronta' (já em produção, por exemplo). P0002 cai no
+    // traduzir() como "mudou de estado". A anon key não escreve status direto — a
+    // política e o trigger recusariam; a porta é só esta RPC.
+    const padrao =
+      error.code === "P0001"
+        ? "Essa pauta não está mais disponível para descarte."
+        : "Não deu para descartar agora. Tente de novo.";
+    return { erro: traduzir(error, padrao) };
+  }
+
+  refresh();
+  return ACAO_OK;
+}
+
 /**
  * Cria pauta manual.
  *

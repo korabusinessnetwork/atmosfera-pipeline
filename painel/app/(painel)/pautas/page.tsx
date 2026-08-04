@@ -1,5 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import BotaoEnfileirar from "@/components/BotaoEnfileirar";
+import BotaoDescartar from "@/components/BotaoDescartar";
 import FormularioDePauta from "@/components/FormularioDePauta";
 import Vazio from "@/components/Vazio";
 import { quando } from "@/lib/formato";
@@ -82,6 +83,7 @@ export default async function Pautas() {
           </p>
 
           <BotaoEnfileirar pautaId={pauta.id} />
+          <BotaoDescartar pautaId={pauta.id} />
         </article>
       ))}
     </div>
