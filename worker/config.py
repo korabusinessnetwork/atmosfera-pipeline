@@ -115,6 +115,15 @@ class Config:
     pauta_local_vencedores: int = 5
     identidade: Path = RAIZ.parent / "memory" / "00_IDENTIDADE.md"
 
+    # QC automático dos pendentes (Rodada 16). O revisor em lote local usa um
+    # modelo de VISÃO do Ollama (não o de texto do `ollama_model`) — ele precisa
+    # olhar um frame. Precisa estar puxado (`ollama pull llama3.2-vision`); como o
+    # OAuth e o modelo de pauta, não é pré-requisito do loop, então é validado só
+    # como texto e quem reclama é o `qc_local.py` na hora de rodar. `lote` limita
+    # quantos pendentes uma corrida inspeciona — visão é lenta, e o batch é opt-in.
+    qc_local_visao_model: str = "llama3.2-vision"
+    qc_local_lote: int = 20
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -309,4 +318,6 @@ def carregar(env_path: Path | None = None) -> Config:
         pauta_local_refinar=_booleano("PAUTA_LOCAL_REFINAR", True),
         pauta_local_vencedores=_inteiro("PAUTA_LOCAL_VENCEDORES", 5),
         identidade=_caminho("IDENTIDADE_PATH", RAIZ.parent / "memory" / "00_IDENTIDADE.md"),
+        qc_local_visao_model=_texto("QC_LOCAL_VISAO_MODEL", "llama3.2-vision"),
+        qc_local_lote=_inteiro("QC_LOCAL_LOTE", 20),
     )

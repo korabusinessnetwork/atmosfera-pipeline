@@ -1,0 +1,26 @@
+-- ============================================================
+-- QC LOCAL REUSA A REPROVAÇÃO DO GATE — Rodada 16
+-- ============================================================
+-- O revisor em lote (`worker/qc_local.py`) reprova os vídeos com legenda cortada
+-- que encontra em `aguardando_aprovacao`. Reprovar não é só `status = 'reprovado'`:
+-- a `reprovar_video` da Sprint 6 (`20260802223612`) também DEVOLVE a pauta para
+-- `pronta` quando não sobra nenhum vídeo vivo dela — é essa invariante que deixa a
+-- ideia voltar para a fila em vez de morrer junto com um render quebrado.
+--
+-- Reescrever essa devolução em Python seria duplicar a invariante do gate em dois
+-- lugares — exatamente o que o projeto evita ("a tabela é o contrato"). Então o QC
+-- chama a MESMA função. Só que a Sprint 6 fez:
+--
+--   revoke all on function public.reprovar_video(uuid, text) from public, anon;
+--   grant execute on function public.reprovar_video(uuid, text) to authenticated;
+--
+-- O worker é `service_role`, não `authenticated`, e o `revoke from public` tirou o
+-- default — então sem este grant a chamada apanharia `permission denied`. (A
+-- `service_role` ignora RLS, mas EXECUTE de função é GRANT, não RLS.) Uma linha
+-- concede o que falta; se por acaso a service_role já tivesse o execute, é no-op.
+--
+-- Nada além disto: nenhuma tabela, coluna ou política nova. `rls_test.sql` continua
+-- com os 41 casos e o case 02 com 11 políticas — esta migration não toca RLS.
+-- ============================================================
+
+grant execute on function public.reprovar_video(uuid, text) to service_role;

@@ -1145,7 +1145,27 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 ## 9. Backlog (não fazer agora)
 
 - MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) → controle por linguagem natural pelo celular. Pluga em cima do que já existe, sem retrabalho.
-- Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e reprova os de legenda cortada". **É o caminho sancionado para mais autonomia:** um QC automático que reprova o quebrado, não um auto-aprovar às cegas — o gate deixa de ser humano sem cegar o pipeline.
+- ~~Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e
+  reprova os de legenda cortada".~~ **FEITO na Rodada 16, com visão LOCAL em vez do
+  Chrome** (`worker/qc_local.py` + migration `qc_reprovar` + `db.listar_aguardando`/
+  `db.reprovar_qc`). O worker já tem o mp4 no disco e o Ollama ao lado, então o QC
+  extrai um frame do meio do vídeo, pergunta a um modelo de visão local se a legenda
+  queimada está cortada na borda, e reprova — **reusando a `reprovar_video` do gate**,
+  não um update direto, para a devolução-da-pauta-para-`pronta` continuar num lugar só
+  — apenas os cortados com **alta confiança**. É o caminho sancionado para mais
+  autonomia: **um QC que reprova o quebrado, nunca aprova às cegas** (a ADR-06 fica
+  intacta — `aguardando_aprovacao → reprovado`, jamais `→ aprovado`). É CLI separado,
+  como o `pauta_local`: **não roda no loop** — um auto-reprovador girando sozinho sobre
+  detector não validado poderia esvaziar a fila calado, então rodar é opt-in do dono.
+  A migration só concede `execute` de `reprovar_video` à `service_role` (a Sprint 6
+  revogou de `public` e concedeu só a `authenticated`); **nenhuma tabela/coluna/política
+  nova** — `rls_test.sql` segue 41. **Ressalva honesta que fica escrita:** a *qualidade
+  da detecção* não é validável neste ambiente — o material de teste é preto (ver item 7,
+  "o banco de material é preto") e não há legenda real para achar. Como em R4 (hook) e
+  R9 (upload), o código está exercitado contra dublê; provar que detecta é passo humano
+  (footage real + `ollama pull llama3.2-vision`). Por isso a barra é alta confiança e o
+  batch não roda sozinho. Modo "flag" (anotar sem reprovar) e detecção via visão paga
+  ficam como upgrades futuros.
 - ~~**Relatório de sexta local com Ollama.**~~ **FEITO na Rodada 10**
   (`worker/relatorio_local.py`) — o relatório de sexta migrou para o Ollama local,
   fechando a última dependência de token e **aposentando o Cowork**. É `SELECT` +

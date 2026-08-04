@@ -78,3 +78,29 @@ class TestInteiro:
         monkeypatch.setenv("PAUTA_LOCAL_VENCEDORES", "0")
         with pytest.raises(config.ConfigInvalida, match="maior que zero"):
             config._inteiro("PAUTA_LOCAL_VENCEDORES", 5)
+
+
+class TestQcLocal:
+    """As duas envs do QC (Rodada 16). Modelo é texto (validado só como texto,
+    como o de pauta); lote é inteiro positivo."""
+
+    def test_modelo_de_visao_ausente_usa_padrao(self, monkeypatch):
+        monkeypatch.delenv("QC_LOCAL_VISAO_MODEL", raising=False)
+        assert config._texto("QC_LOCAL_VISAO_MODEL", "llama3.2-vision") == "llama3.2-vision"
+
+    def test_modelo_de_visao_override(self, monkeypatch):
+        monkeypatch.setenv("QC_LOCAL_VISAO_MODEL", "  llava  ")
+        assert config._texto("QC_LOCAL_VISAO_MODEL", "llama3.2-vision") == "llava"
+
+    def test_lote_ausente_usa_padrao(self, monkeypatch):
+        monkeypatch.delenv("QC_LOCAL_LOTE", raising=False)
+        assert config._inteiro("QC_LOCAL_LOTE", 20) == 20
+
+    def test_lote_override(self, monkeypatch):
+        monkeypatch.setenv("QC_LOCAL_LOTE", "5")
+        assert config._inteiro("QC_LOCAL_LOTE", 20) == 5
+
+    def test_lote_zero_falha(self, monkeypatch):
+        monkeypatch.setenv("QC_LOCAL_LOTE", "0")
+        with pytest.raises(config.ConfigInvalida, match="maior que zero"):
+            config._inteiro("QC_LOCAL_LOTE", 20)

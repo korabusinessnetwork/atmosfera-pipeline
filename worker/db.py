@@ -127,6 +127,41 @@ def marcar(sb: Client, video_id: str, status: str, **campos: Any) -> None:
     sb.table("videos").update({"status": status, **campos}).eq("id", video_id).execute()
 
 
+def listar_aguardando(sb: Client, org_id: str, limite: int) -> list[dict[str, Any]]:
+    """Vídeos desta org parados no gate humano, com arquivo no disco (Rodada 16).
+
+    O QC local só consegue inspecionar o que tem `arquivo_path`: sem o mp4 no PC
+    não há frame para olhar. Filtra por org (o revisor é de UM tenant, o do `.env`)
+    e por `aguardando_aprovacao` — é exatamente a fila que o gate humano enxerga, e
+    a única de onde `reprovar_video` aceita reprovar.
+    """
+    resposta = (
+        sb.table("videos")
+        .select("id, org_id, arquivo_path")
+        .eq("org_id", org_id)
+        .eq("status", "aguardando_aprovacao")
+        .not_.is_("arquivo_path", "null")
+        .order("created_at")
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
+def reprovar_qc(sb: Client, video_id: str, motivo: str) -> None:
+    """Reprova um vídeo pelo QC, reusando a RPC do gate (Rodada 16).
+
+    Chama a MESMA `reprovar_video` da Sprint 6 — não um update direto — porque ela
+    carrega a invariante de devolver a pauta para `pronta` quando não sobra vídeo
+    vivo dela. Duplicar isso em Python seria ter a regra do gate em dois lugares.
+    O `service_role` recebeu `execute` na migration `qc_reprovar`.
+
+    O motivo vai para `videos.erro_msg` (a RPC trunca em 500), a mesma coluna que o
+    painel já mostra — o humano vê "[QC] legenda cortada" no lugar de um sumiço mudo.
+    """
+    sb.rpc("reprovar_video", {"p_video_id": video_id, "p_motivo": motivo}).execute()
+
+
 def concluir_render(
     sb: Client,
     video_id: str,
