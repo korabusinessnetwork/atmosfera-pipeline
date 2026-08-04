@@ -208,6 +208,19 @@ def test_token_malformado_nao_vira_traceback_de_json(tmp_path):
         youtube.carregar_credenciais(token)
 
 
+def test_carregar_credenciais_default_e_so_upload(tmp_path):
+    """O coletor (Rodada 11) passa ESCOPOS_TODOS; o default segue só upload, para
+    o publisher não alargar o que precisa. Zero regressão no upload."""
+    import inspect
+
+    assert inspect.signature(youtube.carregar_credenciais).parameters[
+        "escopos"
+    ].default == youtube.ESCOPOS
+    # e passar o escopo de analytics não muda o caminho de token ausente
+    with pytest.raises(youtube.AutorizacaoAusente):
+        youtube.carregar_credenciais(tmp_path / "x.json", youtube.ESCOPOS_TODOS)
+
+
 def test_client_secret_ausente_explica_onde_pegar(tmp_path):
     with pytest.raises(youtube.ConfigYoutube) as erro:
         youtube.autorizar(tmp_path / "nao-existe.json", tmp_path / "token.json")

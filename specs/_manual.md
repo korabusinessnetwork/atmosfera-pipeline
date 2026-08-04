@@ -394,3 +394,63 @@ gratuita do Pexels** — que é sua, porque envolve criar conta.
   autoria — a graduação/grão/vinheta da Sprint 3 continua por cima, dando a cara
   do canal. Se quiser material autoral, a alternativa é curar footage próprio em
   `local_videos/` (seção 1).
+
+---
+
+## 11. Métrica de verdade — coleta do YouTube (Rodada 11)
+
+**Por quê:** até aqui o banco sabe que **publicou** e não sabe se alguém
+**assistiu** — por isso o relatório de sexta lista os hooks para conferência à mão
+no Studio, em vez de ranquear por retenção. A Rodada 11 traz a tabela `metricas` e
+o coletor (`coletar_metricas.py`), que puxa views/retenção da YouTube Analytics
+API. Dois passos são seus: um consentimento e a aplicação da migration.
+
+### 11.1 Re-consentir o OAuth com o escopo de Analytics
+
+O coletor lê a Analytics API, e o token de hoje só tem escopo de **upload**. Rode
+de novo o autorizador — agora ele pede upload **e** `yt-analytics.readonly` (só
+leitura) de uma vez:
+
+```bash
+cd worker && uv run autorizar_youtube.py
+```
+
+Aprove na tela do Google. O `token.json` passa a cobrir os dois escopos. **O
+upload não quebra durante isso** — o escopo dele não mudou. Antes de re-consentir,
+o coletor volta `403` e degrada por vídeo (loga e segue); nada mais para.
+
+### 11.2 Aplicar e verificar a migration `metricas`
+
+A migration `20260804150153_metricas_youtube.sql` cria a tabela. Como o meu
+ambiente não alcança o Supabase (DNS externo bloqueado no sandbox), **aplicar e
+verificar é seu** — na sua máquina, com o CLI logado:
+
+```bash
+supabase db push
+supabase db advisors --linked
+supabase db query --linked -f supabase/tests/rls_test.sql
+```
+
+O alvo é o de sempre: advisors **`No issues found`** e o `rls_test.sql` com
+**todos os casos ✅** (os três novos — 29, 30, 31 — cobrem a métrica: a org lê a
+sua, o `authenticated` não escreve, o anônimo não lê). Se o push reclamar de
+versões, é o pareamento de migration local×remoto — confira que nenhum outro
+arquivo novo ficou por aplicar.
+
+### 11.3 Coletar (à mão, e depois agendado)
+
+Com os dois passos acima feitos, rode à mão para conferir:
+
+```bash
+cd worker && uv run coletar_metricas.py
+```
+
+Ele lista as publicações do YouTube com `external_id`, puxa o retrato de cada uma
+e faz upsert em `metricas`. Vídeo publicado hoje ainda sem dado entra zerado (não
+é erro). Depois, agende como os outros produtores locais (seção 7) — uma tarefa
+semanal, por exemplo junto do relatório de sexta, já que é ele quem vai consumir a
+métrica quando a próxima rodada fechar o loop.
+
+**O que esta rodada NÃO faz, de propósito:** consumir a métrica. Ranquear a pauta
+por retenção, mostrar no painel e alimentar fine-tuning são as próximas rodadas —
+esta **coleta e guarda**. O relatório e o gerador seguem como estão.

@@ -24,6 +24,12 @@ Depois:
 O navegador abre, você escolhe a conta do canal, aceita, e o `token.json`
 aparece. Nada de token é impresso aqui — nem no sucesso, nem no erro.
 
+**Dois escopos num consentimento só (Rodada 11):** este autorizador pede
+`youtube.upload` **e** `yt-analytics.readonly` (leitura de métrica). Se você já
+tinha um `token.json` só de upload, rode de novo e aprove — o novo token cobre os
+dois, e é isso que liga o `coletar_metricas.py`. O upload nunca deixa de
+funcionar: `carregar_credenciais` sem argumento segue pedindo só o escopo mínimo.
+
 **Prazo que pega todo mundo:** enquanto o app estiver em *Testing* na tela de
 consentimento, o Google expira o refresh token em **7 dias**. O worker vai
 parar de publicar com `AutorizacaoAusente` e o conserto é rodar este script de

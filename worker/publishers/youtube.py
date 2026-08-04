@@ -44,6 +44,15 @@ from googleapiclient.http import MediaFileUpload
 # sai da nossa própria tabela `publicacoes`, não de uma consulta ao YouTube.
 ESCOPOS = ["https://www.googleapis.com/auth/youtube.upload"]
 
+# Leitura das métricas do canal (Rodada 11). É só leitura de relatório — não dá
+# escrita nem toca em vídeo. Fica separado de `ESCOPOS` para não alargar o que o
+# upload precisa: o coletor pede este, o publisher segue com o mínimo de sempre.
+ESCOPO_ANALYTICS = "https://www.googleapis.com/auth/yt-analytics.readonly"
+
+# O consentimento (feito à mão, uma vez) cobre os dois de uma vez: assim um único
+# re-consentimento libera upload E coleta, e o worker não precisa de dois tokens.
+ESCOPOS_TODOS = [*ESCOPOS, ESCOPO_ANALYTICS]
+
 COTA_DIARIA = 10_000
 CUSTO_INSERT = 1_600
 TETO_DIARIO = COTA_DIARIA // CUSTO_INSERT  # 6
@@ -238,12 +247,20 @@ def montar_corpo(pauta: dict[str, Any], publicar_em: datetime, categoria: str) -
 # ---------------------------------------------------------------- credenciais
 
 
-def carregar_credenciais(token_path: Path) -> Credentials:
+def carregar_credenciais(
+    token_path: Path, escopos: list[str] = ESCOPOS
+) -> Credentials:
     """Lê `token.json` e renova se preciso. Nunca abre navegador.
 
     Renovar é troca HTTPS de saída com o Google — não fere o ADR-05. Abrir
     navegador, não: o loop roda sem ninguém olhando, no boot da máquina, e
     travar esperando consentimento seria um worker pendurado para sempre.
+
+    `escopos` tem default `ESCOPOS` (só upload) de propósito: o publisher chama
+    sem argumento e nada muda para ele. O coletor de métricas (Rodada 11) passa
+    `ESCOPOS_TODOS` para conseguir ler a Analytics. O token só serve o escopo que
+    o consentimento gravou — pedir analytics sem ter re-consentido volta 403 lá
+    na chamada, não aqui.
 
     Armadilha que vai aparecer na Sprint 7: enquanto o app estiver como
     "Testing" no Google Cloud, o refresh token **expira em 7 dias**. O worker
@@ -256,7 +273,7 @@ def carregar_credenciais(token_path: Path) -> Credentials:
         )
 
     try:
-        credenciais = Credentials.from_authorized_user_file(str(token_path), ESCOPOS)
+        credenciais = Credentials.from_authorized_user_file(str(token_path), escopos)
     except ValueError as erro:
         raise AutorizacaoAusente(
             f"{token_path.name} está malformado ou é de outro escopo: {erro}"
@@ -306,7 +323,11 @@ def autorizar(client_secret_path: Path, token_path: Path) -> Path:
             "→ Credenciais, e salve nesse caminho."
         )
 
-    fluxo = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), ESCOPOS)
+    # Consentimento cobre upload + analytics de uma vez (Rodada 11): re-consentir
+    # uma vez libera as duas coisas, e o publisher continua carregando só o mínimo.
+    fluxo = InstalledAppFlow.from_client_secrets_file(
+        str(client_secret_path), ESCOPOS_TODOS
+    )
     credenciais = fluxo.run_local_server(
         host="127.0.0.1",  # explícito: loopback, nunca 0.0.0.0
         port=0,  # porta efêmera — nada fixo escutando

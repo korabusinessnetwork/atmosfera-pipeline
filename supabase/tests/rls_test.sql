@@ -29,6 +29,11 @@
 -- (ollama/cowork) até o gate sozinha, sem tocar o gate. Aqui a pergunta é uma
 -- quarta: "esta pauta vira trabalho automaticamente?" — sim para máquina, não
 -- para a manual, e nunca com origem fora do check.
+-- Os 29–31 são a métrica (Rodada 11): a audiência que a Analytics API traz. Aqui
+-- a pergunta é uma quinta: "quem pode VER que este vídeo performou?" — o painel lê
+-- só a sua org, o worker escreve com service_role, e ninguém logado escreve nem o
+-- anônimo lê (inflar a própria retenção transformaria em ficção o dado que decide
+-- a pauta).
 -- ============================================================
 
 create schema if not exists tests;
@@ -65,6 +70,8 @@ declare
   pauta_ol    uuid; -- pauta ollama que o trigger deve enfileirar (Rodada 4)
   pauta_ma    uuid; -- pauta manual que o trigger deve IGNORAR
   pa_status   text;
+  met_pub_a   uuid; -- publicação da org A, base da métrica (Rodada 11)
+  met_pub_b   uuid; -- publicação da org B (o vizinho)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -102,22 +109,22 @@ begin
   select count(*) into n
     from pg_tables
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes','membros','batimentos')
+     and tablename in ('pautas','videos','publicacoes','membros','batimentos','metricas')
      and rowsecurity;
-  teste := '01 · RLS ligada nas 5 tabelas';
-  esperado := '5'; obtido := n::text; passou := (n = 5);
+  teste := '01 · RLS ligada nas 6 tabelas';
+  esperado := '6'; obtido := n::text; passou := (n = 6);
   return next;
 
   -- pautas 3 (leitura + criar + producao) · videos 3 (leitura + enfileirar +
-  -- gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) = 9. `for all`
-  -- não existe mais em lugar nenhum: ler e escrever precisam dizer coisas
-  -- diferentes.
+  -- gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) · metricas 1
+  -- (só leitura) = 10. `for all` não existe mais em lugar nenhum: ler e escrever
+  -- precisam dizer coisas diferentes.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
-     and tablename in ('pautas','videos','publicacoes','membros','batimentos');
-  teste := '02 · políticas por comando nas 5 tabelas';
-  esperado := '9'; obtido := n::text; passou := (n = 9);
+     and tablename in ('pautas','videos','publicacoes','membros','batimentos','metricas');
+  teste := '02 · políticas por comando nas 6 tabelas';
+  esperado := '10'; obtido := n::text; passou := (n = 10);
   return next;
 
   -- ================= ORG A =================
@@ -639,6 +646,90 @@ begin
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end;
   passou := bloqueou;
+  return next;
+
+  -- ================= MÉTRICAS (Rodada 11) =================
+  -- A audiência é a quinta pergunta da tabela: "quem pode VER que este vídeo
+  -- performou?". Mesma forma do batimento — o worker escreve com service_role
+  -- (é a Analytics API que traz o número, não o painel), o painel só lê a sua
+  -- org. Se o painel pudesse escrever, qualquer um com a anon key inflaria a
+  -- própria retenção, e o dado que deveria decidir a pauta viraria ficção.
+  --
+  -- Semeia como dono: uma publicação por org (sobre os vídeos já semeados) e uma
+  -- métrica em cada. O cascade da limpeza (pautas → videos → publicacoes →
+  -- metricas) leva tudo junto no fim.
+  insert into public.publicacoes (org_id, video_id, plataforma, status, external_id)
+  values (org_a, vid_ag, 'youtube', 'enviado', '[rls-test]-ext-a')
+  returning id into met_pub_a;
+  insert into public.publicacoes (org_id, video_id, plataforma, status, external_id)
+  values (org_b, vid_b, 'youtube', 'enviado', '[rls-test]-ext-b')
+  returning id into met_pub_b;
+
+  insert into public.metricas (org_id, publicacao_id, plataforma, views, retencao_media_pct)
+  values (org_a, met_pub_a, 'youtube', 100, 45),
+         (org_b, met_pub_b, 'youtube', 200, 60);
+
+  -- Segue authenticated do 29 ao 30 sem resetar no meio (padrão do batimento):
+  -- se resetasse, os writes do 30 rodariam como dono e o UPDATE passaria — uma
+  -- reprovação falsa.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n
+    from public.metricas where publicacao_id in (met_pub_a, met_pub_b);
+
+  teste := '29 · org A vê a própria métrica e só a dela';
+  esperado := '1 de 2 semeadas';
+  obtido := n::text || case when n > 1 then '  — VAZOU' else '' end;
+  passou := (n = 1);
+  return next;
+
+  -- Dois caminhos de escrita, os dois negados: linha nova e inflar a própria.
+  bloqueou := true;
+
+  begin
+    insert into public.metricas (org_id, publicacao_id, plataforma, views)
+    values (org_a, met_pub_a, 'youtube', 999);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+    when unique_violation then null;   -- se passar do grant, o unique barra depois
+  end;
+
+  begin
+    update public.metricas set views = 999
+     where publicacao_id = met_pub_a;
+    if found then bloqueou := false; end if;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '30 · painel não escreve métrica (insert nem update)';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ESCREVEU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- Anônimo não lê métrica: "quanto este canal performou" é dado de negócio, e a
+  -- anon key mora no navegador. Sem grant, a leitura nem chega.
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+
+  begin
+    select count(*) into n
+      from public.metricas where publicacao_id in (met_pub_a, met_pub_b);
+  exception
+    when insufficient_privilege then n := 0;
+  end;
+
+  execute 'reset role';
+
+  teste := '31 · anônimo não lê métrica';
+  esperado := '0';
+  obtido := n::text;
+  passou := (n = 0);
   return next;
 
   -- ---------- limpeza ----------

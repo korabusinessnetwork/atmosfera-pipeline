@@ -475,3 +475,64 @@ def contar_videos_por_status(sb: Client, org_id: str, status: str) -> int:
         .execute()
     )
     return int(resposta.count or 0)
+
+
+# ============================================================ métricas (R11)
+#
+# O coletor lê as publicações do YouTube e escreve o retrato de audiência que a
+# Analytics API traz. Escrita com service_role (ignora RLS); o painel só lê a
+# própria org (política `metricas_leitura`). Campos explícitos, como o resto.
+
+
+def listar_publicacoes_youtube(sb: Client, org_id: str) -> list[dict[str, Any]]:
+    """Publicações do YouTube desta org que têm `external_id` — o que dá para coletar.
+
+    Filtra por org (o coletor é de UM tenant, o do `.env`) e exige `external_id`:
+    rascunho sem id de vídeo, ou publicação de outra plataforma, não tem métrica no
+    YouTube para puxar. `id` é o que a métrica referencia (FK `publicacao_id`).
+    """
+    resposta = (
+        sb.table("publicacoes")
+        .select("id, external_id, plataforma")
+        .eq("org_id", org_id)
+        .eq("plataforma", "youtube")
+        .not_.is_("external_id", "null")
+        .order("created_at")
+        .execute()
+    )
+    return resposta.data or []
+
+
+def upsert_metrica(
+    sb: Client,
+    org_id: str,
+    publicacao_id: str,
+    plataforma: str,
+    *,
+    views: int | None = None,
+    minutos_assistidos: float | None = None,
+    duracao_media_seg: float | None = None,
+    retencao_media_pct: float | None = None,
+    curtidas: int | None = None,
+    coletado_em: datetime | None = None,
+) -> None:
+    """Grava (ou reescreve) o retrato de audiência de uma publicação.
+
+    Upsert em `publicacao_id` (o `unique` da tabela): coletar de novo reescreve o
+    retrato anterior em vez de empilhar cópias. Só campos explícitos — os valores
+    vêm da Analytics API, e `None` é legítimo (métrica que a resposta não trouxe).
+    """
+    linha: dict[str, Any] = {
+        "org_id": org_id,
+        "publicacao_id": publicacao_id,
+        "plataforma": plataforma,
+        "views": views,
+        "minutos_assistidos": minutos_assistidos,
+        "duracao_media_seg": duracao_media_seg,
+        "retencao_media_pct": retencao_media_pct,
+        "curtidas": curtidas,
+    }
+    if coletado_em is not None:
+        linha["coletado_em"] = coletado_em.isoformat()
+
+    sb.table("metricas").upsert(linha, on_conflict="publicacao_id").execute()

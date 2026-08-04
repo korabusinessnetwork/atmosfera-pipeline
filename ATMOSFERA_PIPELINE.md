@@ -1029,6 +1029,7 @@ if __name__ == "__main__":
 | YouTube API nova | Uploads travados em privado até auditoria | Vídeo sobe e ninguém vê |
 | TikTok não auditado | Direct post forçado em SELF_ONLY (server-side) | Pipeline "funciona" e gera zero views |
 | TikTok rate limit | 6 requests/min por access_token | 429 |
+| Quota YouTube Analytics API | Separada e ampla (dezenas de milhares de requests/dia) | Sem teto em código: 1 request por vídeo publicado fica muito abaixo (Rodada 11) |
 | Rótulo de IA | Obrigatório nas duas plataformas | Remoção do conteúdo |
 | Conteúdo repetitivo em massa | Política de conteúdo inautêntico do YouTube | Desmonetização do canal |
 | Tarefa do Task Scheduler | Morta em **72 h** se `ExecutionTimeLimit` não for zerado | Worker some no terceiro dia, e o agendador registra "concluída com êxito" |
@@ -1059,7 +1060,19 @@ if __name__ == "__main__":
 [x] 13. Pauta manual — a fila ganha um produtor           (1h)      ← 298 testes, RLS 26/26
 [x] 13b. ~~Configurar as 2 tarefas no Cowork~~            (—)       ← CANCELADO: Cowork aposentado na R10 (pauta+relatório locais)
 [ ] 13c. Agendar pauta_local + relatorio_local no PC      (10 min)  ← SEU: Task Scheduler local, ver specs/_manual.md §7
+[x] 14. Métrica de verdade — coleta do YouTube (R11)      (1h)      ← 417 testes, migration metricas, rls_test 29→32 casos (verificação humana)
+[ ] 14b. Re-consentir OAuth (analytics) + aplicar migration (15 min) ← SEU: autorizar_youtube.py + db push/advisors/rls_test, ver specs/_manual.md §11
 ```
+
+**Item 14 — métrica de verdade (coleta).** Até aqui o banco sabia que publicou e
+não se alguém assistiu. A Rodada 11 adiciona a tabela `metricas` e o coletor
+(`worker/coletar_metricas.py` + `publishers/youtube_analytics.py`), que puxa
+views/retenção da YouTube Analytics API e faz upsert. Só **coleta**; consumir a
+métrica (ranquear pauta, painel, fine-tuning) é próxima rodada. Dois passos são
+seus (item 14b): re-consentir o OAuth com o escopo `yt-analytics.readonly` e
+aplicar/verificar a migration — o ambiente do agente não alcança o Supabase, então
+`db push`, `advisors --linked` e `rls_test.sql` rodam na sua máquina. Detalhe em
+`specs/metricas-youtube.md` e `specs/_manual.md` § 11.
 
 **Item 13b cancelado — o Cowork foi aposentado (Rodada 10).** A pauta de segunda
 virou local na Rodada 4; o relatório de sexta virou local na Rodada 10
@@ -1141,17 +1154,20 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 - Auditoria do TikTok Content Posting API (2–4 semanas) para liberar direct post público.
 - Aumento de cota do YouTube via formulário de audit.
 - Segundo canal / multi-tenant real (o schema já suporta).
-- **Métrica de verdade: YouTube Analytics API → tabela `metricas`.** Hoje o banco
-  sabe que publicou e não sabe se alguém assistiu — `publicacoes` guarda `url`,
-  `status` e carimbo de tempo, nada mais. É por isso que o relatório de sexta
-  lista os hooks publicados em vez de ranquear por retenção
-  (`cowork/relatorio.md`). Sem isso o ciclo não fecha: a pauta de segunda se
-  ajusta por impressão, não por dado. É a coisa mais valiosa da lista, e a única
-  que muda como o conteúdo é decidido. **É também o pré-requisito do fine-tuning:**
-  a Rodada 7 levou o gerador local ao teto de qualidade *sem* dado — best-of-N +
-  crítica escolhem e reescrevem entre saídas do mesmo modelo pequeno, mas não
-  mudam os pesos. Treinar de verdade (LoRA sobre hooks que performaram) precisa
-  desta tabela primeiro; até ela existir, inferência é o limite.
+- **Métrica de verdade: YouTube Analytics API → tabela `metricas`.**
+  **COLETA FEITA na Rodada 11** (`worker/coletar_metricas.py` +
+  `publishers/youtube_analytics.py` + migration `metricas`): o banco agora puxa
+  views/retenção de cada vídeo publicado no YouTube e guarda uma linha por
+  publicação (upsert). Antes, `publicacoes` só sabia `url`, `status` e carimbo de
+  tempo — por isso o relatório de sexta ainda lista os hooks em vez de ranquear
+  por retenção. **O que falta é CONSUMIR o dado**, e é o que fecha o ciclo: o
+  relatório e o gerador de pauta passarem a ranquear por retenção em vez de
+  impressão. **É também o pré-requisito do fine-tuning:** a Rodada 7 levou o
+  gerador local ao teto de qualidade *sem* dado — best-of-N + crítica escolhem e
+  reescrevem entre saídas do mesmo modelo pequeno, mas não mudam os pesos. Treinar
+  de verdade (LoRA sobre hooks que performaram) precisa **desta tabela cheia**;
+  a coleta existe, agora é acumular histórico e consumir. É o próximo item natural
+  do loop.
 - Editar e descartar pauta pelo painel. Criar e enfileirar fecham o uso normal;
   editar abre "e se já estiver `em_producao`?", que é uma máquina de estados
   nova, não um formulário a mais.
