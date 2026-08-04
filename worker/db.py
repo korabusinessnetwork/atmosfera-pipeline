@@ -385,3 +385,93 @@ def ler_batimentos(sb: Client) -> list[dict[str, Any]]:
     """
     resposta = sb.rpc("saude_workers", {}).execute()
     return resposta.data or []
+
+
+# ============================================================ relatório (R10)
+#
+# Leituras do relatório semanal local (aposentou o Cowork). Todas filtram por
+# `org_id` — o relatório é de UM tenant, o do `.env` — e todas trazem a pauta
+# embutida (`pautas(tema, hook)`) numa consulta só, em vez de N+1 buscas. Campos
+# explícitos, nunca `select *`: o relatório mostra hook e link, não arrasta o
+# roteiro inteiro nem coluna que alguém somar depois.
+
+# Vídeo criado na janela, com a pauta embutida — a base dos "números da semana".
+CAMPOS_VIDEO_SEMANA = "status, created_at, pautas(tema, hook)"
+
+# Vídeo decidido na janela (reprovado ou erro): o motivo mora em `erro_msg`, mas
+# significa coisas diferentes conforme o status — por isso a consulta é por status.
+CAMPOS_VIDEO_DECIDIDO = "status, erro_msg, tentativas, updated_at, pautas(tema, hook)"
+
+# Publicação da janela, com a pauta pela cadeia video→pauta.
+CAMPOS_PUBLICACAO_SEMANA = (
+    "plataforma, status, url, publicado_em, agendado_para, erro_msg, "
+    "videos(pautas(tema, hook))"
+)
+
+
+def videos_da_semana(sb: Client, org_id: str, desde: datetime) -> list[dict[str, Any]]:
+    """Vídeos criados na janela, para os números por estado. Só leitura."""
+    resposta = (
+        sb.table("videos")
+        .select(CAMPOS_VIDEO_SEMANA)
+        .eq("org_id", org_id)
+        .gte("created_at", desde.isoformat())
+        .order("created_at")
+        .execute()
+    )
+    return resposta.data or []
+
+
+def videos_decididos(
+    sb: Client, org_id: str, desde: datetime, status: str
+) -> list[dict[str, Any]]:
+    """Vídeos que entraram em `status` (reprovado|erro) dentro da janela.
+
+    Filtra por `updated_at` porque o que importa é *quando foi decidido*, não
+    quando nasceu — um vídeo antigo reprovado esta semana conta nesta semana.
+    """
+    resposta = (
+        sb.table("videos")
+        .select(CAMPOS_VIDEO_DECIDIDO)
+        .eq("org_id", org_id)
+        .eq("status", status)
+        .gte("updated_at", desde.isoformat())
+        .order("updated_at")
+        .execute()
+    )
+    return resposta.data or []
+
+
+def publicacoes_da_semana(
+    sb: Client, org_id: str, desde: datetime
+) -> list[dict[str, Any]]:
+    """Publicações criadas na janela, com o hook pela cadeia video→pauta. Só leitura."""
+    resposta = (
+        sb.table("publicacoes")
+        .select(CAMPOS_PUBLICACAO_SEMANA)
+        .eq("org_id", org_id)
+        .gte("created_at", desde.isoformat())
+        .order("created_at")
+        .execute()
+    )
+    return resposta.data or []
+
+
+def pautas_por_status(sb: Client, org_id: str) -> list[str]:
+    """Status de cada pauta viva da org — a base do gargalo 'pauta sem virar vídeo'."""
+    resposta = (
+        sb.table("pautas").select("status").eq("org_id", org_id).execute()
+    )
+    return [linha["status"] for linha in (resposta.data or [])]
+
+
+def contar_videos_por_status(sb: Client, org_id: str, status: str) -> int:
+    """Quantos vídeos da org estão AGORA em `status` (gargalo: aguardando, aprovado)."""
+    resposta = (
+        sb.table("videos")
+        .select("id", count="exact")
+        .eq("org_id", org_id)
+        .eq("status", status)
+        .execute()
+    )
+    return int(resposta.count or 0)

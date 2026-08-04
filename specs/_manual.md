@@ -145,13 +145,20 @@ quem denuncia é o vídeo que não sobe.
 
 ---
 
-## 6. As duas tarefas agendadas no Cowork (item 13b do § 8)
+## 6. ~~As duas tarefas agendadas no Cowork (item 13b do § 8)~~ — APOSENTADO (R10)
 
-**Por quê:** os itens 1–12 construíram tudo que acontece **depois** que uma pauta
-existe. Nada produz pauta. Com o worker no boot e a fila vazia, o sistema
-completo acorda a cada 30s, não acha nada e volta a dormir — para sempre. O
-formulário do painel resolve a ideia avulsa; o Cowork é o que enche a fila toda
-segunda sem o PC ligado.
+> **O Cowork foi aposentado na Rodada 10 (2026-08-04).** Não há mais tarefa
+> remota para configurar: a pauta de segunda roda localmente desde a Rodada 4 e o
+> relatório de sexta desde a Rodada 10, os dois com Ollama no seu PC (§ 7). Esta
+> seção fica como **referência histórica** — se um dia você quiser voltar o
+> Cowork, o passo a passo está aqui; mas o caminho vivo é o § 7.
+
+**Por quê (histórico):** os itens 1–12 construíram tudo que acontece **depois** que
+uma pauta existe. Nada produzia pauta. Com o worker no boot e a fila vazia, o
+sistema completo acordava a cada 30s, não achava nada e voltava a dormir — para
+sempre. O formulário do painel resolve a ideia avulsa; o Cowork enchia a fila toda
+segunda sem o PC ligado. Hoje o produtor local faz isso, com o PC que o worker já
+exige ligado.
 
 A conta do Cowork é sua e o prompt precisa do **seu** `org_id`. Nada disso passa
 por mim.
@@ -216,15 +223,18 @@ aqui e recole lá.
 
 ---
 
-## 7. Ativar o produtor de pauta local com Ollama (Rodada 4)
+## 7. Ativar os produtores locais com Ollama (pauta R4 + relatório R10)
 
-**Por quê:** o Cowork (seção 6) é o único ponto do sistema que gasta uso do
-plano. O produtor local faz o mesmo trabalho da pauta de segunda usando um LLM
-que roda no seu PC — de graça, offline, sem token. Tirando o Cowork, **nada no
-sistema depende mais de token**: se o plano zerar, a fila continua girando.
+**Por quê:** o Cowork era o único ponto do sistema que gastava uso do plano. Os
+produtores locais fazem o mesmo trabalho — pauta de segunda e relatório de sexta —
+com um LLM que roda no seu PC, de graça, offline, sem token. Com os dois locais, o
+Cowork foi aposentado e **nada no sistema depende mais de token**: se o plano
+zerar, a fila continua girando.
 
-É a alternativa à seção 6, não um passo a mais: escolha um dos dois para produzir
-a pauta de segunda. O relatório de sexta, por enquanto, continua no Cowork.
+Não é mais "escolha um dos dois" (era, na Rodada 4, enquanto o Cowork existia):
+hoje o caminho local é o único. São dois processos separados no PC — a pauta
+(`pauta_local.py`) e o relatório (`relatorio_local.py`), cada um com sua tarefa
+agendada.
 
 ### 7.1 Instalar o Ollama e puxar um modelo
 
@@ -272,6 +282,26 @@ Register-ScheduledTask -TaskName 'Atmosfera Pauta' -TaskPath '\Atmosfera\' `
 **Antes de agendar, o worker precisa estar de pé** (seção 5) — senão a pauta
 entra na fila e ninguém renderiza. E o Ollama tem de estar rodando no horário: se
 o PC estiver ligado, `ollama serve` sobe sozinho como serviço; confira.
+
+### 7.3b Agendar o relatório de sexta (item 13c do § 8)
+
+O relatório semanal (`relatorio_local.py`) substitui a tarefa de sexta do Cowork.
+Ele lê o banco (só SELECT), escreve `output/relatorios/AAAA-MM-DD-semana.md` e não
+depende de rede além do Supabase e do Ollama local. Uma tarefa própria, sexta
+18:00:
+
+```powershell
+$acao = New-ScheduledTaskAction -Execute 'C:\Users\bonas\.local\bin\uv.exe' `
+  -Argument 'run relatorio_local.py' `
+  -WorkingDirectory 'C:\Users\bonas\OneDrive\Documentos\Projetos\atmosfera-pipeline\worker'
+$gatilho = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Friday -At 6:00pm
+Register-ScheduledTask -TaskName 'Atmosfera Relatorio' -TaskPath '\Atmosfera\' `
+  -Action $acao -Trigger $gatilho
+```
+
+Rode à mão uma vez antes (`uv run relatorio_local.py`) e abra o arquivo em
+`output/relatorios/`. Se o Ollama estiver fora, o relatório sai mesmo assim, só
+sem a seção de recomendações — os números nunca dependem do modelo.
 
 ### 7.4 O que saber
 

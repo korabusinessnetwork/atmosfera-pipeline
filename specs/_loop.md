@@ -9,6 +9,39 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 10 — Aposentar o Cowork (relatório de sexta local) · 2026-08-04
+
+**Spec:** `specs/aposentar-cowork.md`
+
+**Review:** ✅ aprovado sem ressalvas, 10/10 com evidência. Portões: **401 testes do
+worker** (eram 384: +17 de `test_relatorio_local.py`) · RLS **29 ✅** por construção
+(zero arquivos em `supabase/`) · nenhuma regressão.
+
+**A decisão:** o dono mandou aposentar o Cowork. A pauta de segunda já era local
+(R4); esta rodada moveu o **relatório de sexta** para o PC
+(`worker/relatorio_local.py`, Ollama local), deixando o Cowork sem tarefa nenhuma.
+Com isso, **nada no sistema consome mais uso de plano**. A invariante do ADR-07
+sobrevive: quem gera/analisa só escreve em `pautas` ou em disco, nunca toca estado
+de vídeo.
+
+**O relatório:** SELECT + escreve `output/relatorios/AAAA-MM-DD-semana.md`. Os
+números são determinísticos (agregados em Python, nunca do modelo) — o Ollama só
+escreve as 3 recomendações, e degrada com graça se estiver fora. Reprovação humana
+e falha técnica ficam em seções separadas (o `erro_msg` significa as duas coisas);
+retenção não é inventada (não existe no banco).
+
+**Docs da aposentadoria:** ADR-07, § 4, § 8 (13b cancelado, 13c novo = agendar os
+locais), § 9, `_manual` § 6/§ 7, `cowork/*.md` e `CLAUDE.md` registram o
+encerramento. Nenhuma instrução órfã de "configurar tarefa no Cowork" sobrou viva.
+
+**Próximo item recomendado:** métrica de verdade (YouTube Analytics API → tabela
+`metricas`) — agora é o item mais valioso e desbloqueia o resto (fecha o loop de
+decisão da pauta e é pré-requisito de fine-tuning). Mas **precisa de decisão do
+dono**: exige re-consentimento OAuth (escopo novo) e é a primeira tabela de
+métrica (migration + RLS), então sai da regra "sem schema" das últimas rodadas.
+
+---
+
 ## Rodada 9 — Diversidade de forma + juiz per-candidato · 2026-08-04
 
 **Spec:** `specs/diversidade-e-juiz-per-candidato.md`

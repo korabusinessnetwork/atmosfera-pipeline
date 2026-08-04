@@ -1,5 +1,10 @@
 # Cowork · tarefa agendada 1 — Pauta semanal
 
+> **APOSENTADO na Rodada 10 (2026-08-04).** O Cowork foi encerrado: a pauta de
+> segunda roda localmente desde a Rodada 4 (`worker/pauta_local.py`). Este arquivo
+> fica como **referência histórica** da lógica — o produtor local a reproduz. Não
+> há mais tarefa agendada no Cowork.
+
 **Cadência:** segunda, 06:00 · **Conectores:** Supabase MCP, Google Drive
 
 Este arquivo é a versão de referência do prompt. O texto que roda de verdade

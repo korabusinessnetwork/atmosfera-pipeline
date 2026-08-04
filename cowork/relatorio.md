@@ -1,5 +1,12 @@
 # Cowork · tarefa agendada 2 — Relatório semanal
 
+> **APOSENTADO na Rodada 10 (2026-08-04).** O relatório de sexta passou a rodar
+> localmente (`worker/relatorio_local.py`), com o mesmo Ollama do produtor de
+> pauta, escrevendo em `output/relatorios/` em vez do Drive. Com isso o Cowork
+> ficou sem tarefa nenhuma e foi encerrado. Este arquivo fica como **referência
+> histórica** — o produtor local reproduz esta lógica (as duas armadilhas abaixo
+> viraram invariantes de código e teste).
+
 **Cadência:** sexta, 18:00 · **Conectores:** Supabase MCP, Google Drive
 **Saída:** markdown em `/Atmosfera/relatorios/`
 

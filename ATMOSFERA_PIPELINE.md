@@ -16,7 +16,7 @@ Versão 1.0 — 2026-08-01
 | 04 | Estado / fila | **Supabase (Postgres + RLS)** | Contrato único entre painel, worker e Cowork. Já é stack padrão Kora. |
 | 05 | Direção da conexão | **Worker só faz saída (polling)** | O PC nunca abre porta. Elimina todo o risco de segurança do endpoint público. |
 | 06 | Publicação | **Gate humano obrigatório** | YouTube: teto de ~6 uploads/dia por cota. TikTok: cliente não auditado força SELF_ONLY. Full-auto = vídeo invisível ou conta queimada. |
-| 07 | Agente de decisão | **Cowork agendado (remoto)** | Gera pauta/roteiro/copy sem PC ligado. Não toca arquivo local — e não precisa. |
+| 07 | Agente de decisão | ~~**Cowork agendado (remoto)**~~ → **Ollama local (aposentou o Cowork, R10)** | Era: gera pauta/copy sem PC ligado. Virou: a pauta (R4) e o relatório (R10) rodam no PC com Ollama local — de graça, offline, sem token. O Cowork foi encerrado; a invariante "quem decide não toca estado de vídeo" segue de pé. |
 | 08 | Onde roda o Postgres | **Projeto Supabase Free dedicado (rodízio de slot)** | Banco **separado do Caos**: a `service_role` do worker ignora RLS no banco inteiro, e o Caos guarda dado de menor sob LGPD. Free por rodízio até a Sprint 6; Pro custa US$ 25/mês quando doer. Detalhe em `docs/08_DECISOES/adr-008-onde-roda-o-postgres.md`. |
 
 **Princípio que organiza tudo:** a tabela é o contrato. Painel, worker e Cowork não sabem da existência um do outro.
@@ -329,6 +329,13 @@ dentro de um formulário web que ninguém revisa em diff.
 
 ## 4. O que você faz no COWORK
 
+> **O Cowork foi aposentado na Rodada 10 (2026-08-04).** Esta seção descreve a
+> camada de decisão como ela foi concebida; hoje **as duas tarefas rodam no PC com
+> Ollama local** — a pauta em `worker/pauta_local.py` (R4) e o relatório em
+> `worker/relatorio_local.py` (R10). Nada mais roda remoto e nada consome uso de
+> plano. O texto abaixo fica porque explica a divisão que os produtores locais
+> herdaram; onde diz "Cowork", leia "o produtor local, no PC".
+
 Cowork = **camada de decisão**. Roda remoto, agendado, com o PC desligado. Nunca toca arquivo local.
 
 **A pauta de segunda ganhou um irmão local na Rodada 4.** O Cowork é o único
@@ -338,7 +345,9 @@ dois é o dono (`specs/_manual.md` § 7). Os dois escrevem em `pautas` e param a
 o vídeo nasce do trigger `t_pautas_auto_enfileirar`, não do produtor, e o gate
 humano continua sendo o gate. O produtor local troca "PC desligado" por "sem
 token"; como o worker já exige o PC ligado, o custo real é a qualidade do hook,
-que num modelo pequeno é mais fraca. O relatório de sexta segue só no Cowork.
+que num modelo pequeno é mais fraca. ~~O relatório de sexta segue só no Cowork.~~
+**O relatório de sexta também virou local na Rodada 10** (`worker/relatorio_local.py`),
+e com isso o Cowork ficou vazio e foi aposentado.
 
 **O canal virou en-US na Rodada 5.** O dono foi para o mercado de língua inglesa
 ("dá mais dinheiro"), e a escolha entre canal separado, bilíngue e virar tudo foi
@@ -357,10 +366,10 @@ nome de coluna, valor de `check` e SQL — coisa que quebra em silêncio quando 
 schema anda. Lá cada nome está conferido contra a migration que o criou, e a
 tabela de origem está escrita ao lado.
 
-| Tarefa | Cadência | Prompt | Escreve? |
+| Tarefa | Cadência | Onde roda hoje (R10) | Escreve? |
 |---|---|---|---|
-| Pauta semanal | segunda, 06:00 | `cowork/pauta-semanal.md` | `insert` em `pautas`, e mais nada |
-| Relatório | sexta, 18:00 | `cowork/relatorio.md` | nada — só `select` |
+| Pauta semanal | segunda, 06:00 | `worker/pauta_local.py` (era `cowork/pauta-semanal.md`) | `insert` em `pautas`, e mais nada |
+| Relatório | sexta, 18:00 | `worker/relatorio_local.py` (era `cowork/relatorio.md`) | nada no banco — `select` + escreve markdown em `output/relatorios/` |
 
 **Conectores:** Supabase MCP e Google Drive. (O Notion estava no esboço e não é
 usado: nada do ciclo passa por lá, e conector a mais é superfície a mais.)
@@ -1048,8 +1057,16 @@ if __name__ == "__main__":
 [x] 12. Sprint 7 — Task Scheduler                         (20 min)  ← 298 testes, RLS 23/23
 [x] 12b. Rodar Registrar-Worker.ps1 no seu PC             (2 min)   ← FEITO 2026-08-04; tarefa \Atmosfera\Atmosfera Worker registrada
 [x] 13. Pauta manual — a fila ganha um produtor           (1h)      ← 298 testes, RLS 26/26
-[ ] 13b. Configurar as 2 tarefas no Cowork                (15 min)  ← SEU: a conta do Cowork é sua
+[x] 13b. ~~Configurar as 2 tarefas no Cowork~~            (—)       ← CANCELADO: Cowork aposentado na R10 (pauta+relatório locais)
+[ ] 13c. Agendar pauta_local + relatorio_local no PC      (10 min)  ← SEU: Task Scheduler local, ver specs/_manual.md §7
 ```
+
+**Item 13b cancelado — o Cowork foi aposentado (Rodada 10).** A pauta de segunda
+virou local na Rodada 4; o relatório de sexta virou local na Rodada 10
+(`worker/relatorio_local.py`). Com as duas tarefas no PC, o Cowork ficou sem nada
+para rodar e foi encerrado por decisão do dono. Não há mais tarefa remota para
+configurar; o que resta é agendar os dois produtores locais no Task Scheduler
+(item 13c), passo humano documentado no `specs/_manual.md` § 7.
 
 **Item 13 — por que veio depois do 12.** Os itens 1–12 construíram tudo que
 acontece **depois** de uma pauta existir: claim, render, pós-processo, gate,
@@ -1116,7 +1133,11 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 
 - MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) → controle por linguagem natural pelo celular. Pluga em cima do que já existe, sem retrabalho.
 - Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e reprova os de legenda cortada". **É o caminho sancionado para mais autonomia:** um QC automático que reprova o quebrado, não um auto-aprovar às cegas — o gate deixa de ser humano sem cegar o pipeline.
-- **Relatório de sexta local com Ollama.** A Rodada 4 trocou a *pauta* de segunda do Cowork por um produtor local (`worker/pauta_local.py`) — zerou o token na produção de pauta. O relatório ainda roda no Cowork; movê-lo para o Ollama fecha a última dependência de token. É `SELECT` + texto, então a qualidade importa menos que na pauta — candidato bom para a próxima rodada.
+- ~~**Relatório de sexta local com Ollama.**~~ **FEITO na Rodada 10**
+  (`worker/relatorio_local.py`) — o relatório de sexta migrou para o Ollama local,
+  fechando a última dependência de token e **aposentando o Cowork**. É `SELECT` +
+  texto, escreve em `output/relatorios/`; os números são determinísticos (nunca do
+  modelo) e a prosa das recomendações degrada com graça se o Ollama estiver fora.
 - Auditoria do TikTok Content Posting API (2–4 semanas) para liberar direct post público.
 - Aumento de cota do YouTube via formulário de audit.
 - Segundo canal / multi-tenant real (o schema já suporta).

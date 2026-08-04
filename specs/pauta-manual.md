@@ -34,7 +34,8 @@ escrever os dois artefatos que faltam para o caminho do Cowork existir:
 ## 2. Fora de escopo
 
 - **Configurar a tarefa no Cowork.** É a conta do dono, é passo humano, vai para
-  `specs/_manual.md`.
+  `specs/_manual.md`. _(Nota R10: o Cowork foi aposentado — pauta e relatório
+  rodam localmente; não há mais tarefa remota a configurar. Este spec é histórico.)_
 - **Editar ou apagar pauta.** Criar e enfileirar fecham o ciclo de uso; editar
   abre a pergunta "e se estiver `em_producao`?", que é outra rodada.
 - **Campo de hashtags no formulário.** A coluna tem default e o § 4 trata as

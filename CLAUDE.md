@@ -19,12 +19,19 @@ Se um estado novo não cabe no `check (status in (...))`, é migration antes de 
 
 | Camada | Onde roda | Faz | Nunca faz |
 |--------|-----------|-----|-----------|
-| **Cowork** | remoto, agendado, PC desligado | decide: pauta, roteiro, copy, relatório | tocar arquivo local, alterar schema |
-| **Worker** | seu PC (Windows + WSL2), Python 3.11 | executa: render, ffmpeg, upload | abrir porta, receber conexão |
+| **Cowork** ~~(aposentado R10)~~ | ~~remoto, agendado~~ | ~~decide: pauta, relatório~~ | — |
+| **Worker** | seu PC (Windows + WSL2), Python 3.11 | executa: render, ffmpeg, upload; decide: pauta e relatório (Ollama local) | abrir porta, receber conexão |
 | **Painel** | Vercel, Next.js | aprova: fila, preview, histórico | usar service_role |
 
 O worker **só faz saída** (polling). O PC nunca abre porta — isso elimina a
 superfície de ataque inteira, e não é negociável.
+
+**O Cowork foi aposentado na Rodada 10** (decisão do dono, 2026-08-04). A camada de
+decisão que rodava remota — pauta de segunda e relatório de sexta — migrou para o
+PC com Ollama local (`worker/pauta_local.py`, `worker/relatorio_local.py`): de
+graça, offline, sem token. A separação que o ADR-07 protegia continua de pé —
+quem gera/analisa **só escreve em `pautas` ou em disco**, nunca toca estado de
+vídeo, que é do trigger e do gate. Nada mais consome uso de plano.
 
 ## Regras
 
