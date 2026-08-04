@@ -122,6 +122,6 @@ export const config = {
     // Tudo que não seja estático do Next nem arquivo com extensão. Estáticos
     // não têm sessão para renovar, e passar por aqui só somaria latência a
     // cada ícone.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|mp4|webmanifest|txt)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|mp4|webmanifest|txt|html)$).*)",
   ],
 };
