@@ -9,6 +9,61 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 16 — QC automático dos pendentes (reprova legenda cortada) · 2026-08-04
+
+**Spec:** `specs/qc-automatico-pendentes.md`
+
+**Review:** ✅ aprovado sem ressalvas, 9/9 com evidência. Portões: **473 testes do
+worker** (eram 435; +38) · `rls_test.sql` **intocado (41)**, case 02 **segue 11** ·
+`painel/` intocado, `next build` não afetado. A ressalva do § 7 (qualidade da detecção
+não validável neste ambiente — material preto, sem legenda real) é honestidade
+documentada, não pendência.
+
+**O que entrou:** `worker/qc_local.py` — CLI standalone (como `pauta_local`), **não no
+loop**. Lista os `aguardando_aprovacao` com arquivo no disco (`db.listar_aguardando`),
+extrai um frame do meio de cada (`postprocess.duracao_de` + `-ss … -frames:v 1`, em
+memória), pergunta a um modelo de VISÃO local (`chamar_ollama_visao`, espelho do
+`chamar_ollama` com `images:[b64]`) se a legenda queimada está cortada, e reprova —
+**reusando a `reprovar_video` do gate** (`db.reprovar_qc`) — só os `cortada + alta`.
+`interpretar_veredito` parseia defensivo (fence/prosa/lixo → `desconhecida`, nunca
+levanta). Migration `20260804180000_qc_reprovar.sql`: uma linha,
+`grant execute on reprovar_video to service_role`. Config: `qc_local_visao_model`,
+`qc_local_lote`. Fecha o item "revisor em lote" do § 9 (com visão local em vez do Chrome).
+
+**Decisões:** (1) **Nunca aprova** — única transição é `→ reprovado`; a ADR-06 fica
+intacta e o auto-reprovar a fortalece (tira lixo antes do humano). (2) **Só alta
+confiança** — `deve_reprovar = cortada and confianca == 'alta'`; a assimetria manda
+(falso-positivo joga render fora, falso-negativo o humano ainda pega). (3) **CLI, não
+loop** — um auto-reprovador sobre detector não validado esvaziaria a fila calado; rodar
+é opt-in. (4) Reusa a RPC do gate em vez de duplicar a devolução-da-pauta em Python.
+(5) Ollama fora do ar sobe e aborta (exit 1); frame/veredito ruim de UM vídeo deixa
+para o humano e segue.
+
+**Aprendido:** `service_role` ignora RLS mas **não** GRANT de EXECUTE — a Sprint 6
+revogou `reprovar_video` de `public` e concedeu só a `authenticated`, então o worker
+precisou de `grant ... to service_role` próprio (senão `permission denied` só em
+runtime). Em `specs/qc-automatico-pendentes.md` § 9 e na auto-memória
+`service-role-nao-e-authenticated`.
+
+**Commit:** `dcf825f` na branch `main` (push direto autorizado). Ledger em commit
+separado. Nota no vault: `2026-08-04-dcf825f.md`.
+
+**Pendente de decisão:** nenhuma. Passos humanos acumulados (não bloqueiam): aplicar as
+**quatro** migrations pendentes — R11 `…_metricas_youtube`, R14 `…_descartar_pauta`,
+R15 `…_editar_pauta`, R16 `20260804180000_qc_reprovar` — + `advisors --linked` +
+`rls_test.sql` (alvo 41 ✅); e, para rodar o QC de verdade, `ollama pull llama3.2-vision`
+e footage real. O sandbox não alcança o Supabase.
+
+**Próximo item recomendado:** `MCP-verbos-do-dominio` — MCP customizado com
+`aprovar_video`/`listar_pendentes` para controle por linguagem natural pelo celular
+(§ 9). É o último item de backlog **não-manual e sem custo** que pluga sobre o que já
+existe; mas abre uma **nova superfície de interface** (como o telefone autentica, qual
+transporte), então o `/spec` provavelmente encosta numa decisão de produto — vale
+confirmar a forma com o dono antes. As demais pendências (fine-tuning, auditoria TikTok,
+cota YouTube) param em passo humano ou tempo coletando métrica.
+
+---
+
 ## Rodada 15 — Editar pauta pelo painel (conteúdo de uma pronta) · 2026-08-04
 
 **Spec:** `specs/editar-pauta.md`
