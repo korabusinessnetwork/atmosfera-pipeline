@@ -28,7 +28,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   UPDATE é a fechadura (correlação old→new)"; e **o ambiente do agente passou a
   alcançar o Supabase via CLI linkado** (`worker-venv-sandbox-real-context.md`
   atualizada — aplico/verifico migration daqui agora).
-- Commit: <preencher> na branch main
+- Commit: `118bfea` (trabalho) + `1346fde` (ledger) na branch main
 - Pendente de decisão: nenhuma nesta rodada.
 - Próximo item recomendado: `voz-propria` — segue sendo o único item de conteúdo
   novo na fila, agora **sem portão de custo** (o dono fixou "auto só gratuito/local":
