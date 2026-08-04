@@ -107,6 +107,12 @@ class Config:
     # não token — aceitável numa tarefa agendada.
     pauta_local_candidatos: int = 18
     pauta_local_refinar: bool = True
+    # Quantos hooks de maior retenção real (tabela `metricas`, Rodada 11) o gerador
+    # injeta como few-shot de "vencedores comprovados" no prompt de geração
+    # (Rodada 13). Custa uma leitura a mais e um prompt mais longo — barato. Degrada
+    # sozinho: sem métrica coletada (ou com a migration ainda não aplicada), o bloco
+    # fica vazio e a geração roda com os exemplos-ouro estáticos só.
+    pauta_local_vencedores: int = 5
     identidade: Path = RAIZ.parent / "memory" / "00_IDENTIDADE.md"
 
 
@@ -301,5 +307,6 @@ def carregar(env_path: Path | None = None) -> Config:
         pauta_local_teto=_inteiro("PAUTA_LOCAL_TETO", 20),
         pauta_local_candidatos=_inteiro("PAUTA_LOCAL_CANDIDATOS", 18),
         pauta_local_refinar=_booleano("PAUTA_LOCAL_REFINAR", True),
+        pauta_local_vencedores=_inteiro("PAUTA_LOCAL_VENCEDORES", 5),
         identidade=_caminho("IDENTIDADE_PATH", RAIZ.parent / "memory" / "00_IDENTIDADE.md"),
     )

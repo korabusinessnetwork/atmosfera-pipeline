@@ -50,6 +50,15 @@ que escondidas:
   faz o modelo aprender** (os pesos não mudam; treinar nas próprias saídas
   degradaria por *model collapse*). Aprender de verdade é fine-tuning, que depende
   de métrica de performance real — backlog do § 9, não esta rodada.
+
+**Few-shot dos vencedores reais (Rodada 13).** O prompt de geração ganha um bloco
+com os hooks de MAIOR retenção real do canal (tabela `metricas`, Rodada 11), para a
+pauta nascer imitando o que de fato prendeu audiência — não a impressão de ninguém.
+Isto **não** contradiz o honesto acima: few-shot é contexto, não treino; os pesos
+seguem os mesmos, e o modelo só vê exemplos melhores. Degrada em silêncio: sem
+métrica coletada (ou com a migration ainda não aplicada), o bloco fica vazio e o
+prompt é o de sempre. O número de retenção é da tabela, determinístico — o modelo o
+lê, nunca o inventa.
 """
 
 from __future__ import annotations
@@ -316,14 +325,73 @@ def aplicar_reescrita(
     return {**original, "hook": novo_hook, "roteiro": novo_roteiro}
 
 
-def montar_prompt(identidade: str, n: int) -> str:
+def formatar_vencedores(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Achata o embed cru de `db.hooks_por_retencao` numa lista de vencedores. Pura.
+
+    O banco devolve `{"retencao_media_pct":…, "publicacoes":{"videos":{"pautas":
+    {"hook":…}}}}` (o mesmo embed que o relatório da Rodada 12 achata) — o
+    achatamento acontece UMA vez, aqui, e nunca de novo a jusante.
+
+    Descarta a linha sem hook OU sem retenção POSITIVA: um "vencedor comprovado"
+    precisa dos dois — o exemplo (o hook) e o número que o prova. `> 0` e não
+    `is not None` de propósito: o coletor grava `0.0` para vídeo recém-publicado
+    ainda SEM dado da Analytics (`_zerada`), e chamar um hook de 0% de "vencedor que
+    prendeu audiência" ensinaria o modelo pelo avesso. Diferente do relatório, que
+    LISTA o Short sem retenção com "n/d", aqui a linha sem número útil sai do few-shot.
+    """
+    vencedores: list[dict[str, Any]] = []
+    for linha in linhas:
+        retencao = linha.get("retencao_media_pct")
+        pub = linha.get("publicacoes") or {}
+        pauta = (pub.get("videos") or {}).get("pautas") or {}
+        hook = (pauta.get("hook") or "").strip()
+        if hook and retencao is not None and retencao > 0:
+            vencedores.append({"hook": hook, "retencao": retencao})
+    return vencedores
+
+
+def montar_bloco_vencedores(vencedores: list[dict[str, Any]]) -> str:
+    """Monta o few-shot dos hooks que retiveram de verdade. Pura.
+
+    Lista vazia → string vazia: é o pivô da degradação. Sem métrica coletada (ou
+    com a migration da `metricas` ainda não aplicada), o gerador cai no prompt de
+    sempre, com os exemplos-ouro estáticos só.
+
+    O número de retenção vem da tabela — o modelo o recebe como contexto, nunca o
+    inventa nem o emite numa pauta. O bloco carrega o mesmo aviso dos exemplos-ouro:
+    imitar o que funcionou, nunca copiar o hook.
+    """
+    if not vencedores:
+        return ""
+    linhas = "\n".join(
+        f"- [{v['retencao']:.0f}% retention] {v['hook']}" for v in vencedores
+    )
+    return (
+        "=== PROVEN WINNERS (real retention on THIS channel) ===\n"
+        "These hooks actually kept viewers watching — the percentage is measured, "
+        "not guessed. Study WHY they held attention (specificity, an open loop, a "
+        "reframe that lands) and let it shape your new hooks. Generate NEW angles: "
+        "never repeat the hook or the idea of a winner below.\n"
+        f"{linhas}\n"
+        "=== END OF PROVEN WINNERS ===\n\n"
+    )
+
+
+def montar_prompt(
+    identidade: str, n: int, vencedores: list[dict[str, Any]] | None = None
+) -> str:
     """Monta o prompt do gerador, com a identidade da marca embutida.
 
     A identidade vem do disco (o mesmo `00_IDENTIDADE.md` que o Cowork lê pelo
     Drive) para que a voz da marca tenha um lugar só. O resto são as regras que
     o schema e o render impõem — teto de 88 no hook, roteiro obrigatório — para
     o modelo não descobrir isso do jeito caro.
+
+    `vencedores` (Rodada 13) são os hooks de maior retenção real, injetados como
+    few-shot logo após a identidade. Vazio/None → o prompt é byte-a-byte o de antes
+    da rodada, então nenhuma chamada existente muda de comportamento.
     """
+    bloco = montar_bloco_vencedores(vencedores or [])
     return (
         "You are the content strategist for Atmosfera Viral. Your identity, "
         "voice, and what never to do are described below. Respect every limit "
@@ -331,6 +399,7 @@ def montar_prompt(identidade: str, n: int) -> str:
         "=== IDENTITY ===\n"
         f"{identidade}\n"
         "=== END OF IDENTITY ===\n\n"
+        f"{bloco}"
         f"Produce {n} pautas, each with a DIFFERENT angle — if two look alike, "
         "one should not exist. Write everything in US English.\n"
         "Vary the SHAPE, not only the topic. The channel's signature move is the "
@@ -485,13 +554,19 @@ def chamar_ollama(
 
 
 def gerar_pool(
-    cfg: Config, identidade: str, sessao: Sessao
+    cfg: Config,
+    identidade: str,
+    sessao: Sessao,
+    vencedores: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Gera o pool de candidatos em lotes que cabem no timeout.
 
     Faz `ceil(candidatos / LOTE_GERACAO)` chamadas — o número de chamadas depende
     do alvo pedido, não de quantas voltam válidas, para o custo em tempo ser
     previsível. Devolve (candidatos válidos, quantos o modelo entregou tortos).
+
+    `vencedores` (Rodada 13) vai a cada prompt de geração como few-shot dos hooks
+    que retiveram — vazio/None mantém o prompt de sempre.
     """
     from math import ceil
 
@@ -499,7 +574,7 @@ def gerar_pool(
     pool: list[dict[str, Any]] = []
     invalidas = 0
     for _ in range(ceil(alvo / LOTE_GERACAO)):
-        prompt = montar_prompt(identidade, LOTE_GERACAO)
+        prompt = montar_prompt(identidade, LOTE_GERACAO, vencedores)
         texto = chamar_ollama(cfg.ollama_url, cfg.ollama_model, prompt, sessao)
         validas, descartou = separar_validas(extrair_pautas(texto))
         pool.extend(validas)
@@ -558,6 +633,26 @@ def reescrever(
     return aplicar_reescrita(pauta, proposta)
 
 
+def ler_vencedores(cfg: Config, sb: Any) -> list[dict[str, Any]]:
+    """Lê os hooks de maior retenção real para o few-shot. Degrada para lista vazia.
+
+    A leitura **nunca** derruba o run: se a tabela `metricas` ainda não existe (a
+    migration da Rodada 11 é passo humano pendente — item 14b) ou o read falha por
+    qualquer outro motivo, o gerador segue com os exemplos-ouro estáticos só. Puxar
+    vencedor é enriquecimento do prompt, não pré-requisito da geração — o mesmo
+    espírito do "juiz é polish, não espinha".
+    """
+    try:
+        linhas = db.hooks_por_retencao(sb, str(cfg.org_id), cfg.pauta_local_vencedores)
+    except Exception as erro:  # noqa: BLE001 — qualquer falha degrada, inclusive tabela ausente
+        log.warning(
+            "não li vencedores por retenção — seguindo sem few-shot real",
+            extra={"erro": str(erro)[:200]},
+        )
+        return []
+    return formatar_vencedores(linhas)
+
+
 def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str, Any]:
     """Best-of-N + crítica: gera pool → pontua → seleciona top N → reescreve → insere.
 
@@ -579,7 +674,9 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
     identidade = cfg.identidade.read_text(encoding="utf-8")
     sessao = sessao or criar_sessao()
 
-    pool, invalidas = gerar_pool(cfg, identidade, sessao)
+    vencedores = ler_vencedores(cfg, sb)
+
+    pool, invalidas = gerar_pool(cfg, identidade, sessao, vencedores)
     if not pool:
         raise RespostaInvalida("Ollama respondeu, mas nenhuma pauta veio utilizável.")
 
@@ -615,6 +712,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
             "invalidas": invalidas,
             "ranqueou": ranqueou,
             "refinou": cfg.pauta_local_refinar,
+            "vencedores": len(vencedores),
             "fila_viva": viva,
         },
     )
@@ -623,6 +721,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
         "descartou": invalidas,
         "pool": len(pool),
         "ranqueou": ranqueou,
+        "vencedores": len(vencedores),
         "fila_viva": viva,
     }
 
@@ -661,9 +760,14 @@ def main() -> int:
         )
     else:
         ranking = "ranqueadas pelo juiz" if resumo.get("ranqueou") else "sem ranking (juiz falhou)"
+        venc = resumo.get("vencedores", 0)
+        few_shot = (
+            f"com {venc} vencedores reais no few-shot" if venc
+            else "sem vencedores no few-shot (métrica ainda não coletada)"
+        )
         print(
             f"gerou {resumo['gerou']} pautas prontas de um pool de {resumo.get('pool', '?')} "
-            f"candidatos, {ranking} "
+            f"candidatos, {ranking}, {few_shot} "
             f"(descartou {resumo['descartou']} inválidas do modelo). "
             "O trigger já enfileirou cada uma até o gate."
         )

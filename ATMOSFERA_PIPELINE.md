@@ -1162,14 +1162,20 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   tempo. **O relatório de sexta já CONSOME o dado (Rodada 12):** a seção "Top hooks
   por retenção" (`worker/relatorio_local.py` + `db.hooks_por_retencao`) ranqueia os
   hooks pela retenção real, e as recomendações do Ollama pesam o que reteve. **O
-  que falta é o gerador de pauta consumir** — alimentar a seleção best-of-N / o
-  few-shot com os hooks que retiveram, para a pauta nascer imitando o que funciona.
-  Aí o ciclo fecha inteiro. **É também o pré-requisito do fine-tuning:** a Rodada 7 levou o
+  gerador de pauta também CONSOME agora (Rodada 13):** `worker/pauta_local.py` injeta
+  os hooks de maior retenção como few-shot de "vencedores comprovados" no prompt de
+  geração (`formatar_vencedores` + `montar_bloco_vencedores`, reusando
+  `db.hooks_por_retencao`), para a pauta nascer imitando o que prendeu audiência —
+  não a impressão de ninguém. Com isso o ciclo de decisão fecha: quem **analisa** e
+  quem **escreve** já olham a retenção real. Degrada em silêncio (sem métrica, ou
+  com a migration ainda não aplicada, o bloco fica vazio) e o número é da tabela,
+  nunca do modelo — few-shot é contexto, não treino, então os pesos seguem os mesmos.
+  **É também o pré-requisito do fine-tuning:** a Rodada 7 levou o
   gerador local ao teto de qualidade *sem* dado — best-of-N + crítica escolhem e
   reescrevem entre saídas do mesmo modelo pequeno, mas não mudam os pesos. Treinar
   de verdade (LoRA sobre hooks que performaram) precisa **desta tabela cheia**;
-  a coleta existe, agora é acumular histórico e consumir. É o próximo item natural
-  do loop.
+  a coleta existe e os dois consumidores já leem — agora é acumular histórico para
+  poder treinar. Esse é o próximo salto de qualidade, não mais um consumidor.
 - Editar e descartar pauta pelo painel. Criar e enfileirar fecham o uso normal;
   editar abre "e se já estiver `em_producao`?", que é uma máquina de estados
   nova, não um formulário a mais.

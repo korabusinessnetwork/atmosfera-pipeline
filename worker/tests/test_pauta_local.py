@@ -413,7 +413,7 @@ def _juiz_por_indice(notas):
     return resp
 
 
-def _cfg(tmp_path, *, teto=20, n=2, candidatos=6, refinar=True):
+def _cfg(tmp_path, *, teto=20, n=2, candidatos=6, refinar=True, vencedores=5):
     ident = tmp_path / "id.md"
     ident.write_text("identidade da marca", encoding="utf-8")
     return types.SimpleNamespace(
@@ -422,6 +422,7 @@ def _cfg(tmp_path, *, teto=20, n=2, candidatos=6, refinar=True):
         pauta_local_n=n,
         pauta_local_candidatos=candidatos,
         pauta_local_refinar=refinar,
+        pauta_local_vencedores=vencedores,
         ollama_url="http://x",
         ollama_model="m",
         identidade=ident,
@@ -441,6 +442,9 @@ def test_gerar_pool_faz_ceil_chamadas(tmp_path):
 def _capturar_insercoes(monkeypatch):
     inseridas = []
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    # Sem métrica por padrão: o few-shot de vencedores degrada para vazio, e os
+    # testes de orquestração best-of-N seguem exercitando só a espinha.
+    monkeypatch.setattr(db, "hooks_por_retencao", lambda _sb, _org, _lim: [])
     monkeypatch.setattr(
         db, "inserir_pauta", lambda _sb, _org, **campos: inseridas.append(campos) or "x"
     )
@@ -533,6 +537,7 @@ def test_refinar_desligado_nao_reescreve(tmp_path, monkeypatch):
 
 def test_pool_vazio_levanta(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    monkeypatch.setattr(db, "hooks_por_retencao", lambda _sb, _org, _lim: [])
     monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: "x")
     # modelo devolve só lixo sem tema/roteiro → pool vazio.
     sessao = SessaoRoteada(geracao='{"pautas": [{"foo": "bar"}]}')
@@ -589,3 +594,139 @@ def test_prompt_gerador_limita_o_molde_e_nomeia_alternativas():
     # …e ao menos 3 formas alternativas nomeadas.
     alternativas = ["confession", "compounds", "identity split", "absence"]
     assert sum(1 for a in alternativas if a in prompt) >= 3
+
+
+# ------------------------------------------------- vencedores por retenção (R13)
+def _vencedor_cru(hook, retencao, *, views=100):
+    """Uma linha na forma CRUA que `db.hooks_por_retencao` devolve (embed do
+    PostgREST) — o mesmo formato que o banco de verdade entrega."""
+    return {
+        "retencao_media_pct": retencao,
+        "views": views,
+        "publicacoes": {"url": "u", "videos": {"pautas": {"tema": "tm", "hook": hook}}},
+    }
+
+
+def test_formatar_vencedores_achata_e_filtra():
+    linhas = [
+        _vencedor_cru("hook forte", 58.4),
+        _vencedor_cru("", 40.0),           # sem hook → fora
+        _vencedor_cru("hook sem numero", None),  # sem retenção → fora
+        _vencedor_cru("hook zerado", 0.0),  # recém-publicado, sem dado ainda → fora
+        _vencedor_cru("hook ok", 33.0),
+    ]
+    saida = pl.formatar_vencedores(linhas)
+    assert saida == [
+        {"hook": "hook forte", "retencao": 58.4},
+        {"hook": "hook ok", "retencao": 33.0},
+    ]
+
+
+def test_formatar_vencedores_embed_faltando_nao_quebra():
+    # Publicação/vídeo/pauta nulos na cadeia (dado legado) não podem levantar.
+    assert pl.formatar_vencedores([{"retencao_media_pct": 50, "publicacoes": None}]) == []
+
+
+def test_bloco_vencedores_vazio_e_string_vazia():
+    # O pivô da degradação: sem vencedores, o bloco some inteiro.
+    assert pl.montar_bloco_vencedores([]) == ""
+
+
+def test_bloco_vencedores_lista_hooks_com_retencao_e_avisa():
+    bloco = pl.montar_bloco_vencedores(
+        [{"hook": "You're not lazy", "retencao": 58.4}, {"hook": "Prove it", "retencao": 41.0}]
+    )
+    assert "PROVEN WINNERS" in bloco
+    assert "You're not lazy" in bloco and "Prove it" in bloco
+    assert "58% retention" in bloco   # número da tabela, arredondado
+    assert "never repeat" in bloco     # o mesmo aviso dos exemplos-ouro
+
+
+def test_prompt_sem_vencedores_igual_ao_de_hoje():
+    # Compatibilidade: sem vencedores, o prompt é byte-a-byte o de antes da R13.
+    base = pl.montar_prompt("VOZ", 6)
+    assert pl.montar_prompt("VOZ", 6, []) == base
+    assert pl.montar_prompt("VOZ", 6, None) == base
+    assert "PROVEN WINNERS" not in base
+
+
+def test_prompt_com_vencedores_injeta_o_bloco():
+    prompt = pl.montar_prompt("VOZ", 6, [{"hook": "Winner hook", "retencao": 62.0}])
+    assert "PROVEN WINNERS" in prompt
+    assert "Winner hook" in prompt
+    # a identidade e as regras continuam presentes.
+    assert "VOZ" in prompt and str(pl.HOOK_MAX) in prompt
+
+
+def test_gerar_injeta_vencedores_no_prompt_de_geracao(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    monkeypatch.setattr(
+        db, "hooks_por_retencao",
+        lambda _sb, _org, _lim: [_vencedor_cru("Proven winner hook", 61.0)],
+    )
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    geracao = [p for t, p in sessao.chamadas if t == "geracao"]
+    assert geracao and all("Proven winner hook" in p for p in geracao)
+    assert all("PROVEN WINNERS" in p for p in geracao)
+    assert resumo["vencedores"] == 1
+    assert len(inseridas) == 2   # o resto do fluxo segue normal
+
+
+def test_gerar_degrada_sem_metricas(tmp_path, monkeypatch):
+    # hooks_por_retencao devolve [] (métrica não coletada) → prompt de sempre.
+    inseridas = _capturar_insercoes(monkeypatch)   # já patcha hooks_por_retencao → []
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    geracao = [p for t, p in sessao.chamadas if t == "geracao"]
+    assert geracao and all("PROVEN WINNERS" not in p for p in geracao)
+    assert resumo["vencedores"] == 0 and resumo["gerou"] == 2 and len(inseridas) == 2
+
+
+def test_gerar_degrada_se_leitura_de_vencedores_falha(tmp_path, monkeypatch):
+    # A tabela `metricas` pode não existir ainda (migration da R11 é passo humano
+    # pendente): a leitura levanta, e a geração NÃO pode cair por isso.
+    inseridas = _capturar_insercoes(monkeypatch)
+
+    def explode(_sb, _org, _lim):
+        raise RuntimeError("relation public.metricas does not exist")
+
+    monkeypatch.setattr(db, "hooks_por_retencao", explode)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["gerou"] == 2 and resumo["vencedores"] == 0
+    geracao = [p for t, p in sessao.chamadas if t == "geracao"]
+    assert geracao and all("PROVEN WINNERS" not in p for p in geracao)
+    assert len(inseridas) == 2
+
+
+def test_ler_vencedores_usa_org_e_limite_do_cfg(tmp_path, monkeypatch):
+    capturado = {}
+
+    def espiao(_sb, org, lim):
+        capturado["org"] = org
+        capturado["lim"] = lim
+        return [_vencedor_cru("h", 50.0)]
+
+    monkeypatch.setattr(db, "hooks_por_retencao", espiao)
+    saida = pl.ler_vencedores(_cfg(tmp_path, vencedores=3), sb=object())
+    assert capturado == {"org": "org-1", "lim": 3}
+    assert saida == [{"hook": "h", "retencao": 50.0}]

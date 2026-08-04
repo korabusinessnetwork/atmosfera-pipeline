@@ -56,3 +56,25 @@ class TestBooleano:
         monkeypatch.setenv("PAUTA_LOCAL_REFINAR", "talvez")
         with pytest.raises(config.ConfigInvalida, match="true/false"):
             config._booleano("PAUTA_LOCAL_REFINAR", True)
+
+
+class TestInteiro:
+    def test_ausente_usa_padrao(self, monkeypatch):
+        monkeypatch.delenv("PAUTA_LOCAL_VENCEDORES", raising=False)
+        assert config._inteiro("PAUTA_LOCAL_VENCEDORES", 5) == 5
+
+    def test_override(self, monkeypatch):
+        monkeypatch.setenv("PAUTA_LOCAL_VENCEDORES", "8")
+        assert config._inteiro("PAUTA_LOCAL_VENCEDORES", 5) == 8
+
+    def test_nao_inteiro_falha(self, monkeypatch):
+        monkeypatch.setenv("PAUTA_LOCAL_VENCEDORES", "cinco")
+        with pytest.raises(config.ConfigInvalida, match="inteiro"):
+            config._inteiro("PAUTA_LOCAL_VENCEDORES", 5)
+
+    def test_zero_ou_negativo_falha(self, monkeypatch):
+        # Teto é número de exemplos; 0 desligaria por caminho errado — a
+        # degradação (sem métrica) é quem zera o bloco, não um teto inválido.
+        monkeypatch.setenv("PAUTA_LOCAL_VENCEDORES", "0")
+        with pytest.raises(config.ConfigInvalida, match="maior que zero"):
+            config._inteiro("PAUTA_LOCAL_VENCEDORES", 5)
