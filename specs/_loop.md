@@ -9,6 +9,34 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 19 — consolidar as políticas de UPDATE de `pautas` · 2026-08-04
+
+- Spec: `specs/consolidar-politicas-pautas.md`
+- Resultado da review: **aprovado sem ressalvas**, provado contra o banco real.
+  O primeiro `supabase db advisors` de verdade (o dono linkou o projeto e rodou)
+  acusou `multiple_permissive_policies` em `pautas` para UPDATE — duas políticas
+  permissivas (`pautas_producao` da Sprint 6 + `pautas_descartar` da R14) somando
+  por OR. Colapsei nas duas na única `pautas_atualizar`, com USING/WITH CHECK =
+  união exata; os triggers `guarda_descarte`/`guarda_edicao` seguem sendo a
+  fechadura da transição. Migration `20260804200000` aplicada por `db push`;
+  `advisors` voltou sem `multiple_permissive_policies` (só resta o toggle de senha
+  vazada, que é dashboard); `rls_test` **41/41 ✅** com o caso 02 de 11 → 10;
+  worker **499 passed**.
+- Aprendido (`specs/consolidar-politicas-pautas.md` § 9 + memória): "advisors
+  limpo" nos docs nunca fora executado contra o banco real — era hipótese, não
+  fato; padrão "política permissiva é a porta (união de estados), trigger BEFORE
+  UPDATE é a fechadura (correlação old→new)"; e **o ambiente do agente passou a
+  alcançar o Supabase via CLI linkado** (`worker-venv-sandbox-real-context.md`
+  atualizada — aplico/verifico migration daqui agora).
+- Commit: <preencher> na branch main
+- Pendente de decisão: nenhuma nesta rodada.
+- Próximo item recomendado: `voz-propria` — segue sendo o único item de conteúdo
+  novo na fila, agora **sem portão de custo** (o dono fixou "auto só gratuito/local":
+  voice clone local XTTS/Coqui, nunca pago). Alternativa: pausar rodadas e tocar as
+  etapas manuais operacionais (TikTok, footage, agendar pauta).
+
+---
+
 ## Rodada 18 — MCP transporte remoto · ADIADA por decisão do dono · 2026-08-04
 
 **Sem spec, sem código.** O `/spec` bateu na parada obrigatória de **decisão de
