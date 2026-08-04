@@ -124,6 +124,12 @@ class Config:
     qc_local_visao_model: str = "llama3.2-vision"
     qc_local_lote: int = 20
 
+    # MCP de verbos do domínio (Rodada 17). O servidor stdio local expõe o gate e
+    # a fila para controle por linguagem natural, reusando as RPCs da Sprint 6 com
+    # a service_role local (como o worker). `lote` é o teto das listagens — 50
+    # cabe numa resposta sem virar rolagem infinita no cliente.
+    mcp_lote: int = 50
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -320,4 +326,5 @@ def carregar(env_path: Path | None = None) -> Config:
         identidade=_caminho("IDENTIDADE_PATH", RAIZ.parent / "memory" / "00_IDENTIDADE.md"),
         qc_local_visao_model=_texto("QC_LOCAL_VISAO_MODEL", "llama3.2-vision"),
         qc_local_lote=_inteiro("QC_LOCAL_LOTE", 20),
+        mcp_lote=_inteiro("MCP_LOTE", 50),
     )

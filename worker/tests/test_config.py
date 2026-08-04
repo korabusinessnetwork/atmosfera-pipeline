@@ -104,3 +104,20 @@ class TestQcLocal:
         monkeypatch.setenv("QC_LOCAL_LOTE", "0")
         with pytest.raises(config.ConfigInvalida, match="maior que zero"):
             config._inteiro("QC_LOCAL_LOTE", 20)
+
+
+class TestMcpLote:
+    """Teto das listagens do servidor MCP (Rodada 17). Inteiro positivo."""
+
+    def test_ausente_usa_padrao(self, monkeypatch):
+        monkeypatch.delenv("MCP_LOTE", raising=False)
+        assert config._inteiro("MCP_LOTE", 50) == 50
+
+    def test_override(self, monkeypatch):
+        monkeypatch.setenv("MCP_LOTE", "10")
+        assert config._inteiro("MCP_LOTE", 50) == 10
+
+    def test_zero_falha(self, monkeypatch):
+        monkeypatch.setenv("MCP_LOTE", "0")
+        with pytest.raises(config.ConfigInvalida, match="maior que zero"):
+            config._inteiro("MCP_LOTE", 50)

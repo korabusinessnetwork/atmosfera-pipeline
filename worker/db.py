@@ -151,15 +151,81 @@ def listar_aguardando(sb: Client, org_id: str, limite: int) -> list[dict[str, An
 def reprovar_qc(sb: Client, video_id: str, motivo: str) -> None:
     """Reprova um vídeo pelo QC, reusando a RPC do gate (Rodada 16).
 
-    Chama a MESMA `reprovar_video` da Sprint 6 — não um update direto — porque ela
-    carrega a invariante de devolver a pauta para `pronta` quando não sobra vídeo
-    vivo dela. Duplicar isso em Python seria ter a regra do gate em dois lugares.
-    O `service_role` recebeu `execute` na migration `qc_reprovar`.
+    Delega para `reprovar_video` (abaixo) — a MESMA RPC da Sprint 6 — para o
+    `sb.rpc("reprovar_video")` viver num lugar só. A RPC carrega a invariante de
+    devolver a pauta para `pronta` quando não sobra vídeo vivo dela; duplicar isso
+    em Python seria ter a regra do gate em dois lugares. O `service_role` recebeu
+    `execute` na migration `qc_reprovar`.
 
     O motivo vai para `videos.erro_msg` (a RPC trunca em 500), a mesma coluna que o
     painel já mostra — o humano vê "[QC] legenda cortada" no lugar de um sumiço mudo.
     """
-    sb.rpc("reprovar_video", {"p_video_id": video_id, "p_motivo": motivo}).execute()
+    reprovar_video(sb, video_id, motivo)
+
+
+# ============================================================ verbos do MCP (R17)
+# Invólucros finos sobre as MESMAS RPCs/selects do painel (Sprint 6). O servidor
+# MCP local (`mcp_server.py`) os expõe como ferramentas para controle por linguagem
+# natural. Nenhum faz `update` cru de status — a transição é sempre da RPC, que
+# carrega a guarda no corpo (`where status = 'aguardando_aprovacao'` + P0002). É a
+# regra "reusar a RPC, nunca duplicar a máquina de estados" do gate.
+
+
+def listar_pendentes(sb: Client, org_id: str, limite: int) -> list[dict[str, Any]]:
+    """Vídeos no gate humano, com tema/hook da pauta para o humano decidir por NL.
+
+    Diferente de `listar_aguardando` (que o QC usa e traz só o caminho do arquivo),
+    aqui embutimos `tema`/`hook` da pauta: quem controla por linguagem natural precisa
+    reconhecer o vídeo pelo assunto, não por um uuid. Org-escopado explicitamente — a
+    service_role ignora RLS, então o tenant é filtro na query, como em toda leitura aqui.
+    """
+    resposta = (
+        sb.table("videos")
+        .select("id, duracao_seg, arquivo_path, pautas(tema, hook)")
+        .eq("org_id", org_id)
+        .eq("status", "aguardando_aprovacao")
+        .order("created_at")
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
+def listar_pautas_prontas(sb: Client, org_id: str, limite: int) -> list[dict[str, Any]]:
+    """Pautas prontas para enfileirar render, maior prioridade primeiro."""
+    resposta = (
+        sb.table("pautas")
+        .select("id, tema, hook, prioridade")
+        .eq("org_id", org_id)
+        .eq("status", "pronta")
+        .order("prioridade", desc=True)
+        .order("created_at")
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
+def aprovar_video(sb: Client, video_id: str) -> list[dict[str, Any]]:
+    """Chama a RPC `aprovar_video` (aguardando_aprovacao -> aprovado). Levanta em P0002."""
+    return sb.rpc("aprovar_video", {"p_video_id": video_id}).execute().data or []
+
+
+def reprovar_video(
+    sb: Client, video_id: str, motivo: str | None = None
+) -> list[dict[str, Any]]:
+    """Chama a RPC `reprovar_video` (aguardando_aprovacao -> reprovado). Motivo opcional."""
+    return (
+        sb.rpc("reprovar_video", {"p_video_id": video_id, "p_motivo": motivo})
+        .execute()
+        .data
+        or []
+    )
+
+
+def enfileirar_pauta(sb: Client, pauta_id: str) -> list[dict[str, Any]]:
+    """Chama a RPC `enfileirar_pauta` (pauta pronta -> em_producao + videos.na_fila)."""
+    return sb.rpc("enfileirar_pauta", {"p_pauta_id": pauta_id}).execute().data or []
 
 
 def concluir_render(

@@ -1144,7 +1144,23 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 
 ## 9. Backlog (não fazer agora)
 
-- MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) → controle por linguagem natural pelo celular. Pluga em cima do que já existe, sem retrabalho.
+- ~~MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) →
+  controle por linguagem natural pelo celular.~~ **VERBOS FEITOS na Rodada 17, local
+  por stdio** (`worker/mcp_server.py` + migration `mcp_grants` + helpers em `db.py`).
+  Um servidor MCP local expõe cinco verbos — `listar_pendentes`, `aprovar_video`,
+  `reprovar_video`, `listar_pautas_prontas`, `enfileirar_pauta` — como invólucros
+  finos das **mesmas RPCs/selects da Sprint 6**, para comandar o gate e a fila em
+  linguagem natural a partir de um cliente Claude no PC. **stdio não abre porta**
+  (ADR-05 intacta); usa a `service_role` local (como o worker), reusa as RPCs que
+  carregam a guarda de transição no corpo (nem a service_role pula etapa — ADR-06
+  intacta), nunca faz `update` cru de status. A migration só concede `execute` de
+  `aprovar_video`/`enfileirar_pauta` à `service_role` (`reprovar_video` já foi no R16);
+  **nenhuma tabela/coluna/política** — `rls_test.sql` segue 41. **O que ficou para a
+  próxima rodada, e é o "pelo celular":** o transporte **remoto** (Vercel + OAuth + a
+  `anon` key — a service_role não pode ir para a Vercel), uma decisão de auth à parte
+  que herda estes mesmos verbos. E, como no OAuth do YouTube/TikTok, a conversa real
+  com um cliente Claude (registrar no `.mcp.json`, o handshake stdio) é passo humano
+  no PC do dono.
 - ~~Claude no Chrome como revisor em lote no painel Vercel: "olha os 20 pendentes e
   reprova os de legenda cortada".~~ **FEITO na Rodada 16, com visão LOCAL em vez do
   Chrome** (`worker/qc_local.py` + migration `qc_reprovar` + `db.listar_aguardando`/

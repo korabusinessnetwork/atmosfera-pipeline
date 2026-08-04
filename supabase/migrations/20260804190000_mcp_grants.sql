@@ -1,0 +1,33 @@
+-- ============================================================
+-- MCP DE VERBOS REUSA AS RPCs DO GATE — Rodada 17
+-- ============================================================
+-- O servidor MCP local (`worker/mcp_server.py`) expõe o gate e a fila para
+-- controle por linguagem natural, reusando as MESMAS RPCs do painel (Sprint 6)
+-- em vez de duplicar a máquina de estados — a mesma escolha que o QC (R16) fez ao
+-- reusar `reprovar_video`. Só que a Sprint 6 fez, para cada RPC:
+--
+--   revoke all on function public.<rpc> from public, anon;
+--   grant execute on function public.<rpc> to authenticated;
+--
+-- O servidor é `service_role` (processo local de confiança, como o worker), NÃO
+-- `authenticated`. A service_role ignora RLS, mas EXECUTE de função é GRANT, não
+-- RLS — então sem grant próprio a chamada apanha `permission denied` só em runtime.
+-- (É o aprendizado do R16, ver `20260804180000_qc_reprovar.sql`.)
+--
+-- `reprovar_video` já ganhou o grant de service_role no R16. Faltam os outros dois
+-- que o servidor usa:
+--
+--   aprovar_video(uuid)     — gate: aguardando_aprovacao -> aprovado
+--   enfileirar_pauta(uuid)  — fila: pauta pronta -> em_producao + videos.na_fila
+--
+-- `listar_pendentes`/`listar_pautas_prontas` são SELECT direto (service_role já lê
+-- tudo), então não precisam de grant. E o gate segue intacto: a guarda de transição
+-- vive no corpo das RPCs (`where status = 'aguardando_aprovacao'` + P0002), não na
+-- RLS — a service_role não pula etapa, só executa a mesma função do painel.
+--
+-- Nada além disto: nenhuma tabela, coluna ou política nova. `rls_test.sql` continua
+-- com os 41 casos e o case 02 com 11 políticas — esta migration não toca RLS.
+-- ============================================================
+
+grant execute on function public.aprovar_video(uuid)    to service_role;
+grant execute on function public.enfileirar_pauta(uuid) to service_role;
