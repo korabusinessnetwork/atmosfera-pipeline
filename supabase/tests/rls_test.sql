@@ -41,6 +41,13 @@
 -- em_producao -> descartada escaparia dela — quem fecha é o trigger
 -- `t_pautas_guarda_descarte`, que vê OLD e NEW. Aqui se prova que o descarte legítimo
 -- passa, o proibido é barrado até no PATCH cru, e descartada não ressuscita.
+-- Os 36–40 são a edição de conteúdo (Rodada 15): reescrever tema/roteiro/hook/titulo/
+-- descricao de uma pauta `pronta`, sem tocar status. Mesma forma do descarte — o grant
+-- de coluna + a política permissiva deixariam editar em em_producao, e o trigger
+-- `t_pautas_guarda_edicao` fecha (vê OLD e NEW). Prova: edição de pronta passa, a de
+-- em_producao é barrada até no PATCH cru, org alheia e branco são recusados. Nenhuma
+-- política nova entrou (editar pronta já passa a `pautas_producao`), então o case 02
+-- segue em 11.
 -- ============================================================
 
 create schema if not exists tests;
@@ -79,6 +86,7 @@ declare
   pa_status   text;
   met_pub_a   uuid; -- publicação da org A, base da métrica (Rodada 11)
   met_pub_b   uuid; -- publicação da org B (o vizinho)
+  pauta_ed    uuid; -- pauta pronta para a edição de conteúdo (Rodada 15)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -809,6 +817,110 @@ begin
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'DESCARTOU — FURO GRAVE' end;
   passou := bloqueou;
+  return next;
+
+  -- ================= EDITAR PAUTA (Rodada 15) =================
+  -- Edita o CONTEÚDO (tema/roteiro/hook/titulo/descricao) de uma pauta `pronta`, sem
+  -- tocar status/origem. A sexta pergunta ganha um par: "esta pauta pode ser
+  -- REESCRITA, e a partir de qual estado?". Como no descarte, o grant de coluna + a
+  -- política permissiva deixariam editar conteúdo em em_producao — quem fecha é o
+  -- trigger `t_pautas_guarda_edicao` (vê OLD e NEW). Semeia como dono uma pauta pronta
+  -- nova (não conta no case 00, que já rodou) e prova: edição legítima passa, edição
+  -- de em_producao é barrada até no PATCH cru, org alheia e branco são recusados.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] editar', '[rls-test] roteiro ed', 'pronta', 'manual')
+  returning id into pauta_ed;
+
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  -- Caminho feliz pela porta da frente: a RPC devolve a linha, o conteúdo muda e o
+  -- status segue `pronta` (editar não é transição).
+  begin
+    select count(*) into n from public.editar_pauta(
+      pauta_ed, '[rls-test] tema NOVO', '[rls-test] roteiro NOVO',
+      'hook novo', 'titulo novo', 'desc nova');
+  exception
+    when others then n := -1;
+  end;
+  select p.tema, p.status into crd_tema, pa_status
+    from public.pautas p where p.id = pauta_ed;
+
+  teste := '36 · editar_pauta reescreve o conteúdo de uma pronta';
+  esperado := '1 linha · tema NOVO · pronta';
+  obtido := n::text || ' linha · '
+            || (case when crd_tema = '[rls-test] tema NOVO' then 'tema NOVO' else 'tema INTACTO' end)
+            || ' · ' || coalesce(pa_status, '(null)');
+  passou := (n = 1 and crd_tema = '[rls-test] tema NOVO' and pa_status = 'pronta');
+  return next;
+
+  -- O furo que o grant + a política sozinhos deixariam: PATCH cru trocando o texto de
+  -- uma pauta JÁ em_producao (o USING da producao a inclui, o grant de coluna existe).
+  -- Quem recusa é o trigger. pauta_ol (em_producao desde o caso 26) tem que ficar
+  -- intacta.
+  begin
+    update public.pautas set tema = '[rls-test] invadido' where id = pauta_ol;
+    bloqueou := false;
+  exception
+    when others then bloqueou := true;
+  end;
+  select p.tema, p.status into crd_tema, pa_status
+    from public.pautas p where p.id = pauta_ol;
+
+  teste := '37 · guarda barra edição de conteúdo em em_producao (PATCH cru)';
+  esperado := 'bloqueado · texto e estado intactos';
+  obtido := (case when bloqueou then 'bloqueado' else 'PASSOU — FURO GRAVE' end)
+            || ' · ' || (case when crd_tema = '[rls-test] ollama' then 'intacto' else 'ALTERADO' end)
+            || ' · ' || coalesce(pa_status, '(null)');
+  passou := (bloqueou and crd_tema = '[rls-test] ollama' and pa_status = 'em_producao');
+  return next;
+
+  -- Pela RPC, editar em_producao cai no P0001 (status <> pronta) — com frase, não
+  -- "0 linhas" mudo.
+  begin
+    perform public.editar_pauta(pauta_ol, '[rls-test] a', '[rls-test] b');
+    bloqueou := false;
+  exception
+    when others then bloqueou := true;
+  end;
+
+  teste := '38 · editar_pauta recusa pauta em_producao';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EDITOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- Invoker: a pauta da org B não existe nesta sessão → for update não acha → P0002.
+  begin
+    perform public.editar_pauta(pauta_b, '[rls-test] a', '[rls-test] b');
+    bloqueou := false;
+  exception
+    when no_data_found then bloqueou := true;
+  end;
+
+  teste := '39 · org A não edita pauta da org B pela RPC';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EDITOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- Tema/roteiro em branco (só espaço) é recusado pelo btrim da RPC (22023), como no
+  -- pauta_nova. A pauta_ed tem que continuar com o texto do caso 36.
+  begin
+    perform public.editar_pauta(pauta_ed, '   ', '[rls-test] roteiro NOVO');
+    bloqueou := false;
+  exception
+    when invalid_parameter_value then bloqueou := true;
+  end;
+  select p.tema into crd_tema from public.pautas p where p.id = pauta_ed;
+
+  execute 'reset role';
+
+  teste := '40 · editar_pauta recusa tema em branco (e não altera nada)';
+  esperado := 'bloqueado · tema NOVO intacto';
+  obtido := (case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end)
+            || ' · ' || (case when crd_tema = '[rls-test] tema NOVO' then 'intacto' else 'ALTERADO' end);
+  passou := (bloqueou and crd_tema = '[rls-test] tema NOVO');
   return next;
 
   -- ---------- limpeza ----------

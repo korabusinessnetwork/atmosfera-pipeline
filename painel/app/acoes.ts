@@ -8,6 +8,7 @@ import { sessaoAtual } from "@/lib/supabase/claims";
 import {
   ACAO_OK,
   type EstadoDaAcao,
+  type EstadoDaEdicao,
   type EstadoDaPauta,
 } from "@/lib/tipos";
 
@@ -150,6 +151,61 @@ export async function descartarPauta(
 
   refresh();
   return ACAO_OK;
+}
+
+/**
+ * Edita o conteúdo de uma pauta pronta.
+ *
+ * Só os cinco campos de texto vão para a RPC — `status`, `origem` e `org_id` não
+ * são editáveis, e a `editar_pauta` nem os aceita. Se a pauta saiu de `pronta`
+ * entre a tela abrir e o toque (foi enfileirada, descartada), a RPC recusa (P0001/
+ * P0002) e a frase traduzida explica; o trigger de guarda no banco fecha até o
+ * PATCH cru numa pauta que já está `em_producao`.
+ */
+export async function editarPauta(
+  anterior: EstadoDaEdicao,
+  formData: FormData,
+): Promise<EstadoDaEdicao> {
+  const { supabase } = await exigirSessao();
+
+  const pautaId = String(formData.get("pautaId") ?? "");
+  if (!pautaId) return { ...anterior, erro: "Pauta não identificada." };
+
+  // Cortesia, não validação: o btrim da RPC é quem decide o que é branco; o corte
+  // de tamanho existe só para um Ctrl+V no campo errado não virar 2 MB de request.
+  const campo = (nome: string, limite: number) =>
+    String(formData.get(nome) ?? "")
+      .trim()
+      .slice(0, limite) || null;
+
+  const tema = campo("tema", 300);
+  const roteiro = campo("roteiro", 5000);
+
+  // Atalho para o caso comum, com a mesma frase que o 22023 produziria.
+  if (!tema || !roteiro) {
+    return { ...anterior, erro: "Tema e roteiro são obrigatórios." };
+  }
+
+  const { error } = await supabase.rpc("editar_pauta", {
+    p_pauta_id: pautaId,
+    p_tema: tema,
+    p_roteiro: roteiro,
+    p_hook: campo("hook", 300),
+    p_titulo: campo("titulo", 100),
+    p_descricao: campo("descricao", 2000),
+  });
+  if (error) {
+    // P0001 = a pauta saiu de 'pronta' (já em produção, por exemplo). P0002 cai no
+    // traduzir() como "mudou de estado"; 22023 vira "tema e roteiro obrigatórios".
+    const padrao =
+      error.code === "P0001"
+        ? "Essa pauta não está mais disponível para edição."
+        : "Não deu para salvar agora. Tente de novo.";
+    return { ...anterior, erro: traduzir(error, padrao) };
+  }
+
+  refresh();
+  return { erro: null, salvo: anterior.salvo + 1 };
 }
 
 /**

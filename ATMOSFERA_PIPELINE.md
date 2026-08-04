@@ -1176,14 +1176,18 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   de verdade (LoRA sobre hooks que performaram) precisa **desta tabela cheia**;
   a coleta existe e os dois consumidores já leem — agora é acumular histórico para
   poder treinar. Esse é o próximo salto de qualidade, não mais um consumidor.
-- ~~Editar e descartar pauta pelo painel.~~ **Descartar FEITO na Rodada 14**
-  (`descartar_pauta` + `BotaoDescartar` + trigger `t_pautas_guarda_descarte`): o
-  botão em `/pautas` leva `pronta → descartada` (terminal), com confirmação em dois
-  toques. A rodada mostrou uma ressalva ao lema "o gate é a política" da Sprint 6:
-  a transição `pronta → descartada` **permitida** enquanto `em_producao → descartada`
-  é **barrada** é uma correlação entre o estado antigo e o novo, e política de
-  UPDATE não pareia os dois lados (USING vê o antigo, WITH CHECK vê o novo, nunca
-  juntos; permissivas somam por OR). Quem pareia é um trigger BEFORE UPDATE — o
-  gate segue no banco, só que via trigger, não política. **Editar continua fora:**
-  abre "e se já estiver `em_producao`?", que é máquina de estados nova, não um
-  formulário a mais.
+- ~~Editar e descartar pauta pelo painel.~~ **FEITO — descartar na Rodada 14,
+  editar na Rodada 15.** Descartar (`descartar_pauta` + `BotaoDescartar` + trigger
+  `t_pautas_guarda_descarte`): o botão em `/pautas` leva `pronta → descartada`
+  (terminal), com confirmação em dois toques. Editar (`editar_pauta` +
+  `FormularioDeEdicao` + trigger `t_pautas_guarda_edicao`): reescreve o **conteúdo**
+  (tema/roteiro/hook/título/descrição) de uma pauta `pronta`, sem tocar
+  `status`/`origem`. A dupla mostrou uma ressalva ao lema "o gate é a política" da
+  Sprint 6: tanto "descartar só de `pronta`" quanto "editar conteúdo só em `pronta`"
+  são correlações entre o estado antigo e o novo (ou entre o estado antigo e *qual
+  coluna* mudou), e política de UPDATE não pareia os dois lados (USING vê o antigo,
+  WITH CHECK vê o novo, nunca juntos; permissivas somam por OR). Quem pareia é um
+  trigger BEFORE UPDATE — o gate segue no banco, só que via trigger, não política.
+  A máquina de estados de `pautas` não ganhou transição nova: editar muda texto, não
+  `status`; o medo do "e se já estiver `em_producao`?" virou exatamente a fronteira
+  que os dois triggers guardam (só `pronta`).

@@ -2,6 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import BotaoEnfileirar from "@/components/BotaoEnfileirar";
 import BotaoDescartar from "@/components/BotaoDescartar";
 import FormularioDePauta from "@/components/FormularioDePauta";
+import FormularioDeEdicao from "@/components/FormularioDeEdicao";
 import Vazio from "@/components/Vazio";
 import { quando } from "@/lib/formato";
 import type { PautaPronta } from "@/lib/tipos";
@@ -24,7 +25,7 @@ export default async function Pautas() {
 
   const { data, error } = await supabase
     .from("pautas")
-    .select("id, tema, hook, titulo, prioridade, created_at")
+    .select("id, tema, roteiro, hook, titulo, descricao, prioridade, created_at")
     .eq("status", "pronta")
     .order("prioridade", { ascending: false })
     .order("created_at", { ascending: true });
@@ -83,6 +84,7 @@ export default async function Pautas() {
           </p>
 
           <BotaoEnfileirar pautaId={pauta.id} />
+          <FormularioDeEdicao pauta={pauta} />
           <BotaoDescartar pautaId={pauta.id} />
         </article>
       ))}

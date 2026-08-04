@@ -37,6 +37,21 @@ export type EstadoDaPauta = {
 
 export const PAUTA_INICIAL: EstadoDaPauta = { erro: null, criadas: 0 };
 
+/**
+ * Estado da edição de pauta.
+ *
+ * `salvo` é contador, não booleano, pelo mesmo motivo do `criadas`: duas edições
+ * seguidas da mesma pauta precisam que o número mude para o "Alterações salvas."
+ * reaparecer. Diferente do criar, a edição NÃO remonta o formulário — os campos
+ * ficam com o texto editado, que é o que a pessoa quer ver depois de salvar.
+ */
+export type EstadoDaEdicao = {
+  erro: string | null;
+  salvo: number;
+};
+
+export const EDICAO_INICIAL: EstadoDaEdicao = { erro: null, salvo: 0 };
+
 export type VideoDaFila = {
   id: string;
   created_at: string;
@@ -55,8 +70,10 @@ export type VideoDaFila = {
 export type PautaPronta = {
   id: string;
   tema: string;
+  roteiro: string | null;
   hook: string | null;
   titulo: string | null;
+  descricao: string | null;
   prioridade: number;
   created_at: string;
 };
