@@ -187,6 +187,8 @@ def test_prompt_embute_identidade_e_limites():
     assert "15 pautas" in prompt
     assert str(pl.HOOK_MAX) in prompt
     assert '"pautas"' in prompt   # o formato exato pedido
+    assert "Exemplos de referência" in prompt   # o few-shot da identidade
+    assert "ângulos NOVOS" in prompt            # e a ordem de não copiá-los
 
 
 # ---------------------------------------------------------------- chamar_ollama

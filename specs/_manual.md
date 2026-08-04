@@ -229,11 +229,15 @@ a pauta de segunda. O relatório de sexta, por enquanto, continua no Cowork.
 ### 7.1 Instalar o Ollama e puxar um modelo
 
 1. Instale o Ollama: https://ollama.com
-2. Puxe um modelo:
+2. Puxe o modelo:
    ```powershell
-   ollama pull llama3.1
+   ollama pull qwen2.5
    ```
-   `qwen2.5` também serve. Modelo maior escreve hook melhor e pesa mais no PC.
+   **Por que qwen2.5 e não llama3.1** (medido em teste seco): para pt-BR, o
+   llama3.1 8B alucina token quebrado no meio do roteiro (`"ezê"`) e copia os
+   exemplos de referência em vez de criar ângulo novo. O qwen2.5 escreve
+   português limpo e trata os exemplos como estilo. Se o seu canal for em
+   **inglês**, o llama3.1 aí é forte — é a língua-mãe dele.
 
 ### 7.2 Testar a qualidade do hook ANTES de agendar
 

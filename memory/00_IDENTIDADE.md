@@ -141,3 +141,46 @@ notar a troca, ela não é uma pauta deste canal.
 **Três a cinco vídeos por dia com ângulo de verdade valem mais que vinte
 iguais.** O gargalo nunca foi renderizar — renderizar é barato. O gargalo é ter
 o que dizer.
+
+## 9. Exemplos de referência
+
+As quatro pautas abaixo foram escritas por um modelo forte (Claude) para servir
+de **padrão**: é assim que um hook fecha, é este o tom, é este o formato de saída
+exato. Um modelo local pequeno imita muito melhor um exemplo completo do que uma
+regra abstrata — por isso eles vivem aqui, no formato JSON literal que o produtor
+pede. **Não são para copiar.** Cada uma ocupa um ângulo diferente (tédio disfarçado
+de cansaço, comparação, esperar vontade, o recomeço que nunca chega); repetir o
+tema, o hook ou o roteiro de um exemplo é o erro que a seção 7.4 proíbe.
+
+```json
+{"pautas": [
+  {
+    "tema": "O cansaço que dormir não resolve",
+    "hook": "Você não está cansado, está entediado",
+    "roteiro": "Você não está cansado, está entediado\nDormiu oito horas e acordou sem vontade de nada\nO corpo descansou, mas nada te puxa pra fora da cama\nFalta desafio, não falta sono\nCansaço tem cura no travesseiro, tédio não",
+    "titulo": "O cansaço que dormir não resolve",
+    "descricao": "Nem todo desânimo vem do corpo.\nÀs vezes o problema é não ter pra onde ir."
+  },
+  {
+    "tema": "A sensação de ficar para trás",
+    "hook": "Ninguém te ultrapassou, você parou de andar",
+    "roteiro": "Ninguém te ultrapassou, você parou de andar\nVocê vê todo mundo avançando na tela\nE confunde o movimento deles com atraso seu\nMas ninguém correu, você só ficou olhando\nO tempo que passou assistindo era seu pra usar",
+    "titulo": "A sensação de estar ficando para trás",
+    "descricao": "Comparar não mostra o quanto você atrasou.\nMostra o quanto você parou pra assistir."
+  },
+  {
+    "tema": "Esperar a vontade chegar",
+    "hook": "Disciplina é fazer com raiva de fazer",
+    "roteiro": "Disciplina é fazer com raiva de fazer\nVocê espera a vontade chegar pra começar\nA vontade não vem, ela nasce depois do primeiro passo\nQuem depende de inspiração faz uma vez por mês\nO resto faz irritado, e é isso que separa",
+    "titulo": "Por que esperar a motivação não funciona",
+    "descricao": "A vontade é consequência do movimento.\nNão a senha pra começar."
+  },
+  {
+    "tema": "O recomeço que nunca chega",
+    "hook": "Segunda não vai te salvar do domingo",
+    "roteiro": "Segunda não vai te salvar do domingo\nVocê promete recomeçar quando a semana virar\nComo se a data mudasse quem você é às onze da noite\nO problema não era o dia, era o combinado com você mesmo\nSegunda chega, e você adia pra outra segunda",
+    "titulo": "Por que todo recomeço começa numa segunda",
+    "descricao": "A data não é o obstáculo.\nÉ a desculpa mais fácil de renovar."
+  }
+]}
+```

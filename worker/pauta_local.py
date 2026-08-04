@@ -219,6 +219,10 @@ def montar_prompt(identidade: str, n: int) -> str:
         "linha é o hook. OBRIGATÓRIO e não pode ser vazio.\n"
         "- titulo: título de YouTube, até 60 caracteres.\n"
         "- descricao: 2 linhas, sem repetir o roteiro.\n\n"
+        "A identidade acima traz uma seção 'Exemplos de referência' com pautas "
+        "no formato exato. Use-as como padrão de qualidade, tom e estrutura — um "
+        "hook bom se parece com aqueles. Gere ângulos NOVOS: nunca repita o tema, "
+        "o hook nem o roteiro de um exemplo.\n"
         "Responda SOMENTE com JSON, no formato exato:\n"
         '{"pautas": [{"tema": "...", "hook": "...", "roteiro": "...", '
         '"titulo": "...", "descricao": "..."}]}\n'
