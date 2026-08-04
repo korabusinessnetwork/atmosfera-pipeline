@@ -9,6 +9,52 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 5 — Virar o canal para inglês (mercado internacional) · 2026-08-03
+
+**Spec:** `specs/canal-ingles.md`
+
+**Review:** ✅ aprovado, 7/7 critérios com evidência. Portões: **322 testes do
+worker** (mesmo número — trocas de conteúdo/substring, não de lógica) · RLS
+**29 ✅ / 0 ❌** (a rodada não toca tabela — nenhum schema muda) · `next build`
+limpo.
+
+**A decisão do dono (AskUserQuestion): virar TUDO pra inglês.** Entre canal
+separado (2ª org/OAuth), bilíngue (coluna `idioma`) e virar tudo, o dono escolheu
+o mais simples: mesmo canal, mesma org, mesmo OAuth, sem schema novo. `00_IDENTIDADE.md`
+reescrito em inglês (não traduzido — hook em inglês tem idioma próprio), com 4
+exemplos-ouro em inglês; `montar_prompt` em inglês; `MPT_VOZ=en-US-GuyNeural-Male`;
+e o upload do YouTube declara `defaultLanguage`/`defaultAudioLanguage = en-US`
+(o dono pediu esse metadado junto — `youtube.py` já cravava `pt-BR`).
+
+**O medo que a rodada derrubou: não precisa de servidor gringo nem VPN.** Alcance
+no YouTube/TikTok é decidido pelo idioma do conteúdo e pelo engajamento, não pelo
+IP de upload. O worker segue no PC no Brasil. Dinheiro vem de onde o *público*
+está (RPM US é alto), não de onde se mora; o único detalhe fiscal é o W-8BEN, que
+é papelada, não código (`specs/_manual.md` § 9).
+
+**Modelo, medido de novo em inglês:** o qwen2.5 venceu o llama3.1 no hook mesmo
+em inglês. Os dois escrevem inglês limpo (o `"ezê"` era defeito de pt-BR do
+llama3.1), mas o qwen2.5 tem mais tensão no hook ("You're comfortable being
+uncomfortable" vs o chapado "You're safe in your routine"). O `.env` já estava no
+qwen2.5 desde a Rodada 4.5 — nada mudou no modelo.
+
+**Nota de rodada intermediária (4.5):** entre a 4 e a 5 entrou o few-shot no
+gerador (commit `e3398e6`) — 4 exemplos-ouro no `00_IDENTIDADE.md` + o prompt
+apontando pra eles. Foi o que provou que o llama3.1 8B copia exemplo em pt-BR e
+alucina token, levando à troca por qwen2.5 e `PAUTA_LOCAL_N=6` (o timeout de 300s
+não cabe 15 pautas a ~40s cada).
+
+**Commit:** `docs+feat: vira o canal para inglês (rodada 5)` na `main`.
+
+**Pendente de decisão:** nenhuma no código. Passos humanos/opcionais (não viram
+rodada): renomear o canal no Studio, preencher o W-8BEN — em `specs/_manual.md` § 9.
+
+**Próximo item recomendado:** rodar o gerador de verdade e olhar os hooks EN no
+painel (teste seco não insere) — ou o relatório de sexta local, que fecha a última
+dependência de token do Cowork.
+
+---
+
 ## Rodada 4 — Pauta local com Ollama + auto-enfileirar · 2026-08-03
 
 **Spec:** `specs/pauta-local-ollama.md`

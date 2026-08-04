@@ -181,10 +181,11 @@ def test_pauta_sem_hashtags_nao_quebra():
     assert corpo["snippet"]["description"] == ""
 
 
-def test_idioma_declarado_como_pt_br():
+def test_idioma_declarado_como_en_us():
+    # Canal virou en-US (Rodada 5): o metadado de idioma acompanha o áudio.
     corpo = youtube.montar_corpo({"titulo": "x"}, _quando(), "22")
-    assert corpo["snippet"]["defaultLanguage"] == "pt-BR"
-    assert corpo["snippet"]["defaultAudioLanguage"] == "pt-BR"
+    assert corpo["snippet"]["defaultLanguage"] == "en-US"
+    assert corpo["snippet"]["defaultAudioLanguage"] == "en-US"
 
 
 # ----------------------------------------------------------------- escopo ----

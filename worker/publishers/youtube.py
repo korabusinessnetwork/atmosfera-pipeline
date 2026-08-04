@@ -212,8 +212,12 @@ def montar_corpo(pauta: dict[str, Any], publicar_em: datetime, categoria: str) -
             ),
             "tags": montar_tags(pauta.get("hashtags")),
             "categoryId": categoria,
-            "defaultLanguage": "pt-BR",
-            "defaultAudioLanguage": "pt-BR",
+            # Canal virou en-US (Rodada 5). Estes dois campos dizem ao YouTube
+            # o idioma do metadado e do áudio — é o que ajuda o algoritmo a
+            # entregar para o público certo. O IP de upload (BR) não importa
+            # para alcance; o idioma, sim.
+            "defaultLanguage": "en-US",
+            "defaultAudioLanguage": "en-US",
         },
         "status": {
             # `publishAt` só é aceito se a privacidade for `private` — é o

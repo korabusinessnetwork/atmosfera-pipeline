@@ -1,186 +1,187 @@
-# 00_IDENTIDADE — Atmosfera Viral
+# 00_IDENTITY — Atmosfera Viral
 
-Quem escreve pauta para este canal lê **este** arquivo antes de escrever a
-primeira linha. Ele é autossuficiente de propósito: quem chega aqui pode nunca
-ter visto o resto do projeto.
+Whoever writes a pauta for this channel reads **this** file before writing the
+first line. It is self-sufficient on purpose: someone landing here may never have
+seen the rest of the project.
 
-Todo número abaixo saiu do código que renderiza o vídeo, não de gosto. Onde há
-um limite, o arquivo diz **o que acontece quando ele é estourado** — porque um
-limite sem consequência escrita vira sugestão, e sugestão não sobrevive à
-terceira semana de pauta.
+Every number below came from the code that renders the video, not from taste.
+Where there is a limit, this file states **what happens when it is broken** —
+because a limit with no written consequence turns into a suggestion, and a
+suggestion does not survive the third week of pautas.
 
 ---
 
-## 1. O que é o canal
+## 1. What the channel is
 
-Vídeo vertical curto, 8 a 12 segundos, publicado em YouTube Shorts e TikTok.
-Estética cinematográfica escura. Uma frase por vez, silêncio entre elas.
+Short vertical video, 8 to 12 seconds, published on YouTube Shorts and TikTok.
+Dark cinematic aesthetic. One sentence at a time, silence between them.
 
-A assinatura da marca é **亡者** — no alto à direita, branco a 55%, presente em
-todo vídeo. Não é decoração: é a única marca constante entre um vídeo e o
-seguinte, e o canto foi escolhido porque é o único que sobra limpo nas duas
-plataformas (embaixo à esquerda vai o @usuário e a legenda; a coluna da direita
-inferior é a pilha de curtir/comentar/compartilhar).
+The brand signature is **亡者** — top right, white at 55%, present in every video.
+It is not decoration: it is the one constant mark between one video and the next,
+and the corner was chosen because it is the only one that stays clean on both
+platforms (bottom-left holds the @handle and caption; the lower-right column is
+the like/comment/share stack).
 
-**A promessa ao espectador é emocional, não informativa.** Ninguém chega aqui
-para aprender algo novo. Chega para reconhecer algo que já sabia e não tinha
-formulado. Se a pauta ensina, ela está no canal errado.
+**The promise to the viewer is emotional, not informational.** Nobody comes here
+to learn something new. They come to recognize something they already knew and
+had never put into words. If the pauta teaches, it is on the wrong channel.
 
-## 2. Tom de voz
+## 2. Voice
 
-- **Segunda pessoa, presente.** "Você adia" — não "as pessoas adiam", não
-  "adiar é ruim". A frase tem que chegar como observação sobre quem assiste.
-- **Afirmação seca.** Sem "talvez", "às vezes", "de certa forma". A hesitação
-  aparece na tela como texto e mata a frase.
-- **Sem pergunta retórica.** "Você já parou pra pensar…" é a abertura mais
-  usada do formato e o espectador reconhece o padrão antes do fim da linha.
-- **Frase curta.** Vírgula é sinal de que provavelmente são duas frases.
-- **Nada de emoji, nada de CAPS, nada de "!!"** — a intensidade vem da imagem
-  escura e do silêncio, e texto gritando dentro dela lê como propaganda.
-- **Vocabulário concreto.** "Disciplina" é abstrato; "acordar antes do
-  despertador tocar de novo" é imagem. Prefira a imagem sempre que couber no
-  tamanho.
+- **Second person, present tense.** "You put it off" — not "people put it off",
+  not "procrastination is bad". The line has to land as an observation about the
+  person watching.
+- **Flat assertion.** No "maybe", "sometimes", "in a way". Hesitation shows up on
+  screen as text and kills the line.
+- **No rhetorical questions.** "Have you ever stopped to think…" is the most
+  overused opening of the format, and the viewer recognizes the pattern before
+  the line ends.
+- **Short sentences.** A comma is usually a sign that there are two sentences.
+- **No emoji, no CAPS, no "!!"** — the intensity comes from the dark image and
+  the silence, and text shouting inside it reads like an ad.
+- **Concrete vocabulary.** "Discipline" is abstract; "getting up before the alarm
+  goes off again" is an image. Prefer the image whenever it fits the length.
 
-**Português do Brasil, sem regionalismo.** A narração é sintetizada por voz
-neural pt-BR a 0,95 da velocidade natural — um pouco mais lenta que fala normal.
-Gíria muito local sai com prosódia errada, e não dá para corrigir depois.
+**US English, no heavy slang.** The narration is synthesized by a neural en-US
+voice at 0.95 of natural speed — a little slower than normal speech. Very local
+slang comes out with the wrong prosody, and there is no fixing it afterward.
 
-## 3. Estética visual (o que a pauta pode assumir)
+## 3. Visual aesthetic (what the pauta can assume)
 
-Quem escreve não escolhe imagem — o material de vídeo é um banco local e a
-graduação é fixa. O que a pauta precisa saber é **o que o texto vai encontrar**:
+The writer does not choose the footage — the video material is a local bank and
+the grade is fixed. What the pauta needs to know is **what the text will meet**:
 
-- Fundo escuro, dessaturado, sombra puxada para o azul, nada estoura em branco.
-- Grão de filme e vinheta em cima.
-- Legenda branca queimada no centro da tela, corpo grande.
-- 1080×1920 (9:16). Nada de horizontal, nada de quadrado.
+- Dark, desaturated background, shadows pushed toward blue, nothing blows out to
+  white.
+- Film grain and vignette on top.
+- White caption burned into the center of the screen, large body.
+- 1080×1920 (9:16). Nothing horizontal, nothing square.
 
-**Consequência prática para o texto:** a tela já está cheia. Espaço negativo é
-o recurso, não o adorno — cinco linhas longas transformam o vídeo em parede de
-texto sobre fundo preto, que é exatamente o vídeo genérico que este canal existe
-para não ser.
+**Practical consequence for the text:** the screen is already full. Negative
+space is the tool, not the ornament — five long lines turn the video into a wall
+of text on a black background, which is exactly the generic video this channel
+exists not to be.
 
-## 4. O hook
+## 4. The hook
 
-**O hook é a primeira linha do roteiro e também aparece sozinho.** Nos primeiros
-**1,5 segundo** o vídeo vira uma cartela preta opaca com o hook centralizado,
-grande, branco. A imagem some; o áudio continua por baixo.
+**The hook is the first line of the roteiro and also stands alone.** For the
+first **1.5 seconds** the video becomes an opaque black card with the hook
+centered, large, white. The image disappears; the audio keeps going underneath.
 
-Isso muda como ele precisa ser escrito:
+That changes how it has to be written:
 
-- **Ele é lido sem contexto nenhum.** Não há imagem para ajudar, não há linha
-  anterior. Se depende do que vem depois, não funciona.
-- **Ele tem 1,5s para ser lido inteiro.** Não é o tempo de entender — é o tempo
-  de *ler*. Frase que exige releitura já perdeu.
-- **Orçamento medido: ~88 caracteres.** O render quebra o hook em até **4 linhas
-  de 22 caracteres**. O que passa disso é **cortado com reticências**, sem aviso
-  e sem erro — o vídeo sai com a frase pela metade e ninguém percebe até
-  assistir. Mire em 40–60 caracteres; 88 é o teto físico, não a meta.
-- **Sem ponto final.** Ele não fecha, ele abre.
-- **Hook vazio é legítimo:** sem hook o render simplesmente não desenha a
-  cartela e o vídeo começa direto. É pior, mas não quebra nada.
+- **It is read with no context at all.** No image to help, no previous line. If it
+  depends on what comes after, it does not work.
+- **It has 1.5s to be read whole.** That is not the time to understand — it is the
+  time to *read*. A sentence that needs a second pass has already lost.
+- **Measured budget: ~88 characters.** The render breaks the hook into up to
+  **4 lines of 22 characters**. Anything past that is **cut with an ellipsis**,
+  with no warning and no error — the video ships with half a sentence and nobody
+  notices until they watch it. Aim for 40–60 characters; 88 is the physical
+  ceiling, not the target.
+- **No ending period.** It does not close, it opens.
+- **An empty hook is legitimate:** with no hook the render simply does not draw
+  the card and the video starts straight in. It is worse, but it breaks nothing.
 
-Um hook bom nomeia um incômodo específico. "Você não está cansado, está
-entediado" funciona porque contradiz o que a pessoa acabou de pensar sobre si
-mesma. "Disciplina é importante" não funciona porque ninguém discorda — e
-concordância não segura ninguém.
+A good hook names a specific discomfort. "You're not tired, you're bored" works
+because it contradicts what the person just thought about themselves. "Discipline
+matters" does not work because nobody disagrees — and agreement holds no one.
 
 ## 5. Roteiro
 
-**Cinco linhas sequenciais, 8 a 12 segundos no total.** A primeira linha é o
-hook. As outras quatro fazem uma curva: incômodo → virada → consequência →
-fecho.
+**Five sequential lines, 8 to 12 seconds total.** The first line is the hook. The
+other four make a curve: discomfort → turn → consequence → close.
 
-- Uma ideia por linha. Linha com duas ideias vira legenda ilegível.
-- A última linha fecha, não resume. Resumo repete o que a pessoa acabou de ver.
-- **Sem chamada para ação.** "Segue aí", "comenta abaixo", "salva esse vídeo" —
-  nada disso. O formato é curto demais para gastar 20% dele pedindo favor, e o
-  pedido quebra o tom no exato momento em que ele estava funcionando.
+- One idea per line. A line with two ideas becomes an unreadable caption.
+- The last line closes, it does not summarize. A summary repeats what the person
+  just saw.
+- **No call to action.** "Follow", "comment below", "save this" — none of it. The
+  format is too short to spend 20% of it asking a favor, and the ask breaks the
+  tone at the exact moment it was working.
 
-**O roteiro é obrigatório e o banco recusa pauta `pronta` sem ele.** Não é
-burocracia: o render usa o roteiro literal para narrar. Sem ele o vídeo falha
-*depois* de entrar na fila, queimando uma das três tentativas do registro antes
-de alguém descobrir por quê.
+**The roteiro is required and the database rejects a `pronta` pauta without one.**
+It is not bureaucracy: the render uses the literal roteiro to narrate. Without it
+the video fails *after* entering the queue, burning one of the record's three
+attempts before anyone finds out why.
 
-## 6. Título e descrição
+## 6. Title and description
 
-- **Título** — do YouTube. Até 60 caracteres aparece inteiro no celular; o resto
-  é cortado. Sem clickbait de promessa ("O SEGREDO que…"): o vídeo tem 10
-  segundos e não entrega segredo nenhum, e a distância entre título e conteúdo é
-  o que derruba retenção. Título vazio é legítimo — o publicador cai para o
-  tema.
-- **Descrição** — duas linhas. Não repetir o roteiro: quem lê a descrição já
-  assistiu.
-- **Hashtags não se escreve.** A marca já tem as suas, fixas, aplicadas
-  automaticamente. Inventar hashtag por vídeo dilui o conjunto que agrupa o
-  canal.
+- **Title** — for YouTube. Up to ~60 characters shows in full on a phone; the
+  rest is cut. No clickbait promise ("The SECRET that…"): the video is 10 seconds
+  and delivers no secret, and the gap between title and content is what tanks
+  retention. An empty title is legitimate — the publisher falls back to the tema.
+- **Description** — two lines. Do not repeat the roteiro: whoever reads the
+  description already watched.
+- **Hashtags are not written.** The brand already has its own, fixed, applied
+  automatically. Inventing a hashtag per video dilutes the set that groups the
+  channel.
 
-## 7. O que nunca fazer
+## 7. What never to do
 
-1. **Não prometer resultado.** "Faça isso por 30 dias e sua vida muda" é
-   promessa que o canal não pode cumprir e que as plataformas tratam como
-   conteúdo enganoso.
-2. **Não dar conselho de saúde, dinheiro ou remédio.** Nem disfarçado de
-   motivação. Sai do escopo do canal e entra em política de plataforma.
-3. **Não citar pessoa real, marca ou notícia.** O canal fala de experiência
-   comum, não de gente específica. Citar é como se ganha strike.
-4. **Não escrever 15 variações do mesmo ângulo.** A política de conteúdo
-   inautêntico do YouTube existe exatamente para isso, e a punição é o canal
-   inteiro, não o vídeo. **Quinze pautas por semana significam quinze ângulos
-   diferentes** — se duas se parecem, uma delas não deveria existir.
-5. **Não usar "亡者" dentro do texto.** É a assinatura visual, aplicada pelo
-   render. Escrita no roteiro, ela seria narrada em voz alta.
-6. **Não escrever para o algoritmo.** "Assista até o final", "espera o final" —
-   o vídeo tem 10 segundos; o final chega sozinho.
+1. **Do not promise a result.** "Do this for 30 days and your life changes" is a
+   promise the channel cannot keep and one the platforms treat as misleading.
+2. **No health, money, or medical advice.** Not even disguised as motivation. It
+   leaves the channel's scope and enters platform policy.
+3. **Do not name a real person, brand, or news event.** The channel speaks about
+   common experience, not specific people. Naming is how you earn a strike.
+4. **Do not write 15 variations of the same angle.** YouTube's inauthentic-content
+   policy exists exactly for this, and the punishment is the whole channel, not
+   the video. **Fifteen pautas a week means fifteen different angles** — if two
+   look alike, one of them should not exist.
+5. **Do not use "亡者" inside the text.** It is the visual signature, applied by
+   the render. Written into the roteiro, it would be read out loud.
+6. **Do not write for the algorithm.** "Watch till the end", "wait for it" — the
+   video is 10 seconds; the end arrives on its own.
 
-## 8. O critério único
+## 8. The single test
 
-Se a pauta pudesse ser publicada por qualquer outro canal do nicho sem ninguém
-notar a troca, ela não é uma pauta deste canal.
+If the pauta could be published by any other channel in the niche without anyone
+noticing the swap, it is not a pauta of this channel.
 
-**Três a cinco vídeos por dia com ângulo de verdade valem mais que vinte
-iguais.** O gargalo nunca foi renderizar — renderizar é barato. O gargalo é ter
-o que dizer.
+**Three to five videos a day with a real angle beat twenty identical ones.** The
+bottleneck was never rendering — rendering is cheap. The bottleneck is having
+something to say.
 
-## 9. Exemplos de referência
+## 9. Reference examples
 
-As quatro pautas abaixo foram escritas por um modelo forte (Claude) para servir
-de **padrão**: é assim que um hook fecha, é este o tom, é este o formato de saída
-exato. Um modelo local pequeno imita muito melhor um exemplo completo do que uma
-regra abstrata — por isso eles vivem aqui, no formato JSON literal que o produtor
-pede. **Não são para copiar.** Cada uma ocupa um ângulo diferente (tédio disfarçado
-de cansaço, comparação, esperar vontade, o recomeço que nunca chega); repetir o
-tema, o hook ou o roteiro de um exemplo é o erro que a seção 7.4 proíbe.
+The four pautas below were written by a strong model (Claude) to serve as the
+**standard**: this is how a hook closes, this is the tone, this is the exact
+output format. A small local model imitates a complete example far better than an
+abstract rule — which is why they live here, in the literal JSON format the
+producer asks for. **They are not for copying.** Each one takes a different angle
+(boredom disguised as tiredness, comparison, waiting to feel like it, the restart
+that never comes); repeating the tema, the hook, or the roteiro of an example is
+the mistake section 7.4 forbids.
 
 ```json
 {"pautas": [
   {
-    "tema": "O cansaço que dormir não resolve",
-    "hook": "Você não está cansado, está entediado",
-    "roteiro": "Você não está cansado, está entediado\nDormiu oito horas e acordou sem vontade de nada\nO corpo descansou, mas nada te puxa pra fora da cama\nFalta desafio, não falta sono\nCansaço tem cura no travesseiro, tédio não",
-    "titulo": "O cansaço que dormir não resolve",
-    "descricao": "Nem todo desânimo vem do corpo.\nÀs vezes o problema é não ter pra onde ir."
+    "tema": "The tiredness that sleep won't fix",
+    "hook": "You're not tired, you're bored with your life",
+    "roteiro": "You're not tired, you're bored with your life\nYou slept eight hours and woke up with nothing to chase\nYour body rested, but nothing pulls you out of bed\nThat's not exhaustion, that's a missing reason\nSleep fixes tired, it doesn't fix empty",
+    "titulo": "The tiredness that sleep won't fix",
+    "descricao": "Not every kind of drained is physical.\nSometimes you just have nowhere to go."
   },
   {
-    "tema": "A sensação de ficar para trás",
-    "hook": "Ninguém te ultrapassou, você parou de andar",
-    "roteiro": "Ninguém te ultrapassou, você parou de andar\nVocê vê todo mundo avançando na tela\nE confunde o movimento deles com atraso seu\nMas ninguém correu, você só ficou olhando\nO tempo que passou assistindo era seu pra usar",
-    "titulo": "A sensação de estar ficando para trás",
-    "descricao": "Comparar não mostra o quanto você atrasou.\nMostra o quanto você parou pra assistir."
+    "tema": "The feeling of falling behind",
+    "hook": "Nobody passed you, you stopped walking",
+    "roteiro": "Nobody passed you, you stopped walking\nYou watch everyone move forward on your screen\nAnd mistake their motion for your delay\nBut no one ran, you just kept watching\nThe time you spent scrolling was yours to spend",
+    "titulo": "Why everyone else seems ahead of you",
+    "descricao": "Comparison doesn't show how far behind you are.\nIt shows how long you sat still."
   },
   {
-    "tema": "Esperar a vontade chegar",
-    "hook": "Disciplina é fazer com raiva de fazer",
-    "roteiro": "Disciplina é fazer com raiva de fazer\nVocê espera a vontade chegar pra começar\nA vontade não vem, ela nasce depois do primeiro passo\nQuem depende de inspiração faz uma vez por mês\nO resto faz irritado, e é isso que separa",
-    "titulo": "Por que esperar a motivação não funciona",
-    "descricao": "A vontade é consequência do movimento.\nNão a senha pra começar."
+    "tema": "Waiting to feel like it",
+    "hook": "Discipline is doing it while hating it",
+    "roteiro": "Discipline is doing it while hating it\nYou wait for motivation to show up first\nIt never does, it arrives after you start\nPeople who wait to feel ready act once a month\nEveryone else moves annoyed, and that's the difference",
+    "titulo": "Why waiting for motivation never works",
+    "descricao": "Motivation is a result of moving.\nNot the password to begin."
   },
   {
-    "tema": "O recomeço que nunca chega",
-    "hook": "Segunda não vai te salvar do domingo",
-    "roteiro": "Segunda não vai te salvar do domingo\nVocê promete recomeçar quando a semana virar\nComo se a data mudasse quem você é às onze da noite\nO problema não era o dia, era o combinado com você mesmo\nSegunda chega, e você adia pra outra segunda",
-    "titulo": "Por que todo recomeço começa numa segunda",
-    "descricao": "A data não é o obstáculo.\nÉ a desculpa mais fácil de renovar."
+    "tema": "The restart that never comes",
+    "hook": "Monday won't save you from Sunday",
+    "roteiro": "Monday won't save you from Sunday\nYou promise to restart when the week turns over\nAs if the date changes who you are at midnight\nThe problem was never the day, it was the deal with yourself\nMonday comes, and you push it to another Monday",
+    "titulo": "Why every restart waits for Monday",
+    "descricao": "The date was never the obstacle.\nIt's just the easiest excuse to renew."
   }
 ]}
 ```

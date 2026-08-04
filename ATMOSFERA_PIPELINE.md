@@ -340,6 +340,17 @@ humano continua sendo o gate. O produtor local troca "PC desligado" por "sem
 token"; como o worker já exige o PC ligado, o custo real é a qualidade do hook,
 que num modelo pequeno é mais fraca. O relatório de sexta segue só no Cowork.
 
+**O canal virou en-US na Rodada 5.** O dono foi para o mercado de língua inglesa
+("dá mais dinheiro"), e a escolha entre canal separado, bilíngue e virar tudo foi
+virar tudo: mesmo canal, mesma org, mesmo OAuth, sem coluna `idioma` e sem schema
+novo. `00_IDENTIDADE.md` foi reescrito em inglês (com 4 exemplos-ouro em inglês),
+`montar_prompt` fala inglês, `MPT_VOZ` é uma voz en-US e o upload do YouTube
+declara `defaultLanguage`/`defaultAudioLanguage = en-US`. Nada de infra muda — o
+worker segue no PC no Brasil; alcance é idioma do conteúdo, não IP de upload, e
+por isso VPN e servidor gringo não entram na conta. Entre os modelos locais, o
+qwen2.5 venceu o llama3.1 no hook em inglês (medido em teste seco); o llama3.1
+escreve inglês limpo, mas com menos tensão no hook.
+
 **Os dois prompts saíram deste arquivo e viraram `cowork/*.md`.** Ficaram aqui
 até a Rodada 3 como esboço; foram para arquivo próprio quando passaram a citar
 nome de coluna, valor de `check` e SQL — coisa que quebra em silêncio quando o

@@ -293,3 +293,28 @@ o PC estiver ligado, `ollama serve` sobe sozinho como serviço; confira.
 Se isso não te agrada, aponte `YOUTUBE_TOKEN`/`TIKTOK_TOKEN` para fora da pasta
 sincronizada. Vale excluir `painel/node_modules` da sincronização também: são
 dezenas de milhares de arquivos que o OneDrive tenta versionar sem motivo.
+
+---
+
+## 9. Canal em inglês — o que é seu (Rodada 5)
+
+O lado técnico já está feito: identidade em inglês, prompt em inglês, `MPT_VOZ`
+en-US e o upload declarando `defaultLanguage=en-US`. **Não precisa de servidor
+gringo nem VPN** — o alcance é decidido pelo idioma do conteúdo, não pelo IP de
+quem sobe. Upar do Brasil está ok.
+
+O que sobra é seu, e é opcional/cosmético:
+
+- **Renomear o canal no YouTube Studio** para um nome em inglês, e trocar a
+  descrição/banner. Não é código; o vídeo sobe no mesmo canal de qualquer jeito.
+- **Preencher o W-8BEN** (YouTube Studio → Pagamentos → informações fiscais dos
+  EUA). É o tratado Brasil–EUA que reduz a retenção americana sobre a receita de
+  público dos EUA. Papelada, não código — mas é o que faz "dá mais dinheiro"
+  chegar inteiro.
+- **TikTok:** o worker sobe rascunho e você finaliza no celular. Se um dia quiser
+  empurrar o "For You" americano com força, a prática é chip/eSIM dos EUA — não é
+  requisito para começar, conteúdo em inglês já entrega.
+
+Para **voltar ao pt-BR**: `MPT_VOZ` de volta para uma voz pt-BR, `00_IDENTIDADE.md`
+e `montar_prompt` revertidos (o git guarda), e `youtube.py` de `en-US` para
+`pt-BR`. É reversível — nada foi apagado do banco.
