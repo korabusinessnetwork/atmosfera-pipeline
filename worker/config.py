@@ -101,6 +101,12 @@ class Config:
     ollama_model: str = "llama3.1"
     pauta_local_n: int = 15
     pauta_local_teto: int = 20
+    # Best-of-N (Rodada 7): tamanho do pool de candidatos gerado antes de pontuar
+    # e selecionar os `pauta_local_n` melhores; `refinar` liga a passada de
+    # crítica/reescrita do hook nos selecionados. Ambos custam tempo de máquina,
+    # não token — aceitável numa tarefa agendada.
+    pauta_local_candidatos: int = 18
+    pauta_local_refinar: bool = True
     identidade: Path = RAIZ.parent / "memory" / "00_IDENTIDADE.md"
 
 
@@ -128,6 +134,20 @@ def _inteiro(nome: str, padrao: int) -> int:
 
 def _texto(nome: str, padrao: str) -> str:
     return os.getenv(nome, "").strip() or padrao
+
+
+def _booleano(nome: str, padrao: bool) -> bool:
+    """Flag on/off do `.env`. Aceita as formas que uma pessoa realmente digita."""
+    bruto = os.getenv(nome, "").strip().lower()
+    if not bruto:
+        return padrao
+    if bruto in ("true", "1", "sim", "s", "yes", "y", "on"):
+        return True
+    if bruto in ("false", "0", "nao", "não", "n", "no", "off"):
+        return False
+    raise ConfigInvalida(
+        f"{nome} precisa ser true/false (recebi '{bruto}')."
+    )
 
 
 def _fonte_video(nome: str) -> str:
@@ -279,5 +299,7 @@ def carregar(env_path: Path | None = None) -> Config:
         ollama_model=_texto("OLLAMA_MODEL", "llama3.1"),
         pauta_local_n=_inteiro("PAUTA_LOCAL_N", 15),
         pauta_local_teto=_inteiro("PAUTA_LOCAL_TETO", 20),
+        pauta_local_candidatos=_inteiro("PAUTA_LOCAL_CANDIDATOS", 18),
+        pauta_local_refinar=_booleano("PAUTA_LOCAL_REFINAR", True),
         identidade=_caminho("IDENTIDADE_PATH", RAIZ.parent / "memory" / "00_IDENTIDADE.md"),
     )

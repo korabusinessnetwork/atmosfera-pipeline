@@ -9,6 +9,44 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 7 — Best-of-N + crítica no gerador de pauta · 2026-08-04
+
+**Spec:** `specs/best-of-n-pauta.md`
+
+**Review:** ✅ aprovado sem ressalvas, 11/11 critérios com evidência. Portões:
+**364 testes do worker** (eram 332: +15 em `test_pauta_local`, +17 em
+`test_config` do `_booleano`) · RLS **29 ✅** por construção (zero arquivos em
+`supabase/`, nenhuma migration) · invariantes preservadas (backpressure antes de
+qualquer chamada ao Ollama, POST sem retry, parse defensivo, aviso hook > 88).
+
+**A troca:** o produtor deixou de "gerar N e inserir todas as válidas" e passou a
+gerar um POOL (`PAUTA_LOCAL_CANDIDATOS`, padrão 18) em lotes de `LOTE_GERACAO=6`
+(o tamanho medido seguro no timeout de 300s), pontuar cada candidato com o modelo
+como juiz, ficar com os top `PAUTA_LOCAL_N` e dar uma passada de crítica/reescrita
+no hook (`PAUTA_LOCAL_REFINAR`, padrão on) antes de inserir. Gasta compute local
+grátis para elevar o hook — sem tocar nos pesos.
+
+**Degradação em dois níveis, porque o polish não pode custar o run.** Juiz falha
+(levanta ou devolve notas em contagem/tipo errado) → insere os N primeiros **sem
+ranquear** e loga warning. Reescrita falha (transporte, resposta imprestável, hook
+vazio ou > 88) → mantém a pauta **original**, nunca descarta. As duas viraram
+teste (`test_juiz_falha_degrada_para_primeiros`, `test_reescrita_falha_mantem_original`).
+
+**Honestidade que o docstring carrega (não escondida):** o juiz é o **mesmo modelo
+pequeno** — filtro grosso, não oráculo; o ganho maior vem da reescrita, não da
+seleção. Best-of-N **multiplica o tempo de parede** (~3× para 18 candidatos),
+aceitável só por ser tarefa agendada. Inferência em loop **não** faz o modelo
+aprender; isso é fine-tuning, que depende da métrica de verdade do § 9.
+
+**Armadilha que virou decisão de código:** `selecionar_top` ordena por índice, não
+por `sorted(zip(notas, dicts))` — empate de nota faria o Python comparar dicts e
+levantar `TypeError`. `sorted` estável mantém a ordem de geração no empate.
+
+**Padrão reforçado (Rodada 6):** `_booleano` nasceu como helper puro testável, pela
+mesma razão que `_fonte_video` — `carregar()` inteiro depende do ambiente.
+
+---
+
 ## Rodada 6 — Footage variado via Pexels · 2026-08-04
 
 **Spec:** `specs/footage-pexels.md`

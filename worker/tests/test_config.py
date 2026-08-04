@@ -33,3 +33,26 @@ class TestFonteVideo:
         monkeypatch.setenv("MPT_VIDEO_SOURCE", "pixabay")
         with pytest.raises(config.ConfigInvalida, match="local.*pexels"):
             config._fonte_video("MPT_VIDEO_SOURCE")
+
+
+class TestBooleano:
+    def test_ausente_usa_padrao(self, monkeypatch):
+        monkeypatch.delenv("PAUTA_LOCAL_REFINAR", raising=False)
+        assert config._booleano("PAUTA_LOCAL_REFINAR", True) is True
+        assert config._booleano("PAUTA_LOCAL_REFINAR", False) is False
+
+    @pytest.mark.parametrize("bruto", ["true", "1", "sim", "S", "yes", "y", "ON", " True "])
+    def test_formas_de_ligado(self, monkeypatch, bruto):
+        monkeypatch.setenv("PAUTA_LOCAL_REFINAR", bruto)
+        assert config._booleano("PAUTA_LOCAL_REFINAR", False) is True
+
+    @pytest.mark.parametrize("bruto", ["false", "0", "nao", "não", "n", "no", "OFF"])
+    def test_formas_de_desligado(self, monkeypatch, bruto):
+        monkeypatch.setenv("PAUTA_LOCAL_REFINAR", bruto)
+        assert config._booleano("PAUTA_LOCAL_REFINAR", True) is False
+
+    def test_lixo_falha_na_largada(self, monkeypatch):
+        # Um "talvez" digitado errado não pode virar um default silencioso.
+        monkeypatch.setenv("PAUTA_LOCAL_REFINAR", "talvez")
+        with pytest.raises(config.ConfigInvalida, match="true/false"):
+            config._booleano("PAUTA_LOCAL_REFINAR", True)

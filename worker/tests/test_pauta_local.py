@@ -236,45 +236,219 @@ def test_contar_fila_viva_filtra_estados_e_org():
     assert set(sb._in[1]) == {"na_fila", "renderizando", "aguardando_aprovacao"}
 
 
-# ---------------------------------------------------------------- gerar_pautas
-def _cfg(tmp_path, teto=20, n=2):
+# ------------------------------------------------------------- extrair_notas
+def test_extrai_notas_lista_de_objetos():
+    texto = '{"scores": [{"indice": 0, "nota": 7}, {"indice": 1, "nota": 9}]}'
+    assert pl.extrair_notas(texto, 2) == [7.0, 9.0]
+
+
+def test_extrai_notas_array_de_numeros():
+    assert pl.extrair_notas("[3, 8, 5]", 3) == [3.0, 8.0, 5.0]
+
+
+def test_extrai_notas_contagem_errada_levanta():
+    # Menos notas que candidatos = alinhamento torto — melhor cair no fallback.
+    with pytest.raises(pl.RespostaInvalida):
+        pl.extrair_notas('{"scores": [{"nota": 7}]}', 3)
+
+
+def test_extrai_notas_nao_numerica_levanta():
+    with pytest.raises(pl.RespostaInvalida):
+        pl.extrair_notas('[{"nota": "otimo"}]', 1)
+
+
+# ------------------------------------------------------------- selecionar_top
+def test_seleciona_os_melhores_por_nota():
+    cand = [{"hook": "a"}, {"hook": "b"}, {"hook": "c"}]
+    top = pl.selecionar_top(cand, [1.0, 9.0, 5.0], 2)
+    assert [p["hook"] for p in top] == ["b", "c"]
+
+
+def test_seleciona_empate_mantem_ordem_de_geracao():
+    # sorted é estável; empate não pode virar TypeError comparando dicts.
+    cand = [{"hook": "a"}, {"hook": "b"}, {"hook": "c"}]
+    top = pl.selecionar_top(cand, [5.0, 5.0, 5.0], 2)
+    assert [p["hook"] for p in top] == ["a", "b"]
+
+
+def test_seleciona_top_maior_que_pool_devolve_tudo():
+    cand = [{"hook": "a"}, {"hook": "b"}]
+    assert len(pl.selecionar_top(cand, [1.0, 2.0], 5)) == 2
+
+
+# ------------------------------------------------------------- aplicar_reescrita
+def test_reescrita_funde_hook_mais_forte():
+    orig = {"tema": "t", "roteiro": "velho", "hook": "fraco", "titulo": "x"}
+    nova = pl.aplicar_reescrita(orig, {"hook": "forte", "roteiro": "forte\nmais"})
+    assert nova["hook"] == "forte" and nova["roteiro"] == "forte\nmais"
+    assert nova["tema"] == "t" and nova["titulo"] == "x"   # resto intacto
+
+
+def test_reescrita_vazia_mantem_original():
+    orig = {"tema": "t", "roteiro": "r", "hook": "bom"}
+    assert pl.aplicar_reescrita(orig, {"hook": "", "roteiro": ""}) is orig
+
+
+def test_reescrita_hook_longo_mantem_original():
+    # A reescrita não pode INTRODUZIR um hook que o render vai cortar.
+    orig = {"tema": "t", "roteiro": "r", "hook": "bom curto"}
+    longo = {"hook": "x" * 89, "roteiro": "x" * 89}
+    assert pl.aplicar_reescrita(orig, longo) is orig
+
+
+# ---------------------------------------------------------------- gerar_pool
+class SessaoRoteada:
+    """Roteia o POST por marca no prompt: geração, juiz e reescrita têm respostas
+    próprias. Assim um único dublê cobre o fluxo best-of-N inteiro.
+
+    Cada resposta pode ser uma string (conteúdo do Ollama) ou um callable
+    `(prompt, chamadas) -> str | Exception`; devolver uma Exception a levanta.
+    """
+
+    def __init__(self, *, geracao=None, juiz=None, reescrita=None):
+        self._rotas = {"geracao": geracao, "juiz": juiz, "reescrita": reescrita}
+        self.chamadas: list[tuple[str, str]] = []
+
+    def post(self, url, json=None, **_kwargs):
+        prompt = json["messages"][0]["content"]
+        if "Rate each candidate" in prompt:
+            tipo = "juiz"
+        elif "hook doctor" in prompt:
+            tipo = "reescrita"
+        else:
+            tipo = "geracao"
+        self.chamadas.append((tipo, prompt))
+        resp = self._rotas[tipo]
+        conteudo = resp(prompt, self.chamadas) if callable(resp) else resp
+        if isinstance(conteudo, Exception):
+            raise conteudo
+        return _RespFake({"message": {"content": conteudo}})
+
+    def tipos(self):
+        return [t for t, _ in self.chamadas]
+
+
+def _pool_json(n):
+    itens = ",".join(
+        f'{{"tema": "t{i}", "roteiro": "l1\\nl2", "hook": "h{i}"}}' for i in range(n)
+    )
+    return f'{{"pautas": [{itens}]}}'
+
+
+def _cfg(tmp_path, *, teto=20, n=2, candidatos=6, refinar=True):
     ident = tmp_path / "id.md"
     ident.write_text("identidade da marca", encoding="utf-8")
     return types.SimpleNamespace(
         org_id="org-1",
         pauta_local_teto=teto,
         pauta_local_n=n,
+        pauta_local_candidatos=candidatos,
+        pauta_local_refinar=refinar,
         ollama_url="http://x",
         ollama_model="m",
         identidade=ident,
     )
 
 
+def test_gerar_pool_faz_ceil_chamadas(tmp_path):
+    # 13 candidatos, lote 6 → ceil(13/6) = 3 chamadas de geração.
+    sessao = SessaoRoteada(geracao=_pool_json(pl.LOTE_GERACAO))
+    cfg = _cfg(tmp_path, candidatos=13)
+    pool, _invalidas = pl.gerar_pool(cfg, "identidade", sessao)
+    assert sessao.tipos() == ["geracao", "geracao", "geracao"]
+    assert len(pool) == 3 * pl.LOTE_GERACAO
+
+
+# ---------------------------------------------------------------- gerar_pautas
+def _capturar_insercoes(monkeypatch):
+    inseridas = []
+    monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    monkeypatch.setattr(
+        db, "inserir_pauta", lambda _sb, _org, **campos: inseridas.append(campos) or "x"
+    )
+    return inseridas
+
+
 def test_gerar_para_quando_fila_cheia(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 20)
     inseriu = []
     monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: inseriu.append(k) or "x")
+    sessao = SessaoRoteada(geracao=_pool_json(6))
 
-    resumo = pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=SessaoFake(conteudo="[]"))
+    resumo = pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=sessao)
 
     assert resumo["gerou"] == 0 and resumo["motivo"] == "fila_cheia"
-    assert inseriu == []   # nem chamou o Ollama nem inseriu
+    assert inseriu == [] and sessao.chamadas == []   # nem chamou o Ollama
 
 
-def test_gerar_insere_validas_e_conta_descartadas(tmp_path, monkeypatch):
+def test_gerar_ranqueia_e_insere_top_n(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=notas,
+        reescrita='{"hook": "H-forte", "roteiro": "H-forte\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["gerou"] == 2 and resumo["ranqueou"] is True and resumo["pool"] == 6
+    # top 2 por nota são os índices 4 (9) e 1 (8) — tema sobrevive à reescrita.
+    assert [p["tema"] for p in inseridas] == ["t4", "t1"]
+    assert [p["hook"] for p in inseridas] == ["H-forte", "H-forte"]   # reescrito
+
+
+def test_juiz_falha_degrada_para_primeiros(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz="isto não é json de nota",   # extrair_notas levanta
+        reescrita=lambda _p, _c: '{"hook": "R", "roteiro": "R\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["ranqueou"] is False and resumo["gerou"] == 2
+    # sem ranking, os 2 PRIMEIROS do pool (t0, t1), não os melhores.
+    assert [p["tema"] for p in inseridas] == ["t0", "t1"]
+
+
+def test_reescrita_falha_mantem_original(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
+
+    def reescrita(_prompt, chamadas):
+        # falha na 1ª reescrita, sucesso na 2ª
+        quantas = sum(1 for t, _ in chamadas if t == "reescrita")
+        if quantas == 1:
+            return requests.ConnectionError("caiu")
+        return '{"hook": "R-ok", "roteiro": "R-ok\\nl2"}'
+
+    sessao = SessaoRoteada(geracao=_pool_json(6), juiz=notas, reescrita=reescrita)
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["gerou"] == 2
+    # 1º (t4) manteve o hook original; 2º (t1) foi reescrito.
+    assert inseridas[0]["hook"] == "h4"
+    assert inseridas[1]["hook"] == "R-ok"
+
+
+def test_refinar_desligado_nao_reescreve(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
+    sessao = SessaoRoteada(geracao=_pool_json(6), juiz=notas, reescrita="NUNCA CHAMADO")
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2, refinar=False), sb=object(), sessao=sessao)
+
+    assert "reescrita" not in sessao.tipos()   # zero chamadas de reescrita
+    assert [p["hook"] for p in inseridas] == ["h4", "h1"]   # hooks originais
+    assert resumo["gerou"] == 2
+
+
+def test_pool_vazio_levanta(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
-    inseridas = []
-    monkeypatch.setattr(
-        db, "inserir_pauta", lambda _sb, _org, **campos: inseridas.append(campos) or "x"
-    )
-    conteudo = (
-        '{"pautas": [{"tema": "t1", "roteiro": "r1"}, '
-        '{"tema": "  ", "roteiro": "r2"}, '            # descartada
-        '{"tema": "t3", "roteiro": "r3"}]}'
-    )
-
-    resumo = pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=SessaoFake(conteudo=conteudo))
-
-    assert resumo["gerou"] == 2 and resumo["descartou"] == 1
-    assert len(inseridas) == 2
-    assert inseridas[0]["tema"] == "t1"
+    monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: "x")
+    # modelo devolve só lixo sem tema/roteiro → pool vazio.
+    sessao = SessaoRoteada(geracao='{"pautas": [{"foo": "bar"}]}')
+    with pytest.raises(pl.RespostaInvalida):
+        pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=sessao)

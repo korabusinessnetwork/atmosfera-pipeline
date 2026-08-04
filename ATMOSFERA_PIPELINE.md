@@ -1126,7 +1126,11 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   lista os hooks publicados em vez de ranquear por retenção
   (`cowork/relatorio.md`). Sem isso o ciclo não fecha: a pauta de segunda se
   ajusta por impressão, não por dado. É a coisa mais valiosa da lista, e a única
-  que muda como o conteúdo é decidido.
+  que muda como o conteúdo é decidido. **É também o pré-requisito do fine-tuning:**
+  a Rodada 7 levou o gerador local ao teto de qualidade *sem* dado — best-of-N +
+  crítica escolhem e reescrevem entre saídas do mesmo modelo pequeno, mas não
+  mudam os pesos. Treinar de verdade (LoRA sobre hooks que performaram) precisa
+  desta tabela primeiro; até ela existir, inferência é o limite.
 - Editar e descartar pauta pelo painel. Criar e enfileirar fecham o uso normal;
   editar abre "e se já estiver `em_producao`?", que é uma máquina de estados
   nova, não um formulário a mais.
