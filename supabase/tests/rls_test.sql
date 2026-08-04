@@ -46,8 +46,9 @@
 -- de coluna + a política permissiva deixariam editar em em_producao, e o trigger
 -- `t_pautas_guarda_edicao` fecha (vê OLD e NEW). Prova: edição de pronta passa, a de
 -- em_producao é barrada até no PATCH cru, org alheia e branco são recusados. Nenhuma
--- política nova entrou (editar pronta já passa a `pautas_producao`), então o case 02
--- segue em 11.
+-- política nova entrou (editar pronta já passa a política de update de `pautas`),
+-- então a edição não mexeu no case 02 — foi a R19 que depois o levou de 11 a 10, ao
+-- fundir `pautas_producao` + `pautas_descartar` na única `pautas_atualizar`.
 -- ============================================================
 
 create schema if not exists tests;
@@ -130,17 +131,19 @@ begin
   esperado := '6'; obtido := n::text; passou := (n = 6);
   return next;
 
-  -- pautas 4 (leitura + criar + producao + descartar) · videos 3 (leitura +
+  -- pautas 3 (leitura + criar + atualizar) · videos 3 (leitura +
   -- enfileirar + gate) · publicacoes 1 · membros 1 · batimentos 1 (só leitura) ·
-  -- metricas 1 (só leitura) = 11. `for all` não existe mais em lugar nenhum: ler e
-  -- escrever precisam dizer coisas diferentes. A `pautas_descartar` (Rodada 14) é a
-  -- 4ª de pautas — abre a PORTA para descartada; o trigger é a fechadura.
+  -- metricas 1 (só leitura) = 10. `for all` não existe mais em lugar nenhum: ler e
+  -- escrever precisam dizer coisas diferentes. A `pautas_atualizar` (Rodada 19)
+  -- fundiu `pautas_producao` + `pautas_descartar` numa política de update só — o
+  -- advisor reprovava as duas permissivas; a guarda da transição segue nos triggers
+  -- `t_pautas_guarda_descarte`/`t_pautas_guarda_edicao`, não na política.
   select count(*) into n
     from pg_policies
    where schemaname = 'public'
      and tablename in ('pautas','videos','publicacoes','membros','batimentos','metricas');
   teste := '02 · políticas por comando nas 6 tabelas';
-  esperado := '11'; obtido := n::text; passou := (n = 11);
+  esperado := '10'; obtido := n::text; passou := (n = 10);
   return next;
 
   -- ================= ORG A =================
