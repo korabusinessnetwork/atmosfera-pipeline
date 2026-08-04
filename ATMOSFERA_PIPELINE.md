@@ -449,11 +449,17 @@ reusar para achar o mp4. 56 testes verdes, nenhum precisa de rede, chave ou MPT 
 
 **Quatro decisões que o código carrega:**
 
-- **`video_source = "local"`, nunca `pexels`.** Não é gosto, é aritmética de chave:
-  `pexels` exige **duas** chaves (Pexels + LLM, porque `task.py:1111` só pula a
-  geração de termos quando a fonte é local); `local` exige zero. Material remoto
-  ainda nos custaria dinheiro para entregar imagem de banco genérica — o oposto
-  do que a Sprint 3 existe para fazer.
+- **`video_source = "local"` era o padrão cravado — a Rodada 6 o tornou
+  configurável.** Na Sprint 2 era gosto de ninguém, aritmética de chave: `pexels`
+  exigia **duas** chaves (Pexels + LLM, porque `task.py:1111` só pula a geração de
+  termos quando a fonte é local); `local` exigia zero. A aritmética mudou na
+  Rodada 6: a chave do Pexels é gratuita e o LLM dos termos virou o Ollama local
+  que a Rodada 4 já trouxe (`llm.py:172`). Então `MPT_VIDEO_SOURCE` passou a
+  aceitar `local` (padrão, comportamento intacto) ou `pexels` (stock variado por
+  vídeo, custo zero) — a decisão não foi revertida em silêncio, foi revisada
+  quando o custo que a sustentava deixou de existir. O motivo original continua
+  valendo para quem tem footage autoral: material remoto é banco genérico, e a
+  identidade da Sprint 3 é o que dá autoria por cima. Ver `specs/footage-pexels.md`.
 - **Material vai como nome de arquivo, nunca caminho.** `video.py:1270` resolve
   todo material com `resolve_path_within_directory` contra
   `MoneyPrinterTurbo/storage/local_videos/` e **descarta em silêncio** o que

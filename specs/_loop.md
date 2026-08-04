@@ -9,6 +9,42 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 6 — Footage variado via Pexels · 2026-08-04
+
+**Spec:** `specs/footage-pexels.md`
+
+**Review:** ✅ aprovado, 10/10 critérios com evidência. Portões: **332 testes do
+worker** (eram 322: +6 `test_mpt`, +4 `test_config` novo) · RLS **29 ✅** por
+construção (zero arquivos em `supabase/`, nenhuma migration) · sem regressão no
+modo `local` (provada campo a campo).
+
+**O problema que o dono apontou: "usou só os vídeos que baixei".** O worker
+cravava `"video_source": "local"` (`mpt.py:163`), reciclando os 4 clipes de
+`storage/local_videos/` em todo vídeo — daí o genérico. `MPT_VIDEO_SOURCE`
+(padrão `local`, aceita `pexels`) destrava o stock variado do MPT, com os termos
+de busca gerados pelo **Ollama local** (custo zero, `llm.py:172`). A chave
+gratuita do Pexels é o único passo humano (`specs/_manual.md` §10).
+
+**A decisão da Sprint 2 foi revisada, não revertida.** "`video_source=local`,
+nunca `pexels`" era aritmética de chave válida em 2026-08-02; a Rodada 4 (Ollama
+local) mudou a conta. `local` continua sendo o padrão e o comportamento intacto —
+a rodada só reabre a porta que o custo tinha fechado. Registrado no doc mestre §5.
+
+**Dois nomes que quase colidiram:** `MPT_FONTE`/`fonte` é a fonte da **legenda**,
+não a origem do vídeo — por isso a env nova é `MPT_VIDEO_SOURCE`, não "fonte".
+E `video_language` estava cravado `pt-BR` desde a Sprint 2, sobrevivente da virada
+en-US da Rodada 5; virou config junto (padrão `en-US`).
+
+**Padrão reforçado:** validador de config que precisa ser testável vira helper
+puro (`_fonte_video`), porque `carregar()` inteiro depende de ffmpeg+fonte no
+ambiente e não roda em suíte limpa.
+
+**Próximo item recomendado:** melhorar os exemplos few-shot do qwen2.5 em
+`memory/00_IDENTIDADE.md` — o 2º eixo do "vídeo fraco" (qualidade do hook em
+inglês), grátis e sem passo humano.
+
+---
+
 ## Rodada 5 — Virar o canal para inglês (mercado internacional) · 2026-08-03
 
 **Spec:** `specs/canal-ingles.md`

@@ -75,6 +75,8 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
         timeout_seg=cfg.mpt_timeout_seg,
         voz=cfg.mpt_voz,
         fonte=cfg.mpt_fonte,
+        video_source=cfg.mpt_video_source,
+        video_language=cfg.mpt_video_language,
     )
 
     preview = postprocess.aplicar_identidade(

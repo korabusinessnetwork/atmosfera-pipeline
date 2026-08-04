@@ -128,6 +128,8 @@ def cfg(tmp_path: Path) -> Config:
         mpt_timeout_seg=1200,
         mpt_voz="pt-BR-AntonioNeural-Male",
         mpt_fonte="MicrosoftYaHeiBold.ttc",
+        mpt_video_source="local",
+        mpt_video_language="en-US",
         youtube_token=tmp_path / "token.json",
         publicar_lote=10,
     )

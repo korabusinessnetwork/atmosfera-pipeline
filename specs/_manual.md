@@ -318,3 +318,49 @@ O que sobra é seu, e é opcional/cosmético:
 Para **voltar ao pt-BR**: `MPT_VOZ` de volta para uma voz pt-BR, `00_IDENTIDADE.md`
 e `montar_prompt` revertidos (o git guarda), e `youtube.py` de `en-US` para
 `pt-BR`. É reversível — nada foi apagado do banco.
+
+---
+
+## 10. Ligar o footage variado via Pexels (Rodada 6)
+
+**Por quê:** hoje o worker recicla só os clipes de `storage/local_videos/` — com
+poucos clipes, todo vídeo repete o mesmo material e fica genérico. O modo
+`pexels` faz o MPT baixar stock variado por vídeo, com os termos de busca gerados
+pelo **Ollama local** (custo zero). A parte de código já está pronta e o
+`config.toml` do MPT já foi apontado para o Ollama; o que falta é **uma chave
+gratuita do Pexels** — que é sua, porque envolve criar conta.
+
+**O que fazer, uma vez:**
+
+1. **Pegue a chave gratuita** em https://www.pexels.com/api/ (crie a conta, a
+   chave aparece no painel). É grátis, sem cartão.
+2. **Cole no config do MPT** (`MoneyPrinterTurbo/config.toml`, gitignored):
+   ```toml
+   pexels_api_keys = ["a-sua-chave-aqui"]
+   ```
+3. **Deixe o Ollama de pé** com o modelo puxado (o mesmo da pauta local):
+   ```
+   ollama pull qwen2.5
+   ```
+   O `config.toml` já está com `llm_provider = "ollama"` e
+   `ollama_model_name = "qwen2.5"` — não precisa mexer.
+4. **Ligue o modo** no `worker/.env`:
+   ```
+   MPT_VIDEO_SOURCE=pexels
+   ```
+5. Reinicie o worker. O próximo render busca footage no Pexels.
+
+**O que saber:**
+
+- **Sem a chave do Pexels, o render cai em `erro`** — mas **não trava a fila**:
+  o `tentativas < 3` do banco governa, o vídeo volta para `na_fila` e para depois
+  de 3 tentativas. Você vê o motivo em `videos.erro_msg` no painel.
+- **Sem o Ollama de pé**, o MPT não gera os termos de busca e o render também
+  falha — mesmo tratamento. O Ollama já é exigência da pauta local, então se o
+  produtor de pauta roda, isto roda.
+- **Voltar ao local** é trocar `MPT_VIDEO_SOURCE=local` (ou apagar a linha — o
+  padrão é `local`). Nada mais muda.
+- Pexels é **stock genérico de banco**, não a sua estética. É variedade, não
+  autoria — a graduação/grão/vinheta da Sprint 3 continua por cima, dando a cara
+  do canal. Se quiser material autoral, a alternativa é curar footage próprio em
+  `local_videos/` (seção 1).

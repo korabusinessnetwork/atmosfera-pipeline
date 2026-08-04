@@ -160,14 +160,40 @@ class TestMontarCorpo:
         corpo = mpt.montar_corpo(pauta, ["a.mp4"], voz="v", fonte="f")
         assert corpo["video_materials"] == [{"provider": "local", "url": "a.mp4"}]
 
-    def test_vertical_e_pt_br(self, pauta):
+    def test_vertical_e_idioma_padrao_en_us(self, pauta):
+        # 9:16 não negocia; o idioma virou config na virada en-US (Rodada 5/6)
+        # e o padrão é en-US, não mais o "pt-BR" cravado da Sprint 2.
         corpo = mpt.montar_corpo(pauta, ["a.mp4"], voz="v", fonte="f")
         assert corpo["video_aspect"] == "9:16"
+        assert corpo["video_language"] == "en-US"
+
+    def test_idioma_configurado_chega_ao_corpo(self, pauta):
+        corpo = mpt.montar_corpo(pauta, ["a.mp4"], voz="v", fonte="f", video_language="pt-BR")
         assert corpo["video_language"] == "pt-BR"
 
     def test_tema_vazio_nao_vira_assunto_vazio(self):
         corpo = mpt.montar_corpo({"tema": "", "roteiro": "texto"}, ["a.mp4"], voz="v", fonte="f")
         assert corpo["video_subject"]
+
+    def test_pexels_nao_manda_material_local(self, pauta):
+        # Em pexels o MPT baixa stock; forçar clipe nosso mataria a variedade.
+        # A chave é OMITIDA (schema default None), não uma lista vazia.
+        corpo = mpt.montar_corpo(pauta, [], voz="v", fonte="f", video_source="pexels")
+        assert corpo["video_source"] == "pexels"
+        assert "video_materials" not in corpo
+
+    def test_pexels_ainda_exige_roteiro(self):
+        # O MPT usa o script pra gerar os termos de busca — sem roteiro, não há
+        # de onde tirar termo, e a falha tem de ser cedo, não 20 min depois.
+        with pytest.raises(mpt.RenderFalhou, match="roteiro"):
+            mpt.montar_corpo({"tema": "x", "roteiro": ""}, [], voz="v", fonte="f",
+                             video_source="pexels")
+
+    def test_local_continua_igual(self, pauta):
+        # Regressão: o corpo do modo local não muda campo a campo.
+        corpo = mpt.montar_corpo(pauta, ["a.mp4"], voz="v", fonte="f", video_source="local")
+        assert corpo["video_source"] == "local"
+        assert corpo["video_materials"] == [{"provider": "local", "url": "a.mp4"}]
 
 
 # ------------------------------------------------------------------ polling
@@ -277,6 +303,23 @@ class TestGerar:
 
         enviados = {m["url"] for m in fake.corpos_enviados[0]["video_materials"]}
         assert enviados <= {"a.mp4", "b.mp4", "c.mp4"}
+
+    def test_pexels_nao_consulta_material_local(self, video, pauta, tmp_path):
+        # Em pexels o worker não lista storage/local_videos/ — quem sourcea é o
+        # MPT. Nem chama o endpoint, nem manda video_materials.
+        fake = MptFake()
+        gerar(fake, video, pauta, tmp_path, video_source="pexels")
+        assert not any(u.endswith("/video_materials") for u in fake.urls)
+        corpo = fake.corpos_enviados[0]
+        assert corpo["video_source"] == "pexels"
+        assert "video_materials" not in corpo
+
+    def test_pexels_nao_exige_footage_local(self, video, pauta, tmp_path):
+        # storage/local_videos/ vazio derruba o modo local (SemMaterial); em
+        # pexels não é problema — o material vem de fora.
+        fake = MptFake(materiais=())
+        destino = gerar(fake, video, pauta, tmp_path, video_source="pexels")
+        assert destino.read_bytes() == b"mp4-de-verdade"
 
     def test_mpt_fora_do_ar_e_indisponibilidade_nao_falha_de_render(
         self, video, pauta, tmp_path

@@ -250,6 +250,8 @@ def cfg(tmp_path: Path) -> Config:
         mpt_timeout_seg=TIMEOUT,
         mpt_voz="pt-BR-AntonioNeural-Male",
         mpt_fonte="MicrosoftYaHeiBold.ttc",
+        mpt_video_source="local",
+        mpt_video_language="en-US",
         batimento_seg=BATIMENTO,
     )
 

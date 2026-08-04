@@ -6,13 +6,18 @@ caminho de um arquivo. Só o miolo virou render de verdade.
 
 ## Decisões que este módulo carrega
 
-**`video_source = "local"`, nunca `pexels`.** Não é preferência estética, é
-aritmética de chave. O caminho `pexels` exige *duas* chaves de API: a do Pexels
-para baixar o material e a de um LLM, porque `task.py:1111` só pula a geração
-de termos de busca quando a fonte é local. O caminho local exige zero. Como o
-Cowork já escreve o roteiro e o material é nosso, a fonte remota só nos custaria
-dinheiro para entregar imagem de banco genérica — exatamente o que a Sprint 3
-existe para evitar.
+**A origem do material é configurável: `local` (padrão) ou `pexels` (Rodada 6).**
+Na Sprint 2 isto era cravado em `local`, e por um motivo válido na época:
+`pexels` exigia *duas* chaves de API — a do Pexels para baixar e a de um LLM,
+porque `task.py:1111` só pula a geração de termos de busca quando a fonte é
+local. A aritmética mudou. A chave do Pexels é gratuita, e o LLM dos termos
+agora é o Ollama local que a Rodada 4 já trouxe para a máquina (`llm.py:172` — o
+MPT aceita `llm_provider = "ollama"` nativamente). O custo que fechava a porta
+não existe mais. `local` continua sendo o padrão e o comportamento não muda para
+quem não mexer no `.env`; `pexels` troca a reciclagem dos poucos clipes locais
+por stock variado a cada vídeo, sourced pelo próprio MPT. Em `pexels` o worker
+**não** manda `video_materials`: forçar clipe nosso anularia a variedade que é o
+motivo de ligar a fonte remota.
 
 **O material mora em `MoneyPrinterTurbo/storage/local_videos/`.** Não é escolha
 nossa: `video.preprocess_video` resolve todo caminho de material com
@@ -143,13 +148,22 @@ def montar_corpo(
     materiais: list[str],
     voz: str,
     fonte: str,
+    video_source: str = "local",
+    video_language: str = "en-US",
 ) -> dict[str, Any]:
     """Traduz uma pauta do banco no corpo de `POST /api/v1/videos`.
 
-    O `video_script` preenchido é o que faz o MPT pular o LLM inteiro
+    O `video_script` preenchido é o que faz o MPT pular o LLM de *roteiro*
     (`task.py:270-272`). Se um dia isso vier vazio, o MPT tenta chamar um modelo
     que não está configurado e a task falha em "generate script" — por isso o
     roteiro é exigido aqui, alto e cedo, e não descoberto 20 minutos depois.
+    (Em `pexels` o MPT ainda chama o LLM para gerar os *termos de busca* do
+    material, mas isso é o Ollama local — ver o cabeçalho do módulo.)
+
+    `video_materials` só entra quando a fonte é `local`. Em `pexels` a chave é
+    omitida (schema default `None`, `schema.py:91`) para o MPT baixar stock
+    variado; mandar clipe local ali forçaria o nosso material e mataria a
+    variedade.
     """
     roteiro = (pauta.get("roteiro") or "").strip()
     if not roteiro:
@@ -157,11 +171,10 @@ def montar_corpo(
             "Pauta sem roteiro. O worker não escreve texto — quem escreve é o Cowork."
         )
 
-    return {
+    corpo = {
         "video_subject": (pauta.get("tema") or "").strip() or "Atmosfera Viral",
         "video_script": roteiro,
-        "video_source": "local",
-        "video_materials": [{"provider": "local", "url": n} for n in materiais],
+        "video_source": video_source,
         # 9:16 = 1080x1920. Shorts e TikTok não negociam isso.
         "video_aspect": "9:16",
         "video_clip_duration": 4,
@@ -174,9 +187,12 @@ def montar_corpo(
         "font_name": fonte,
         "font_size": 62,
         "subtitle_position": "center",
-        "video_language": "pt-BR",
+        "video_language": video_language,
         "n_threads": 4,
     }
+    if video_source == "local":
+        corpo["video_materials"] = [{"provider": "local", "url": n} for n in materiais]
+    return corpo
 
 
 # ---------------------------------------------------------------- HTTP
@@ -371,6 +387,8 @@ def gerar(
     timeout_seg: int,
     voz: str,
     fonte: str,
+    video_source: str = "local",
+    video_language: str = "en-US",
     sessao: Sessao | None = None,
     sorteio: random.Random | None = None,
 ) -> Path:
@@ -381,13 +399,22 @@ def gerar(
     """
     sessao = sessao or criar_sessao()
 
-    materiais = escolher_materiais(listar_materiais(base_url, sessao), sorteio=sorteio)
-    corpo = montar_corpo(pauta, materiais, voz=voz, fonte=fonte)
+    if video_source == "local":
+        materiais = escolher_materiais(listar_materiais(base_url, sessao), sorteio=sorteio)
+    else:
+        # `pexels`: o MPT sorteia e baixa o material sozinho. Não listamos
+        # storage/local_videos/ nem exigimos footage local — `SemMaterial`
+        # é diagnóstico do modo `local`, não deste.
+        materiais = []
+    corpo = montar_corpo(
+        pauta, materiais, voz=voz, fonte=fonte,
+        video_source=video_source, video_language=video_language,
+    )
 
     task_id = criar_task(base_url, corpo, sessao)
     log.info(
         "task criada no MPT",
-        extra={"task_id": task_id, "materiais": len(materiais)},
+        extra={"task_id": task_id, "fonte": video_source, "materiais": len(materiais)},
     )
 
     uri = aguardar(base_url, task_id, sessao, timeout_seg=timeout_seg)

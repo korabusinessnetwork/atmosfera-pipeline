@@ -44,6 +44,15 @@ class Config:
     mpt_timeout_seg: int
     mpt_voz: str
     mpt_fonte: str
+    # Origem do material do vídeo (Rodada 6): "local" recicla os clipes de
+    # storage/local_videos/; "pexels" baixa stock variado, com os termos de
+    # busca gerados pelo Ollama local. Padrão "local" — instalação existente não
+    # muda de comportamento. NÃO confundir com `mpt_fonte`, que é a fonte da
+    # legenda; "fonte" aqui seria colisão de nome, por isso `video_source`.
+    mpt_video_source: str
+    # Idioma declarado ao MPT (Rodada 6). Era cravado "pt-BR" em mpt.py; virou
+    # config na virada en-US da Rodada 5. Padrão "en-US".
+    mpt_video_language: str
 
     # ffmpeg (Sprint 3). Com padrão porque o teste monta `Config` direto, e
     # porque "procura no PATH" é o comportamento certo quando ninguém falou nada.
@@ -121,6 +130,21 @@ def _texto(nome: str, padrao: str) -> str:
     return os.getenv(nome, "").strip() or padrao
 
 
+def _fonte_video(nome: str) -> str:
+    """MPT_VIDEO_SOURCE validado: só `local` (padrão) ou `pexels`.
+
+    Validar na largada e não na hora do render é o mesmo princípio do `_binario`:
+    origem inválida vira erro claro ao subir o worker, não uma task que falha 20
+    min depois com uma mensagem do MPT sobre um `video_source` que ele não entende.
+    """
+    valor = _texto(nome, "local").lower()
+    if valor not in ("local", "pexels"):
+        raise ConfigInvalida(
+            f"{nome} precisa ser 'local' ou 'pexels' (recebi '{valor}')."
+        )
+    return valor
+
+
 def _caminho(nome_var: str, padrao: Path) -> Path:
     """Caminho opcional, resolvido contra `worker/` quando vier relativo."""
     bruto = os.getenv(nome_var, "").strip()
@@ -186,6 +210,8 @@ def carregar(env_path: Path | None = None) -> Config:
     if not mpt_url.startswith(("http://", "https://")):
         raise ConfigInvalida("MPT_URL precisa começar com http:// ou https://.")
 
+    mpt_video_source = _fonte_video("MPT_VIDEO_SOURCE")
+
     bruto_fonte = os.getenv("ASSINATURA_FONTE", "").strip()
     fonte_assinatura = Path(bruto_fonte) if bruto_fonte else FONTE_ASSINATURA_PADRAO
     if not fonte_assinatura.is_file():
@@ -233,6 +259,8 @@ def carregar(env_path: Path | None = None) -> Config:
         mpt_timeout_seg=_inteiro("MPT_TIMEOUT_SEG", 1200),
         mpt_voz=_texto("MPT_VOZ", "pt-BR-AntonioNeural-Male"),
         mpt_fonte=_texto("MPT_FONTE", "MicrosoftYaHeiBold.ttc"),
+        mpt_video_source=mpt_video_source,
+        mpt_video_language=_texto("MPT_VIDEO_LANGUAGE", "en-US"),
         ffmpeg_bin=_binario("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=_binario("FFPROBE_BIN", "ffprobe"),
         fonte_assinatura=fonte_assinatura,
