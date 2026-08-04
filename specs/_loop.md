@@ -9,6 +9,60 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 17 — MCP de verbos do domínio (controle por linguagem natural) · 2026-08-04
+
+**Spec:** `specs/mcp-verbos-do-dominio.md`
+
+**Review:** ✅ aprovado sem ressalvas, 9/9 com evidência. Portões: **499 testes do
+worker** (eram 473; +26) · `rls_test.sql` **intocado (41)**, case 02 **segue 11** ·
+`painel/` intocado (`git status | grep painel` = 0), `next build` não afetado. A
+ressalva do § 7 (o handshake stdio real com um cliente Claude é passo humano) é
+honestidade documentada, não pendência.
+
+**O que entrou:** `worker/mcp_server.py` — servidor MCP **local por stdio** (SDK
+`mcp` 2.0, `MCPServer`), fora do loop. Cinco verbos como invólucros finos das RPCs/
+selects da Sprint 6: `listar_pendentes`, `aprovar_video`, `reprovar_video`,
+`listar_pautas_prontas`, `enfileirar_pauta`. Helpers em `db.py` (org-escopados;
+`reprovar_qc` do R16 agora delega para `reprovar_video`, RPC num lugar só). Migration
+`20260804190000_mcp_grants.sql`: `grant execute` de `aprovar_video`/`enfileirar_pauta`
+à `service_role` (`reprovar_video` foi no R16). Config `mcp_lote`. Fecha os **verbos**
+do item MCP do § 9.
+
+**Decisões:** (1) **stdio, não porta** — ADR-05 intacta; stdio fala por stdin/stdout,
+sem socket de entrada. (2) **service_role local, como o worker** — processo de
+confiança no PC; nunca vai para a Vercel. (3) **Reusa as RPCs, nunca `update` cru** —
+a guarda de transição vive no corpo delas (P0002), então nem a service_role pula
+`renderizando → aprovado`; ADR-06 de pé. (4) O modelo só aprova porque **o dono
+digitou** — gate humano por NL. (5) **Remoto/celular fica de fora** — exigiria anon +
+OAuth na Vercel (a service_role não pode ir para lá), decisão de auth à parte.
+
+**Aprendido:** (1) a **credencial do MCP é derivada do transporte** (stdio→service_role,
+remoto→anon+OAuth), não escolhida — ADR-05 + "service_role nunca na Vercel" forçam.
+(2) o SDK `mcp` 2.0 usa `MCPServer` (não `FastMCP`): `@servidor.tool` sobre função sync
+que devolve str, `run(transport="stdio")`. (3) o aprendizado do R16 (service_role
+precisa de grant próprio) **pagou na hora** — a migration nasceu já com o grant. Em
+`specs/mcp-verbos-do-dominio.md` § 9.
+
+**Commit:** `2ad98a7` na branch `main` (push direto autorizado). Ledger em commit
+separado. Nota no vault: `2026-08-04-2ad98a7.md`.
+
+**Pendente de decisão:** o transporte **remoto** (o "pelo celular") — precisa da
+decisão de auth do dono (Vercel + OAuth + anon). Passos humanos acumulados (não
+bloqueiam): aplicar as **cinco** migrations pendentes (R11 metricas, R14 descartar, R15
+editar, R16 qc_reprovar, R17 mcp_grants) + `advisors`/`rls_test` (alvo 41 ✅); para o
+MCP, registrar `mcp_server.py` no cliente Claude (`.mcp.json`); para o QC, `ollama pull
+llama3.2-vision` + footage real. O sandbox não alcança o Supabase.
+
+**Próximo item recomendado:** `MCP-transporte-remoto` — hospedar os verbos na Vercel
+com `anon` + OAuth para o controle **pelo celular** de verdade. É o desdobramento
+direto do que ficou pronto, **mas trava numa decisão de produto/auth** (como o app do
+celular autentica; provedor OAuth) e provavelmente encosta em custo/complexidade —
+então **não é rodada automática**: precisa do dono desenhar a forma. As demais
+pendências (fine-tuning, auditoria TikTok, cota YouTube) param em passo humano ou tempo
+coletando métrica.
+
+---
+
 ## Rodada 16 — QC automático dos pendentes (reprova legenda cortada) · 2026-08-04
 
 **Spec:** `specs/qc-automatico-pendentes.md`
