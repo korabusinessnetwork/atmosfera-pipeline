@@ -1149,12 +1149,13 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   automáticos (os dois já existem) — a novidade é a **voz: a do próprio dono**, um
   voice clone / TTS custom que **ele configura depois**. O `MPT_VOZ` hoje aponta para
   uma voz neural do edge-tts; o MPT gera o áudio a partir dela. Trocar por voz clonada
-  implica: um motor de TTS que suporte clonagem (local tipo XTTS/Coqui — grátis, pesa
-  na GPU; ou serviço pago tipo ElevenLabs — custo por caractere), e um ponto de
-  integração no caminho do áudio do MPT (ou pós-processo que substitua a narração
-  mantendo o sync da legenda queimada — cuidado com o mesmo problema de sync do hook
-  da Sprint 3). **Tem portão de custo** se for serviço pago → o `/spec` vai parar e
-  apresentar custo × alternativa local antes de construir. O "3/dia" em si é operação
+  implica: um motor de TTS que suporte clonagem e um ponto de integração no caminho do
+  áudio do MPT (ou pós-processo que substitua a narração mantendo o sync da legenda
+  queimada — cuidado com o mesmo problema de sync do hook da Sprint 3). **O dono definiu
+  que o auto só usa sistemas gratuitos/locais** (nunca Claude nem API paga) — então a
+  voz é voice clone **local** (XTTS/Coqui, grátis, pesa na GPU), **não** ElevenLabs ou
+  serviço pago. Isso **fecha o portão de custo na alternativa local**: o `/spec` não
+  precisa parar por custo, mas vai avisar do peso de GPU/setup. O "3/dia" em si é operação
   (o pauta_local gera, o gate aprova, a cota de 6/dia do YouTube comporta) — não é
   código novo além de agendar (item 13c).
 - **MCP transporte remoto (o "pelo celular") — ADIADO por decisão do dono (2026-08-04).**
