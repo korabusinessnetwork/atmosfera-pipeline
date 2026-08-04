@@ -9,6 +9,55 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 11 — Métrica de verdade: coleta do YouTube · 2026-08-04
+
+**Spec:** `specs/metricas-youtube.md`
+
+**Review:** ✅ aprovado sem ressalvas de código, 10/10 com evidência. Portões:
+**417 testes do worker** (eram 401: +16 entre `test_youtube_analytics.py`,
+`test_coletar_metricas.py` e o escopo em `test_youtube.py`) · `rls_test.sql` com
+**32 casos** por construção (29–31 novos + estruturais 01/02) · advisors e execução
+de RLS = **passo humano** (sandbox não alcança o Supabase, crit. 9 da spec).
+
+**O que entrou:** a tabela `metricas` (multi-tenant, FK→`publicacoes` on delete
+cascade, `unique(publicacao_id)`, RLS padrão `batimentos`: painel só lê a sua org,
+worker escreve com service_role) + o coletor (`publishers/youtube_analytics.py`
+puxa e parseia; `coletar_metricas.py` orquestra e degrada por vídeo). OAuth ganhou
+`ESCOPO_ANALYTICS`/`ESCOPOS_TODOS`, com `carregar_credenciais` mantendo o default
+só-upload (zero regressão no publisher).
+
+**Só coleta — não consome.** Ranquear pauta/relatório por retenção é a próxima
+rodada; esta guarda o dado. É o pré-requisito que faltava para fechar o loop.
+
+**A review se corrigiu:** os casos de RLS resetavam o papel entre leitura (29) e
+escrita (30), o que faria o `update` rodar como dono e passar — reprovação falsa.
+Adotei o bloco contínuo do batimento (20–21). Achado relendo o SQL, não em execução.
+
+**Corrigido sozinho:** o bug de RLS acima (antes de qualquer commit).
+
+**Aprendido:** (1) em `rls_test.sql`, leitura+escrita da mesma tabela ficam no
+mesmo papel `authenticated` — reset no meio fabrica furo falso; (2) `coletado_em`
+vem do `default now()` do banco, não do relógio do PC (deriva de ~23s); (3) parse
+da Analytics casa por nome de coluna, não posição; (4) alargar escopo OAuth é
+opt-in do coletor, não default do publisher. Tudo em `specs/metricas-youtube.md`
+§ 9.
+
+**Commit:** `d753bae` na branch `main` (push direto autorizado). Nota no vault:
+`2026-08-04-d753bae.md`.
+
+**Pendente de decisão:** nenhuma no código. Passos humanos (item 14b): re-consentir
+o OAuth com `yt-analytics.readonly` e aplicar+verificar a migration — `specs/_manual.md` § 11.
+
+**Próximo item recomendado:** **consumir a métrica** — ranquear o relatório de
+sexta (e a seleção do gerador de pauta) por **retenção** em vez de impressão. É o
+que o § 9 do doc mestre chama de "o próximo item natural do loop" e a única coisa
+que muda *como* o conteúdo é decidido. Código puro, testável offline com linhas de
+`metricas` falsas (como tudo aqui). Ressalva honesta: o *payoff* real espera o item
+14b (OAuth + migration) e uma semana de dado acumulado — mas o código ship e se
+prova agora.
+
+---
+
 ## Rodada 10 — Aposentar o Cowork (relatório de sexta local) · 2026-08-04
 
 **Spec:** `specs/aposentar-cowork.md`
