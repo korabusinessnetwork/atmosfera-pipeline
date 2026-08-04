@@ -38,6 +38,13 @@ para first-N. Transporte (`OllamaIndisponivel`) propaga sempre — Ollama fora d
 
 **Nada tocou banco:** RLS 29 por construção, como na Rodada 8.
 
+**Próximo item recomendado:** relatório de sexta local com Ollama (backlog § 9) —
+fecha a última dependência de token do Cowork, é `SELECT` + texto autocontido,
+testável com dublê como o `pauta_local`, sem passo humano nem custo. A métrica de
+verdade (YouTube Analytics → tabela `metricas`) é o item mais valioso da lista,
+mas depende de re-consentimento OAuth (escopo novo) e de vídeos publicados
+acumulando watch time — fica atrás do que dá para verificar hoje.
+
 ---
 
 ## Rodada 8 — Hook playbook no gerador (few-shot + régua do juiz) · 2026-08-04
