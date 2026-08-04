@@ -9,6 +9,41 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 18 — MCP transporte remoto · ADIADA por decisão do dono · 2026-08-04
+
+**Sem spec, sem código.** O `/spec` bateu na parada obrigatória de **decisão de
+produto/auth**: expor os verbos ao app do Claude no celular exige um MCP remoto com
+**OAuth 2.1**, e o Supabase Auth **não é** authorization server pronto para clientes de
+terceiros (autentica usuários do app, não emite token para apps externos) — então
+"OAuth pro celular" é um build grande, sensível e **não testável neste ambiente**,
+cuja ponte com o Supabase precisa ser desenhada. Apresentei o fork (OAuth / token
+bearer / adiar); **o dono escolheu adiar**. Token bearer foi descartado porque a UI de
+conector do celular quer OAuth, não header — não entregaria o "pelo celular".
+
+**Resultado:** nenhuma mudança de código; registro do adiamento no backlog (§ 9) + um
+item novo enfileirado pelo dono (abaixo). Nada de commit de código, push de código ou
+`/aprender` — só a documentação da decisão.
+
+**Enfileirado pelo dono (2026-08-04):** **voz própria** no lugar do edge-tts. Plano
+operacional: 3 vídeos/dia YouTube+TikTok com legenda e footage automáticos (já existem);
+a novidade é a voz do próprio dono (voice clone / TTS custom), que ele configura depois.
+Ver `ATMOSFERA_PIPELINE.md` § 9 — tem portão de custo se for serviço pago.
+
+**Pedido registrado (2026-08-04):** quando o dono digitar **`tutorial`**, entregar o
+passo-a-passo de operação (subir MPT+worker, pauta, gate, publicar, cadência, voz).
+Anotado na memória do agente; entregar só quando pedido e depois das etapas manuais.
+
+**Pendente de decisão:** o MCP remoto volta só quando o dono quiser investir no OAuth.
+
+**Próximo item recomendado:** `voz-propria` — trocar o edge-tts pela voz do dono, o
+único item de conteúdo novo na fila. **Mas provavelmente para no portão de custo**
+(voice clone bom costuma ser serviço pago; a alternativa local — XTTS/Coqui — é grátis
+mas pesa na GPU e exige setup), então o `/spec` vai apresentar custo × alternativa e
+esperar sua decisão. E boa parte do plano (3/dia, auto-tudo) **já está pronta** — falta
+só a voz e agendar. As demais pendências param em passo humano.
+
+---
+
 ## Rodada 17 — MCP de verbos do domínio (controle por linguagem natural) · 2026-08-04
 
 **Spec:** `specs/mcp-verbos-do-dominio.md`

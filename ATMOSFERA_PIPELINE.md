@@ -1144,6 +1144,26 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 
 ## 9. Backlog (não fazer agora)
 
+- **Voz própria do dono no lugar do edge-tts (enfileirado pelo dono, 2026-08-04).**
+  O plano operacional é **3 vídeos/dia** para YouTube e TikTok com legenda e footage
+  automáticos (os dois já existem) — a novidade é a **voz: a do próprio dono**, um
+  voice clone / TTS custom que **ele configura depois**. O `MPT_VOZ` hoje aponta para
+  uma voz neural do edge-tts; o MPT gera o áudio a partir dela. Trocar por voz clonada
+  implica: um motor de TTS que suporte clonagem (local tipo XTTS/Coqui — grátis, pesa
+  na GPU; ou serviço pago tipo ElevenLabs — custo por caractere), e um ponto de
+  integração no caminho do áudio do MPT (ou pós-processo que substitua a narração
+  mantendo o sync da legenda queimada — cuidado com o mesmo problema de sync do hook
+  da Sprint 3). **Tem portão de custo** se for serviço pago → o `/spec` vai parar e
+  apresentar custo × alternativa local antes de construir. O "3/dia" em si é operação
+  (o pauta_local gera, o gate aprova, a cota de 6/dia do YouTube comporta) — não é
+  código novo além de agendar (item 13c).
+- **MCP transporte remoto (o "pelo celular") — ADIADO por decisão do dono (2026-08-04).**
+  Os verbos existem local (R17); expô-los ao app do Claude no celular exige um MCP
+  remoto na Vercel com OAuth 2.1 (o Supabase Auth não é authorization server pronto
+  para terceiros → precisaria de um AS próprio) + `anon` key. Build grande, sensível e
+  não testável no ambiente do agente; o dono preferiu adiar. Volta quando houver apetite
+  pelo OAuth. Token bearer foi considerado e descartado (a UI de conector do celular
+  quer OAuth, não header).
 - ~~MCP customizado com verbos do domínio (`aprovar_video`, `listar_pendentes`) →
   controle por linguagem natural pelo celular.~~ **VERBOS FEITOS na Rodada 17, local
   por stdio** (`worker/mcp_server.py` + migration `mcp_grants` + helpers em `db.py`).
