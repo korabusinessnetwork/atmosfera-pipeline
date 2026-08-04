@@ -111,18 +111,32 @@ def interpretar_estado(saida: str) -> str:
 
 
 def ligar_worker(nome: str = TAREFA) -> tuple[bool, str]:
-    """Habilita e inicia a tarefa. Reabilitar restaura o gatilho de logon."""
+    """Habilita e inicia a tarefa. Reabilitar restaura o gatilho de logon.
+
+    Encana o objeto do `Get-ScheduledTask` em vez de passar `-TaskName`: a tarefa
+    vive numa subpasta (`\\Atmosfera\\`), e `Enable/Start -TaskName` assumem a raiz
+    `\\` — davam `0x80070002` (arquivo não encontrado). O objeto encanado carrega o
+    `TaskPath` certo, e sobrevive se a pasta mudar num futuro re-registro.
+    """
     return _powershell(
-        f"Enable-ScheduledTask -TaskName '{nome}' -ErrorAction Stop | Out-Null; "
-        f"Start-ScheduledTask -TaskName '{nome}' -ErrorAction Stop"
+        f"Get-ScheduledTask -TaskName '{nome}' -ErrorAction Stop | "
+        f"Enable-ScheduledTask -ErrorAction Stop | Out-Null; "
+        f"Get-ScheduledTask -TaskName '{nome}' -ErrorAction Stop | "
+        f"Start-ScheduledTask -ErrorAction Stop"
     )
 
 
 def pausar_worker(nome: str = TAREFA) -> tuple[bool, str]:
-    """Para a execução atual e desabilita — senão o logon ressuscita o pausado."""
+    """Para a execução atual e desabilita — senão o logon ressuscita o pausado.
+
+    Mesmo motivo do `ligar_worker`: encana o objeto para achar a tarefa na
+    subpasta em que ela mora.
+    """
     return _powershell(
-        f"Stop-ScheduledTask -TaskName '{nome}' -ErrorAction SilentlyContinue; "
-        f"Disable-ScheduledTask -TaskName '{nome}' -ErrorAction Stop | Out-Null"
+        f"Get-ScheduledTask -TaskName '{nome}' -ErrorAction SilentlyContinue | "
+        f"Stop-ScheduledTask -ErrorAction SilentlyContinue; "
+        f"Get-ScheduledTask -TaskName '{nome}' -ErrorAction Stop | "
+        f"Disable-ScheduledTask -ErrorAction Stop | Out-Null"
     )
 
 
