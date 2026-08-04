@@ -98,6 +98,11 @@ RUBRICA_HOOK = (
     "8. Economy — every word load-bearing."
 )
 
+# Nota de um candidato que o juiz nao conseguiu pontuar (parse invalido daquela
+# chamada). Menor que qualquer nota real (0-10), entao `selecionar_top` sempre o
+# afunda — um candidato sem nota nunca vence um pontuado de verdade.
+NOTA_FALHA = -1.0
+
 
 class OllamaIndisponivel(RuntimeError):
     """Não deu para falar com o Ollama. Transporte, não conteúdo."""
@@ -327,7 +332,17 @@ def montar_prompt(identidade: str, n: int) -> str:
         f"{identidade}\n"
         "=== END OF IDENTITY ===\n\n"
         f"Produce {n} pautas, each with a DIFFERENT angle — if two look alike, "
-        "one should not exist. Write everything in US English. For each pauta:\n"
+        "one should not exist. Write everything in US English.\n"
+        "Vary the SHAPE, not only the topic. The channel's signature move is the "
+        'reframe ("You\'re not X, you\'re Y"), but if every hook takes that shape '
+        "they blur into one — AT MOST ONE IN THREE may be a reframe. Spread the "
+        "rest across other shapes: a private confession "
+        '("You\'ve ... , more than once"), a small cost that compounds '
+        '("Every ... shrinks you a little"), an identity split '
+        '("There\'s a version of you that ..."), an absence read as a sign '
+        '("The ... you never ... says something about you"). '
+        "These are shapes to spread across, not templates to copy.\n"
+        "For each pauta:\n"
         "- tema: 1 line, this is what shows in the panel list.\n"
         "- hook: the first line of the roteiro, read with no image and no "
         f"context. MAXIMUM {HOOK_MAX} characters (past that the video cuts with "
@@ -495,10 +510,34 @@ def gerar_pool(
 def pontuar(
     cfg: Config, identidade: str, candidatos: list[dict[str, Any]], sessao: Sessao
 ) -> list[float]:
-    """Uma nota por candidato, pelo modelo-juiz. Levanta se o juiz sair do formato."""
-    prompt = montar_prompt_juiz(identidade, candidatos)
-    texto = chamar_ollama(cfg.ollama_url, cfg.ollama_model, prompt, sessao)
-    return extrair_notas(texto, len(candidatos))
+    """Uma nota por candidato — UMA chamada ao Ollama por candidato.
+
+    Medido na Rodada 8: pedir o lote inteiro faz o modelo pequeno devolver **1
+    nota de N** (preguiça em prompt longo), o que derrubava o ranking para o
+    fallback SEMPRE. Um candidato por chamada custa N chamadas curtas, mas o
+    modelo pontua confiável. É `for` de saída (regra da casa "retry só em GET"):
+    cada julgamento é um POST independente que não retenta.
+
+    Degradação em dois níveis:
+    - **Transporte** (`OllamaIndisponivel`) propaga — Ollama fora do ar é o run
+      inteiro degradando, não um candidato ruim; `gerar_pautas` cai no first-N.
+    - **Parse de um candidato** (`RespostaInvalida`) vira `NOTA_FALHA`: aquele
+      afunda, os outros seguem pontuados — um hook que o juiz engasgou não pode
+      custar o ranking de todos. Só se **nenhum** for pontuável é que levanta.
+    """
+    notas: list[float] = []
+    algum_ok = False
+    for c in candidatos:
+        prompt = montar_prompt_juiz(identidade, [c])
+        texto = chamar_ollama(cfg.ollama_url, cfg.ollama_model, prompt, sessao)
+        try:
+            notas.append(extrair_notas(texto, 1)[0])
+            algum_ok = True
+        except RespostaInvalida:
+            notas.append(NOTA_FALHA)
+    if not algum_ok:
+        raise RespostaInvalida("juiz não pontuou nenhum candidato de forma utilizável.")
+    return notas
 
 
 def reescrever(

@@ -400,6 +400,19 @@ def _pool_json(n):
     return f'{{"pautas": [{itens}]}}'
 
 
+def _juiz_por_indice(notas):
+    """Juiz per-candidato: pontuar julga um hook por chamada, na ordem do pool,
+    então a k-ésima chamada do juiz devolve a k-ésima nota. Cada resposta é o
+    JSON de nota ÚNICA que `montar_prompt_juiz([cand])` pede — não o lote."""
+
+    def resp(_prompt, chamadas):
+        # esta chamada já foi anexada a `chamadas` antes do callable rodar.
+        k = sum(1 for t, _ in chamadas if t == "juiz") - 1
+        return f'{{"scores": [{{"nota": {notas[k]}}}]}}'
+
+    return resp
+
+
 def _cfg(tmp_path, *, teto=20, n=2, candidatos=6, refinar=True):
     ident = tmp_path / "id.md"
     ident.write_text("identidade da marca", encoding="utf-8")
@@ -448,16 +461,18 @@ def test_gerar_para_quando_fila_cheia(tmp_path, monkeypatch):
 
 def test_gerar_ranqueia_e_insere_top_n(tmp_path, monkeypatch):
     inseridas = _capturar_insercoes(monkeypatch)
-    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
+    # per-candidato: uma nota por chamada do juiz, na ordem do pool.
     sessao = SessaoRoteada(
         geracao=_pool_json(6),
-        juiz=notas,
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
         reescrita='{"hook": "H-forte", "roteiro": "H-forte\\nl2"}',
     )
 
     resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
 
     assert resumo["gerou"] == 2 and resumo["ranqueou"] is True and resumo["pool"] == 6
+    # o juiz foi chamado uma vez por candidato (6), não em lote.
+    assert sessao.tipos().count("juiz") == 6
     # top 2 por nota são os índices 4 (9) e 1 (8) — tema sobrevive à reescrita.
     assert [p["tema"] for p in inseridas] == ["t4", "t1"]
     assert [p["hook"] for p in inseridas] == ["H-forte", "H-forte"]   # reescrito
@@ -480,7 +495,6 @@ def test_juiz_falha_degrada_para_primeiros(tmp_path, monkeypatch):
 
 def test_reescrita_falha_mantem_original(tmp_path, monkeypatch):
     inseridas = _capturar_insercoes(monkeypatch)
-    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
 
     def reescrita(_prompt, chamadas):
         # falha na 1ª reescrita, sucesso na 2ª
@@ -489,7 +503,11 @@ def test_reescrita_falha_mantem_original(tmp_path, monkeypatch):
             return requests.ConnectionError("caiu")
         return '{"hook": "R-ok", "roteiro": "R-ok\\nl2"}'
 
-    sessao = SessaoRoteada(geracao=_pool_json(6), juiz=notas, reescrita=reescrita)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita=reescrita,
+    )
     resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
 
     assert resumo["gerou"] == 2
@@ -500,8 +518,11 @@ def test_reescrita_falha_mantem_original(tmp_path, monkeypatch):
 
 def test_refinar_desligado_nao_reescreve(tmp_path, monkeypatch):
     inseridas = _capturar_insercoes(monkeypatch)
-    notas = '{"scores": [{"nota": 3},{"nota": 8},{"nota": 2},{"nota": 1},{"nota": 9},{"nota": 4}]}'
-    sessao = SessaoRoteada(geracao=_pool_json(6), juiz=notas, reescrita="NUNCA CHAMADO")
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita="NUNCA CHAMADO",
+    )
 
     resumo = pl.gerar_pautas(_cfg(tmp_path, n=2, refinar=False), sb=object(), sessao=sessao)
 
@@ -517,3 +538,54 @@ def test_pool_vazio_levanta(tmp_path, monkeypatch):
     sessao = SessaoRoteada(geracao='{"pautas": [{"foo": "bar"}]}')
     with pytest.raises(pl.RespostaInvalida):
         pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=sessao)
+
+
+# ---------------------------------------------------------------- pontuar (per-candidato)
+def _candidatos(n):
+    return [{"tema": f"t{i}", "roteiro": "l1\nl2", "hook": f"h{i}"} for i in range(n)]
+
+
+def test_pontuar_faz_uma_chamada_por_candidato(tmp_path):
+    # 4 candidatos → 4 chamadas ao juiz, e as notas saem na ordem do pool.
+    sessao = SessaoRoteada(juiz=_juiz_por_indice([5, 2, 9, 7]))
+    notas = pl.pontuar(_cfg(tmp_path), "identidade", _candidatos(4), sessao)
+    assert sessao.tipos() == ["juiz", "juiz", "juiz", "juiz"]
+    assert notas == [5, 2, 9, 7]
+
+
+def test_pontuar_candidato_torto_afunda_sem_perder_os_outros(tmp_path):
+    # o juiz engasga no candidato do meio (2ª chamada) → só ele vira NOTA_FALHA.
+    def juiz(_prompt, chamadas):
+        k = sum(1 for t, _ in chamadas if t == "juiz") - 1
+        if k == 1:
+            return "isto não é json de nota"
+        return '{"scores": [{"nota": 8}]}'
+
+    sessao = SessaoRoteada(juiz=juiz)
+    notas = pl.pontuar(_cfg(tmp_path), "identidade", _candidatos(3), sessao)
+    assert notas == [8, pl.NOTA_FALHA, 8]
+    assert pl.NOTA_FALHA < 0   # afunda em qualquer selecionar_top
+
+
+def test_pontuar_todos_tortos_levanta(tmp_path):
+    # nenhum candidato pontuável → levanta, gerar_pautas degrada para first-N.
+    sessao = SessaoRoteada(juiz="nada de json aqui")
+    with pytest.raises(pl.RespostaInvalida):
+        pl.pontuar(_cfg(tmp_path), "identidade", _candidatos(3), sessao)
+
+
+def test_pontuar_transporte_fora_propaga(tmp_path):
+    # Ollama fora do ar em qualquer chamada é o run inteiro degradando, não um
+    # candidato ruim — a exceção de transporte propaga, não vira sentinela.
+    sessao = SessaoRoteada(juiz=lambda _p, _c: requests.ConnectionError("caiu"))
+    with pytest.raises(pl.OllamaIndisponivel):
+        pl.pontuar(_cfg(tmp_path), "identidade", _candidatos(3), sessao)
+
+
+def test_prompt_gerador_limita_o_molde_e_nomeia_alternativas():
+    prompt = pl.montar_prompt("IDENT", 5)
+    # teto explícito no molde-assinatura "X isn't Y"…
+    assert "AT MOST ONE IN THREE" in prompt
+    # …e ao menos 3 formas alternativas nomeadas.
+    alternativas = ["confession", "compounds", "identity split", "absence"]
+    assert sum(1 for a in alternativas if a in prompt) >= 3

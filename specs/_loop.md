@@ -9,6 +9,37 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 9 — Diversidade de forma + juiz per-candidato · 2026-08-04
+
+**Spec:** `specs/diversidade-e-juiz-per-candidato.md`
+
+**Review:** ✅ aprovado sem ressalvas, 8/8 com evidência. Portões: **384 testes do
+worker** (eram 379: +4 do `pontuar` per-candidato/instrução de variedade, +1
+asserção da contagem de chamadas do juiz) · RLS **29 ✅** por construção (zero
+arquivos em `supabase/`) · nenhuma regressão no best-of-N.
+
+**Os dois achados da medição da Rodada 8, consertados:**
+
+1. **Colapso de forma.** O few-shot deixou os hooks on-brand mas todos no molde
+   "You're not X, you're Y". `montar_prompt` ganhou teto explícito (**AT MOST ONE
+   IN THREE** pode ser reframe) e quatro formas alternativas nomeadas (confissão,
+   custo que acumula, bifurcação de identidade, silêncio reinterpretado). É
+   instrução de sistema, não texto a copiar.
+2. **Juiz devolvia 1 nota de N.** Medido: qwen2.5 pontua só o candidato 0 quando
+   recebe o lote → o ranking degradava para first-N **sempre**. `pontuar` passou a
+   julgar **um candidato por chamada** (`len(candidatos)` POSTs curtos). Custa N
+   chamadas de parede, aceitável em tarefa agendada.
+
+**A sentinela que não perde o run:** `NOTA_FALHA = -1.0`. Parse de um candidato
+que engasga vira sentinela (afunda no `selecionar_top`) e os outros seguem
+pontuados; só se **nenhum** for pontuável é que `pontuar` levanta e o run degrada
+para first-N. Transporte (`OllamaIndisponivel`) propaga sempre — Ollama fora do ar
+é o run inteiro degradando, não um hook ruim.
+
+**Nada tocou banco:** RLS 29 por construção, como na Rodada 8.
+
+---
+
 ## Rodada 8 — Hook playbook no gerador (few-shot + régua do juiz) · 2026-08-04
 
 **Spec:** `specs/hook-playbook.md`
