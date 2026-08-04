@@ -9,6 +9,49 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 12 — Relatório de sexta consome a métrica (retenção) · 2026-08-04
+
+**Spec:** `specs/consumir-metrica-relatorio.md`
+
+**Review:** ✅ aprovado sem ressalvas, 8/8 com evidência. Portões: **421 testes do
+worker** (eram 417: +4 líquidos em `test_relatorio_local.py`) · **nenhuma migration**
+(leitura pura) · RLS/schema intactos.
+
+**O que entrou:** o relatório semanal ganhou a seção "Top hooks por retenção" —
+`db.hooks_por_retencao` lê `metricas` (embed até a pauta, ordenado por retenção
+desc, nulls por último) e `relatorio_local.py` ranqueia os hooks pela retenção
+real. Primeiro consumidor do dado da R11. Substitui o placeholder "confira à mão
+no Studio" da R10.
+
+**Decisões:** ranking é org-scoped mas NÃO da janela semanal (é o acervo publicado
+— hook antigo que ainda retém é o que a pauta imita); número sempre da tabela,
+nunca do modelo; Ollama recebe o ranking e é mandado pesar o que reteve; degrada
+sem métrica (nota "rode coletar_metricas.py", não inventa).
+
+**Corrigido sozinho:** o dublê de `hooks_por_retencao` devolvia forma achatada, mas
+`montar_relatorio` achata o retorno do banco — dupla-achatada zerava a retenção.
+Dublê passou a devolver a forma crua do embed. Pegou no 1º run.
+
+**Aprendido:** (1) dublê de leitura com embed do PostgREST devolve a forma crua,
+não a achatada, senão a pura achata duas vezes e nula os campos; (2) leitura de
+leaderboard é org-scoped mas não window-scoped. Em `specs/consumir-metrica-relatorio.md` § 9.
+
+**Commit:** `093ae11` na branch `main` (push direto autorizado). Nota no vault:
+`2026-08-04-093ae11.md`.
+
+**Pendente de decisão:** nenhuma. Passos humanos seguem os mesmos (item 14b:
+re-consentir OAuth + aplicar a migration da R11; 13c: agendar produtores; 11b:
+TikTok) — nenhum novo nesta rodada.
+
+**Próximo item recomendado:** **o gerador de pauta consumir a retenção** — a outra
+metade do loop. Alimentar a seleção best-of-N (ou o few-shot) de `pauta_local.py`
+com os hooks que mais retiveram, para a pauta nascer imitando o que funciona.
+Código puro, testável offline com `metricas` falsas. Ressalva honesta: o *payoff*
+espera dado acumulado (item 14b + semanas de coleta), mas o código ship e se prova
+agora — mesmo padrão da R11/R12.
+
+---
+
 ## Rodada 11 — Métrica de verdade: coleta do YouTube · 2026-08-04
 
 **Spec:** `specs/metricas-youtube.md`
