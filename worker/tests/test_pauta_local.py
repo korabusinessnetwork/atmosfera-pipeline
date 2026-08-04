@@ -8,13 +8,19 @@ a fila está cheia nem quando o Ollama caiu.
 
 from __future__ import annotations
 
+import json
+import re
 import types
+from pathlib import Path
 
 import pytest
 import requests
 
 import db
 import pauta_local as pl
+
+# A identidade e o produtor vivem lado a lado: worker/tests → ../../memory.
+IDENTIDADE = Path(__file__).resolve().parents[2] / "memory" / "00_IDENTIDADE.md"
 
 
 # ---------------------------------------------------------------- fakes ----
@@ -191,6 +197,62 @@ def test_prompt_embute_identidade_e_limites():
     assert "NEW angles" in prompt           # e a ordem de não copiá-los
 
 
+def _exemplos_da_identidade() -> list[dict]:
+    """Extrai o bloco JSON de exemplos-ouro de memory/00_IDENTIDADE.md."""
+    texto = IDENTIDADE.read_text(encoding="utf-8")
+    bloco = re.search(r"```json\s*(.*?)```", texto, re.S)
+    assert bloco, "não achei o bloco ```json``` de exemplos na identidade"
+    return json.loads(bloco.group(1))["pautas"]
+
+
+def test_identidade_tem_18_exemplos_bem_formados():
+    # Guarda o few-shot contra uma edição futura que quebre em silêncio: um
+    # exemplo com hook > 88 ou roteiro ≠ 5 linhas ENSINA o modelo a errar (o
+    # render corta o hook longo sem avisar), e JSON torto quebra o parser do
+    # gerador na primeira execução real.
+    pautas = _exemplos_da_identidade()
+    assert len(pautas) == 18
+    for i, p in enumerate(pautas):
+        for campo in ("tema", "hook", "roteiro", "titulo", "descricao"):
+            assert p.get(campo), f"exemplo {i} sem {campo}"
+        assert len(p["hook"]) <= pl.HOOK_MAX, f"exemplo {i}: hook > {pl.HOOK_MAX}"
+        linhas = p["roteiro"].split("\n")
+        assert len(linhas) == 5, f"exemplo {i}: roteiro com {len(linhas)} linhas"
+        assert linhas[0].strip() == p["hook"].strip(), f"exemplo {i}: 1ª linha ≠ hook"
+
+
+def test_prompt_juiz_cita_a_regua_nomeada():
+    # A régua vai INLINE no comando, não só enterrada na identidade — senão um
+    # modelo pequeno a perde no meio dos 18 exemplos. As 8 dimensões nomeadas têm
+    # de aparecer no texto do prompt.
+    candidatos = [{"hook": "hook A"}, {"hook": "hook B"}]
+    prompt = pl.montar_prompt_juiz("IDENTIDADE AQUI", candidatos)
+    assert pl.RUBRICA_HOOK in prompt
+    for termo in (
+        "Specificity",
+        "Self-contradiction",
+        "Gap size",
+        "Concreteness",
+        "Pattern break",
+        "Open loop",
+        "Angle originality",
+        "Economy",
+    ):
+        assert termo in prompt
+    assert "IDENTIDADE AQUI" in prompt          # a identidade continua junto (voz + exemplos)
+    assert "hook A" in prompt and "hook B" in prompt
+
+
+def test_prompt_juiz_pede_nota_unica_nao_oito_subnotas():
+    # A nota continua ÚNICA por candidato — o formato que `extrair_notas` entende.
+    # Pedir 8 sub-notas quebraria o parser e um modelo pequeno erraria o formato.
+    prompt = pl.montar_prompt_juiz("ID", [{"hook": "h"}])
+    assert '"scores"' in prompt
+    assert '"nota"' in prompt
+    assert "ONE overall 0-10 score per candidate" in prompt
+    assert "not one per dimension" in prompt
+
+
 # ---------------------------------------------------------------- chamar_ollama
 def test_chamar_ollama_devolve_conteudo():
     sessao = SessaoFake(conteudo='{"pautas": []}')
@@ -311,7 +373,10 @@ class SessaoRoteada:
 
     def post(self, url, json=None, **_kwargs):
         prompt = json["messages"][0]["content"]
-        if "Rate each candidate" in prompt:
+        # Marcadores estáveis do papel de cada prompt (o texto exato do comando
+        # muda; o papel, não): "quality judge" só existe no prompt do juiz,
+        # "hook doctor" só no da reescrita.
+        if "quality judge" in prompt:
             tipo = "juiz"
         elif "hook doctor" in prompt:
             tipo = "reescrita"

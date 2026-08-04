@@ -132,6 +132,15 @@ attempts before anyone finds out why.
    the render. Written into the roteiro, it would be read out loud.
 6. **Do not write for the algorithm.** "Watch till the end", "wait for it" — the
    video is 10 seconds; the end arrives on its own.
+7. **Do not open with a rhetorical question.** "Have you ever felt…" is the most
+   worn opening of the format. A question invites the viewer's silent "no", which
+   closes the loop instead of opening it — the opposite of what a hook does.
+8. **Do not close on a summary.** "So remember: discomfort is growth" re-closes
+   analytically what the hook opened emotionally, and reads as a lecture. The last
+   line lands on an image, not a lesson ("Same door. Still closed.").
+9. **Do not reach for an empowerment cliché.** "You are stronger than you think",
+   "believe in yourself" — they fail the single test in section 8 outright: any
+   channel in the niche could post them unchanged, so they belong to none.
 
 ## 8. The single test
 
@@ -142,46 +151,176 @@ noticing the swap, it is not a pauta of this channel.
 bottleneck was never rendering — rendering is cheap. The bottleneck is having
 something to say.
 
-## 9. Reference examples
+## 9. How a hook scores
 
-The four pautas below were written by a strong model (Claude) to serve as the
-**standard**: this is how a hook closes, this is the tone, this is the exact
-output format. A small local model imitates a complete example far better than an
-abstract rule — which is why they live here, in the literal JSON format the
-producer asks for. **They are not for copying.** Each one takes a different angle
-(boredom disguised as tiredness, comparison, waiting to feel like it, the restart
-that never comes); repeating the tema, the hook, or the roteiro of an example is
-the mistake section 7.4 forbids.
+The producer does not keep every hook it writes. It generates a pool, and a judge
+— the same local model — scores each candidate before the best ones survive. These
+are the dimensions it scores on, and the same ones to use when writing by hand.
+Score 0 to 10 on each; a usable hook averages roughly **7+**, with nothing below 5.
+The full rubric with more anchors lives in `docs/hook-playbook.md`.
+
+1. **Specificity** — names one exact behavior or moment, not a general trait.
+   3: "You avoid things." · 8: "You've reread the same message three times before replying."
+2. **Self-contradiction** — negates a label the viewer already applies to
+   themselves and swaps in a sharper, less comfortable one.
+   3: confirms what's believed ("Discipline is hard.") · 8: "It's not laziness, it's fear of being watched."
+3. **Gap size** — the distance between what the viewer half-senses and what the
+   line names. Narrow and ego-relevant reads as recognition; wide reads as
+   someone else's problem.
+   3: a gap so wide it's someone else's problem · 8: a half-formed thought, finished for them.
+4. **Concreteness** — images and physical nouns/verbs, not abstractions.
+   3: "Growth requires discomfort." · 8: "Same door. Still closed."
+5. **Pattern break** — deviates from what the niche always says, so it registers
+   as new instead of blending in.
+   3: "You are stronger than you think." · 8: a framing not heard put this way before.
+6. **Open loop** — deliberately incomplete: states a tension the rest of the
+   script has to resolve.
+   3: a complete observation that needs nothing after it · 8: only fully lands once the last line does.
+7. **Angle originality (swap test)** — tied to one specific mechanism no other
+   pauta shares.
+   3: any account in the niche could post it unchanged · 8: no other pauta here shares its mechanism.
+8. **Economy** — every word is load-bearing.
+   3: a warm-up clause before the point starts · 8: removing any single word breaks the line.
+
+## 10. Reference examples
+
+The eighteen pautas below serve as the **standard**: this is how a hook closes,
+this is the tone, this is the exact output format. A small local model imitates a
+complete example far better than an abstract rule — which is why they live here, in
+the literal JSON format the producer asks for. Each one runs a different underlying
+mechanism (the taxonomy behind them is in `docs/hook-playbook.md`); none is a
+reordering of another. **They are not for copying.** Repeating the tema, the hook,
+or the roteiro of an example is the mistake section 7.4 forbids.
 
 ```json
-{"pautas": [
-  {
-    "tema": "The tiredness that sleep won't fix",
-    "hook": "You're not tired, you're bored with your life",
-    "roteiro": "You're not tired, you're bored with your life\nYou slept eight hours and woke up with nothing to chase\nYour body rested, but nothing pulls you out of bed\nThat's not exhaustion, that's a missing reason\nSleep fixes tired, it doesn't fix empty",
-    "titulo": "The tiredness that sleep won't fix",
-    "descricao": "Not every kind of drained is physical.\nSometimes you just have nowhere to go."
-  },
-  {
-    "tema": "The feeling of falling behind",
-    "hook": "Nobody passed you, you stopped walking",
-    "roteiro": "Nobody passed you, you stopped walking\nYou watch everyone move forward on your screen\nAnd mistake their motion for your delay\nBut no one ran, you just kept watching\nThe time you spent scrolling was yours to spend",
-    "titulo": "Why everyone else seems ahead of you",
-    "descricao": "Comparison doesn't show how far behind you are.\nIt shows how long you sat still."
-  },
-  {
-    "tema": "Waiting to feel like it",
-    "hook": "Discipline is doing it while hating it",
-    "roteiro": "Discipline is doing it while hating it\nYou wait for motivation to show up first\nIt never does, it arrives after you start\nPeople who wait to feel ready act once a month\nEveryone else moves annoyed, and that's the difference",
-    "titulo": "Why waiting for motivation never works",
-    "descricao": "Motivation is a result of moving.\nNot the password to begin."
-  },
-  {
-    "tema": "The restart that never comes",
-    "hook": "Monday won't save you from Sunday",
-    "roteiro": "Monday won't save you from Sunday\nYou promise to restart when the week turns over\nAs if the date changes who you are at midnight\nThe problem was never the day, it was the deal with yourself\nMonday comes, and you push it to another Monday",
-    "titulo": "Why every restart waits for Monday",
-    "descricao": "The date was never the obstacle.\nIt's just the easiest excuse to renew."
-  }
-]}
+{
+  "pautas": [
+    {
+      "tema": "Procrastination as fear of being watched, not laziness",
+      "hook": "It's not laziness, it's fear of being watched",
+      "roteiro": "It's not laziness, it's fear of being watched\nSo you wait\nThe moment never comes\nWaiting becomes who you are\nSame door. Still closed.",
+      "titulo": "The Real Reason You Keep Waiting",
+      "descricao": "Not motivation. Not laziness.\nSomething quieter, and harder to admit."
+    },
+    {
+      "tema": "Small avoidances compound into a smaller self",
+      "hook": "Every small thing you avoid shrinks you a little",
+      "roteiro": "Every small thing you avoid shrinks you a little\nNot all at once\nA missed call. Closed tab.\nNever looks like damage\nUntil the outline changes",
+      "titulo": "The Cost of the Small Things You Skip",
+      "descricao": "It never looks like damage.\nIt just adds up quietly."
+    },
+    {
+      "tema": "Scrolling as anesthesia for an unnamed feeling",
+      "hook": "You're not relaxing, you're avoiding a feeling",
+      "roteiro": "You're not relaxing, you're avoiding a feeling\nThe phone isn't rest\nA way to avoid it\nIt waits outside the screen\nThere when the battery dies",
+      "titulo": "What Scrolling Is Actually For",
+      "descricao": "The phone was never about the phone.\nIt was about not sitting still."
+    },
+    {
+      "tema": "Comfort zone as slow decay, not safety",
+      "hook": "Comfort isn't safety, it's a slower kind of losing",
+      "roteiro": "Comfort isn't safety, it's a slower kind of losing\nNothing hurts. Nothing changes.\nYou call it stability\nIt's decay with better lighting\nQuiet, the whole way down",
+      "titulo": "The Danger No One Warns You About",
+      "descricao": "It doesn't feel like danger.\nThat's what makes it dangerous."
+    },
+    {
+      "tema": "Burnout relabeled as meaninglessness, not overwork",
+      "hook": "It's not burnout, it's doing something that means nothing",
+      "roteiro": "It's not burnout, it's doing something that means nothing\nThe hours aren't the problem\nThe reason is missing\nYou call it tired\nThe alarm rings. Nothing answers.",
+      "titulo": "The Exhaustion That Isn't About Hours",
+      "descricao": "The hours were never the problem.\nThe meaning was missing, not the energy."
+    },
+    {
+      "tema": "Silent confession: the fantasy of walking away from everything built",
+      "hook": "You've imagined leaving everything you built, more than once",
+      "roteiro": "You've imagined leaving everything you built, more than once\nNot because you hate it\nSome days it's just a costume\nYou never say it\nSo it waits",
+      "titulo": "The Thought You Don't Say Out Loud",
+      "descricao": "Everyone who's built something has had it.\nAlmost no one admits it."
+    },
+    {
+      "tema": "Time compression: tonight becomes the reason for future regret",
+      "hook": "In five years, tonight is the reason or the excuse",
+      "roteiro": "In five years, tonight is the reason or the excuse\nNot the year\nJust tonight\nOne decision, repeated\nLater, it's just tonight",
+      "titulo": "What Tonight Will Turn Into",
+      "descricao": "Small nights don't feel like much.\nThey're the only thing that adds up."
+    },
+    {
+      "tema": "Identity fork: the one who starts now vs. the one waiting for Monday",
+      "hook": "There's a version of you that doesn't wait for Monday",
+      "roteiro": "There's a version of you that doesn't wait for Monday\nIt starts tonight, unprepared\nThe other keeps preparing\nPreparing is hiding\nOnly one is real yet",
+      "titulo": "The Version of You Still Waiting",
+      "descricao": "One starts messy.\nThe other just starts later, forever."
+    },
+    {
+      "tema": "False cause: not lack of time, an undecided decision",
+      "hook": "It was never time, it was a decision you avoided",
+      "roteiro": "It was never time, it was a decision you avoided\nYou had the hours\nYou hadn't decided\nDeciding felt risky\nNot deciding was riskier",
+      "titulo": "The Real Reason It's Still Not Done",
+      "descricao": "Time was never the missing piece.\nThe decision was."
+    },
+    {
+      "tema": "Silence as diagnosis: the unanswered message you sent",
+      "hook": "The message you never answered says something about you",
+      "roteiro": "The message you never answered says something about you\nNot about them\nYou knew what it opens\nSo you let it sit\nYou're avoiding it now",
+      "titulo": "What Your Unanswered Messages Mean",
+      "descricao": "It's rarely about being busy.\nIt's about what a reply would open."
+    },
+    {
+      "tema": "Perfectionism as a way to delay finding your actual limit",
+      "hook": "Perfectionism isn't high standards, it's staying unfinished",
+      "roteiro": "Perfectionism isn't high standards, it's staying unfinished\nUnfinished can't be judged\nUnfinished can't fail\nSo you keep polishing\nSafety, wearing quality's mask",
+      "titulo": "What Perfectionism Is Actually Doing",
+      "descricao": "It's not about the details.\nIt's about never finding out."
+    },
+    {
+      "tema": "Busyness as avoidance of one honest conversation with yourself",
+      "hook": "Busy is just a socially acceptable way to avoid yourself",
+      "roteiro": "Busy is just a socially acceptable way to avoid yourself\nNo one questions it\nIt looks like ambition\nIt's a hiding place\nEmpty calendar. Still there.",
+      "titulo": "What Busy Is Actually Hiding",
+      "descricao": "Nobody interrupts someone who looks productive.\nThat's exactly why it works."
+    },
+    {
+      "tema": "The compounding cost of one habitual glance at someone else's life",
+      "hook": "One glance at someone else's life costs more than you think",
+      "roteiro": "One glance at someone else's life costs more than you think\nNot just once\nIt's the tenth today\nEach one taxes you\nBehind in a race no one announced",
+      "titulo": "The Hidden Cost of Comparing Yourself",
+      "descricao": "It's not the big moments that drain you.\nIt's the small, repeated ones."
+    },
+    {
+      "tema": "Needing approval as a cage built one small yes at a time",
+      "hook": "Every yes you didn't mean built the cage you're in",
+      "roteiro": "Every yes you didn't mean built the cage you're in\nOne at a time\nSmall enough to ignore\nNow the walls have shape\nIt looks like you",
+      "titulo": "How the Cage Gets Built",
+      "descricao": "Nobody builds it all at once.\nIt's assembled from small agreements."
+    },
+    {
+      "tema": "Lack of motivation relabeled: the decision is made, follow-through is stalling",
+      "hook": "You already decided, you're just stalling the follow-through",
+      "roteiro": "You already decided, you're just stalling the follow-through\nThe decision happened days ago\nWhat's left isn't choice\nIt's just friction\nFriction isn't doubt",
+      "titulo": "The Decision You've Already Made",
+      "descricao": "Motivation isn't what's missing.\nThe decision already happened."
+    },
+    {
+      "tema": "Time compression: years spent waiting for a start date that never comes",
+      "hook": "You've been waiting for a start date that isn't coming",
+      "roteiro": "You've been waiting for a start date that isn't coming\nMonday passed a hundred times\nJanuary passed too\nNo perfect one was coming\nOnly this one, happening now",
+      "titulo": "The Start Date You're Still Waiting On",
+      "descricao": "It was never going to announce itself.\nIt just had to be chosen."
+    },
+    {
+      "tema": "Silent confession: resentment toward people who look like they have it together",
+      "hook": "You've resented people who look like they have it together",
+      "roteiro": "You've resented people who look like they have it together\nNot because they're better\nBecause they look decided\nYou feel like a draft\nA draft envies the finished",
+      "titulo": "What That Resentment Is Really About",
+      "descricao": "It's rarely about them.\nIt's about feeling unfinished next to them."
+    },
+    {
+      "tema": "Constant background noise as avoidance of one specific silence",
+      "hook": "The noise isn't entertainment, it's a wall around one silence",
+      "roteiro": "The noise isn't entertainment, it's a wall around one silence\nMusic, notifications, something on\nNot about enjoying it\nKeeping one silence away\nThe silence that would ask something",
+      "titulo": "The Real Job of All That Noise",
+      "descricao": "It's not about missing out.\nIt's about not being asked something."
+    }
+  ]
+}
 ```

@@ -81,6 +81,23 @@ TIMEOUT_OLLAMA_SEG = 300
 # de timeout, não gosto — pedir 18 numa chamada só estouraria os 300s.
 LOTE_GERACAO = 6
 
+# As 8 dimensões da régua de hook (docs/hook-playbook.md; espelhadas em
+# memory/00_IDENTIDADE.md §9). Ficam INLINE no prompt do juiz de propósito: a
+# identidade inteira é longa e um modelo pequeno perde a régua no meio dos 18
+# exemplos. No comando do juiz, curtas, elas não somem. A nota continua ÚNICA
+# (0–10) — a régua diz "média ~7+", não pede 8 sub-notas que um modelo pequeno
+# erra o formato (e explodiria o parse do `extrair_notas`).
+RUBRICA_HOOK = (
+    "1. Specificity — one exact behavior or moment, not a general trait.\n"
+    "2. Self-contradiction — negates a label the viewer applies to themselves.\n"
+    "3. Gap size — narrow and ego-relevant reads as recognition, not trivia.\n"
+    "4. Concreteness — images and physical nouns, not abstractions.\n"
+    "5. Pattern break — deviates from what the niche always says.\n"
+    "6. Open loop — incomplete on purpose; a tension the script must resolve.\n"
+    "7. Angle originality — a mechanism no other candidate shares (swap test).\n"
+    "8. Economy — every word load-bearing."
+)
+
 
 class OllamaIndisponivel(RuntimeError):
     """Não deu para falar com o Ollama. Transporte, não conteúdo."""
@@ -332,11 +349,13 @@ def montar_prompt(identidade: str, n: int) -> str:
 
 
 def montar_prompt_juiz(identidade: str, candidatos: list[dict[str, Any]]) -> str:
-    """Prompt do juiz: pontua cada hook de 0 a 10 contra a identidade da marca.
+    """Prompt do juiz: pontua cada hook de 0 a 10 contra a régua nomeada.
 
-    O juiz recebe os hooks numerados e a mesma identidade que os gerou — a rubrica
-    é a voz da marca, não um critério inventado. Pede uma nota por candidato, na
-    ordem, para o `extrair_notas` alinhar por posição.
+    A régua (`RUBRICA_HOOK`, 8 dimensões) vai INLINE no comando, não só embutida na
+    identidade: num modelo pequeno, um critério enterrado no meio de 18 exemplos +
+    identidade some. A identidade continua junto — dá voz e exemplos —, mas o que o
+    juiz pontua está escrito na frente dele. Continua uma nota ÚNICA por candidato,
+    na ordem, para o `extrair_notas` alinhar por posição — não 8 sub-notas.
     """
     linhas = "\n".join(
         f"{i}. {(c.get('hook') or c.get('roteiro') or '').strip()}"
@@ -344,13 +363,18 @@ def montar_prompt_juiz(identidade: str, candidatos: list[dict[str, Any]]) -> str
     )
     return (
         "You are the quality judge for Atmosfera Viral. The brand identity below "
-        "is your rubric — a strong hook sounds like it, a weak one drifts from it.\n\n"
+        "gives the voice and the reference examples; the rubric that follows is how "
+        "you score.\n\n"
         "=== IDENTITY ===\n"
         f"{identidade}\n"
         "=== END OF IDENTITY ===\n\n"
-        "Rate each candidate hook from 0 to 10 on how well it fits the brand and "
-        "how hard it stops the scroll. Be harsh: reserve 8+ for hooks you would "
-        "actually publish.\n\n"
+        "Score each candidate hook from 0 to 10 against these eight dimensions. A "
+        "strong hook scores high on most of them; a usable one averages about 7. Be "
+        "harsh: reserve 8+ for hooks you would actually publish.\n\n"
+        "=== RUBRIC ===\n"
+        f"{RUBRICA_HOOK}\n"
+        "=== END OF RUBRIC ===\n\n"
+        "Give ONE overall 0-10 score per candidate — not one per dimension.\n\n"
         "CANDIDATES:\n"
         f"{linhas}\n\n"
         "Respond ONLY with JSON, one score per candidate, in the same order:\n"
