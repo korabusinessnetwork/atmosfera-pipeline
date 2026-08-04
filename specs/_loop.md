@@ -9,6 +9,50 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 8 — Hook playbook no gerador (few-shot + régua do juiz) · 2026-08-04
+
+**Spec:** `specs/hook-playbook.md`
+
+**Review:** ✅ aprovado sem ressalvas, 11/11 com evidência. Portões: **379 testes
+do worker** (eram 373: +3 do juiz/régua e do guarda dos 18 exemplos, +3 de
+suporte) · RLS **29 ✅** por construção (zero arquivos em `supabase/`) · nenhuma
+regressão no best-of-N.
+
+**A dobra:** o dono trouxe do Claude desktop um Hook Engineering Playbook
+(rubrica + taxonomia + 18 pautas + anti-padrões + método). A rodada absorve o que
+pluga direto: `memory/00_IDENTIDADE.md` foi de **4 para 18** exemplos-ouro (ângulos
+distintos, en-US); ganhou a **régua de 8 dimensões** (§9, âncoras 3/8); e o
+`montar_prompt_juiz` passou a pontuar contra `RUBRICA_HOOK` **inline no comando**,
+não só embutida na identidade. Playbook completo guardado em `docs/hook-playbook.md`.
+Melhoria de contexto, não de pesos — o juiz segue o mesmo modelo pequeno.
+
+**Decisão de escopo consciente:** a taxonomia (10 arquétipos) **não** entrou na
+identidade — só no `docs/`. Motivo: qwen2.5 é pequeno e a identidade já é lida
+inteira por três prompts; os 18 exemplos cobrem os mesmos mecanismos por
+demonstração, e controlar o tamanho do prompt vale mais que a redundância.
+
+**Aprendizado que custou 3 vermelhos:** o dublê `SessaoRoteada` roteava a chamada
+do juiz por `"Rate each candidate"` — frase de *instrução*. Reescrever o comando do
+juiz mandou a chamada para o ramo de geração e o run degradou para "sem ranquear"
+em silêncio. Corrigido casando na persona (`"quality judge"`). Marcador de rota é o
+papel, nunca a redação. Registrado em `specs/hook-playbook.md` §9.
+
+**Não duplicou no doc mestre de propósito:** `ATMOSFERA_PIPELINE.md` §3 proíbe
+copiar o que já é lido automaticamente. A identidade é a fonte da verdade dos
+exemplos; replicar criaria a versão certa e a errada.
+
+**Commit:** `6c42f1c` na `main`.
+
+**Pendente de decisão:** nenhuma. **Ressalva honesta:** a melhoria é plausível mas
+**não medida** — nenhum hook novo foi gerado de verdade. O teste seco (rodar o
+gerador com Ollama de pé e olhar os hooks) é o próximo passo de sinal, e é barato.
+
+**Próximo item recomendado:** medir esta rodada — rodar o gerador local de verdade
+(Ollama + qwen2.5) e comparar os hooks antes/depois; se o dono preferir código,
+**relatório de sexta local com Ollama** (§9) fecha a última dependência de token.
+
+---
+
 ## Rodada 7 — Best-of-N + crítica no gerador de pauta · 2026-08-04
 
 **Spec:** `specs/best-of-n-pauta.md`
