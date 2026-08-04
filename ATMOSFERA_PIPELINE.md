@@ -1040,13 +1040,13 @@ if __name__ == "__main__":
 [x] 7. PRIMEIRO VÍDEO REAL NA PASTA ← marco               ←── fila ponta a ponta, 66s
 [x] 8. Sprint 3 — identidade visual                       (1h)      ← 102 testes, RLS 13/13
 [x] 9. Sprint 4 — YouTube                                 (1h30)    ← 158 testes, RLS 13/13
-[ ] 9b. OAuth do Google + primeiro upload real            (10 min)  ← SEU: console + autorizar_youtube.py
+[x] 9b. OAuth do Google (token.json)                      (10 min)  ← FEITO 2026-08-04; 1º upload real sai quando você aprovar um vídeo no gate
 [x] 10. Sprint 6 — painel                                 (2h)      ← build limpo, RLS 20/20
-[ ] 10b. Deploy na Vercel + primeiro login pelo celular    (15 min)  ← SEU: caixa de e-mail é sua
+[x] 10b. Deploy na Vercel + login pelo celular             (15 min)  ← FEITO 2026-08-04; painel no ar e login funcionando
 [x] 11. Sprint 5 — TikTok                                 (1h)      ← 216 testes, sem migration
 [ ] 11b. App no portal do TikTok + OAuth                  (20 min)  ← SEU: portal + autorizar_tiktok.py
 [x] 12. Sprint 7 — Task Scheduler                         (20 min)  ← 298 testes, RLS 23/23
-[ ] 12b. Rodar Registrar-Worker.ps1 no seu PC             (2 min)   ← SEU: a tarefa roda como você
+[x] 12b. Rodar Registrar-Worker.ps1 no seu PC             (2 min)   ← FEITO 2026-08-04; tarefa \Atmosfera\Atmosfera Worker registrada
 [x] 13. Pauta manual — a fila ganha um produtor           (1h)      ← 298 testes, RLS 26/26
 [ ] 13b. Configurar as 2 tarefas no Cowork                (15 min)  ← SEU: a conta do Cowork é sua
 ```
