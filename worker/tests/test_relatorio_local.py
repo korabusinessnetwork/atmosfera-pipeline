@@ -131,18 +131,58 @@ def test_nome_arquivo_usa_a_data_da_sexta():
     assert rl.nome_arquivo(AGORA) == "2026-08-07-semana.md"
 
 
-def test_secoes_avisam_que_retencao_nao_e_coletada():
+def test_ranking_por_retencao_achata_o_embed_sem_reordenar():
+    # A ordem vem pronta do banco (retenção desc); a função só desembrulha.
+    linhas = [
+        {"retencao_media_pct": 60, "views": 200,
+         "publicacoes": {"url": "http://y/1", "videos": {"pautas": {"tema": "t1", "hook": "h1"}}}},
+        {"retencao_media_pct": 30, "views": 50,
+         "publicacoes": {"url": "http://y/2", "videos": {"pautas": {"tema": "t2", "hook": "h2"}}}},
+    ]
+    itens = rl.ranking_por_retencao(linhas)
+    assert [i["hook"] for i in itens] == ["h1", "h2"]
+    assert itens[0] == {"retencao": 60, "views": 200, "url": "http://y/1", "hook": "h1", "tema": "t1"}
+
+
+def test_ranking_com_pauta_ou_retencao_nula_nao_quebra():
+    linhas = [
+        {"retencao_media_pct": None, "views": None,
+         "publicacoes": {"url": None, "videos": {"pautas": {}}}},
+    ]
+    item = rl.ranking_por_retencao(linhas)[0]
+    assert item["hook"] is None and item["retencao"] is None
+    linha = rl._linha_ranking(item)
+    assert "retenção n/d" in linha and "(sem hook)" in linha
+
+
+def test_secao_de_retencao_mostra_o_numero_da_tabela():
+    ranking = [{"retencao": 62, "views": 340, "url": "http://y/1", "hook": "hook forte", "tema": "t"}]
     secoes = rl.montar_secoes_de_dados(
-        {"publicado": 1}, [], [], [{"plataforma": "youtube", "hook": "h", "url": "u", "status": "enviado"}],
-        ("nenhum — a fila andou", 0), [], AGORA,
+        {"publicado": 1}, [], [],
+        [{"plataforma": "youtube", "hook": "h", "url": "u", "status": "enviado"}],
+        ranking, ("nenhum — a fila andou", 0), [], AGORA,
     )
-    assert "retenção NÃO estão neste banco" in secoes
-    # e nenhum número de audiência inventado
-    assert "views" not in secoes.lower() or "não" in secoes.lower()
+    assert "## Top hooks por retenção" in secoes
+    assert "62% retenção" in secoes and "hook forte" in secoes
+    # a nota velha ("retenção NÃO está neste banco") não sobrevive
+    assert "NÃO est" not in secoes
+
+
+def test_secao_de_retencao_vazia_degrada_sem_inventar():
+    secoes = rl.montar_secoes_de_dados(
+        {"publicado": 1}, [], [],
+        [{"plataforma": "youtube", "hook": "h", "url": "u", "status": "enviado"}],
+        [], ("nenhum — a fila andou", 0), [], AGORA,
+    )
+    assert "## Top hooks por retenção" in secoes
+    assert "coletar_metricas.py" in secoes  # diz como popular, não inventa número
+    assert "não inventa retenção" in secoes
 
 
 # ------------------------------------------------------------- montar_relatorio
-def _monkeypatch_db(monkeypatch, *, videos, reprovados, erros, pubs, pautas, atuais, saude):
+def _monkeypatch_db(
+    monkeypatch, *, videos, reprovados, erros, pubs, pautas, atuais, saude, ranking=None
+):
     monkeypatch.setattr(db, "videos_da_semana", lambda *a: videos)
 
     def decididos(_sb, _org, _desde, status):
@@ -150,6 +190,7 @@ def _monkeypatch_db(monkeypatch, *, videos, reprovados, erros, pubs, pautas, atu
 
     monkeypatch.setattr(db, "videos_decididos", decididos)
     monkeypatch.setattr(db, "publicacoes_da_semana", lambda *a: pubs)
+    monkeypatch.setattr(db, "hooks_por_retencao", lambda *a: ranking or [])
     monkeypatch.setattr(db, "pautas_por_status", lambda *a: pautas)
     monkeypatch.setattr(
         db, "contar_videos_por_status", lambda _sb, _org, status: atuais.get(status, 0)
@@ -168,6 +209,10 @@ def test_relatorio_com_dados_separa_reprovacao_de_falha_tecnica(monkeypatch, tmp
         pautas=["pronta", "pronta", "consumida"],
         atuais={"aguardando_aprovacao": 1, "aprovado": 0},
         saude=[{"maquina": "PC", "atraso_seg": 12.0, "ciclos": 5}],
+        # forma CRUA do banco (embed): montar_relatorio a achata com ranking_por_retencao.
+        ranking=[{"retencao_media_pct": 58, "views": 900,
+                  "publicacoes": {"url": "http://y/9",
+                                  "videos": {"pautas": {"hook": "hook campeão"}}}}],
     )
     sessao = SessaoOllama("- rec 1\n- rec 2\n- rec 3")
     texto = rl.montar_relatorio(_cfg(tmp_path), sb=object(), sessao=sessao, agora=AGORA)
@@ -180,6 +225,16 @@ def test_relatorio_com_dados_separa_reprovacao_de_falha_tecnica(monkeypatch, tmp
     assert "h-pub" in texto and "http://y/1" in texto
     assert "pauta pronta sem virar vídeo" in texto   # 2 prontas > 1 aguardando
     assert "rec 2" in texto and sessao.chamadas == 1
+    # o ranking de retenção aparece com o número da tabela.
+    assert "## Top hooks por retenção" in texto
+    assert "58% retenção" in texto and "hook campeão" in texto
+
+
+def test_prompt_de_recomendacoes_pede_para_pesar_a_retencao():
+    # O ranking já está em `secoes`; o prompt manda o modelo pesar o que reteve.
+    prompt = rl.montar_prompt_recomendacoes("## Top hooks por retenção\n- 58% ...")
+    assert "retention" in prompt.lower()
+    assert "58%" in prompt  # o número da seção chega ao modelo, não é reescrito
 
 
 def test_relatorio_semana_vazia_nao_quebra(monkeypatch, tmp_path):

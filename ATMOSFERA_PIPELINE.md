@@ -1159,10 +1159,12 @@ humano: o worker só toca em vídeo que já está `aprovado`.
   `publishers/youtube_analytics.py` + migration `metricas`): o banco agora puxa
   views/retenção de cada vídeo publicado no YouTube e guarda uma linha por
   publicação (upsert). Antes, `publicacoes` só sabia `url`, `status` e carimbo de
-  tempo — por isso o relatório de sexta ainda lista os hooks em vez de ranquear
-  por retenção. **O que falta é CONSUMIR o dado**, e é o que fecha o ciclo: o
-  relatório e o gerador de pauta passarem a ranquear por retenção em vez de
-  impressão. **É também o pré-requisito do fine-tuning:** a Rodada 7 levou o
+  tempo. **O relatório de sexta já CONSOME o dado (Rodada 12):** a seção "Top hooks
+  por retenção" (`worker/relatorio_local.py` + `db.hooks_por_retencao`) ranqueia os
+  hooks pela retenção real, e as recomendações do Ollama pesam o que reteve. **O
+  que falta é o gerador de pauta consumir** — alimentar a seleção best-of-N / o
+  few-shot com os hooks que retiveram, para a pauta nascer imitando o que funciona.
+  Aí o ciclo fecha inteiro. **É também o pré-requisito do fine-tuning:** a Rodada 7 levou o
   gerador local ao teto de qualidade *sem* dado — best-of-N + crítica escolhem e
   reescrevem entre saídas do mesmo modelo pequeno, mas não mudam os pesos. Treinar
   de verdade (LoRA sobre hooks que performaram) precisa **desta tabela cheia**;

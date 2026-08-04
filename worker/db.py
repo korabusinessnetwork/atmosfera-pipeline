@@ -503,6 +503,36 @@ def listar_publicacoes_youtube(sb: Client, org_id: str) -> list[dict[str, Any]]:
     return resposta.data or []
 
 
+# Ranking de retenção (Rodada 12): parte de `metricas` e embute a pauta pela
+# cadeia publicação→vídeo→pauta, numa consulta só. Campos explícitos: o relatório
+# mostra hook, link e retenção, não arrasta roteiro nem coluna somada depois.
+CAMPOS_HOOK_RETENCAO = (
+    "retencao_media_pct, views, "
+    "publicacoes(url, videos(pautas(tema, hook)))"
+)
+
+
+def hooks_por_retencao(
+    sb: Client, org_id: str, limite: int
+) -> list[dict[str, Any]]:
+    """Publicações da org com métrica, da maior retenção para a menor. Só leitura.
+
+    Parte de `metricas` (a coisa que se ranqueia) e sobe até a pauta pelo embed.
+    Ordena por `retencao_media_pct` desc com nulos por último — um Short sem
+    retenção não deve encabeçar o ranking à toa. Filtra por org como todas as
+    leituras do relatório.
+    """
+    resposta = (
+        sb.table("metricas")
+        .select(CAMPOS_HOOK_RETENCAO)
+        .eq("org_id", org_id)
+        .order("retencao_media_pct", desc=True, nullsfirst=False)
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
 def upsert_metrica(
     sb: Client,
     org_id: str,

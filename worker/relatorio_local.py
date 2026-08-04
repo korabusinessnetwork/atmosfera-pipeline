@@ -6,12 +6,12 @@ isso o Cowork fica sem tarefa nenhuma — aposentado por decisão do dono.
 
 ## O que ele NÃO faz, de propósito
 
-**Não inventa métrica.** Nenhuma tabela guarda view, watch time ou retenção
-(`publicacoes` tem `url`, `status` e carimbo de tempo, nada mais). Um relatório
-que estimasse audiência mentiria com número plausível toda sexta. A seção
-"Publicado" lista os hooks que foram ao ar com o link, para conferência de 2
-minutos no YouTube Studio, e diz que a métrica não é coletada. Puxar a Analytics
-API é backlog (§ 9 do doc mestre).
+**Não inventa métrica.** A retenção agora existe no banco (tabela `metricas`,
+Rodada 11) e o relatório a **lê** — mas todo número sai da tabela, nunca do
+modelo. A seção "Top hooks por retenção" ranqueia os hooks pela retenção real
+coletada da Analytics API (Rodada 12); o Ollama só escreve as recomendações em
+cima desses números. Se a métrica ainda não foi coletada, o ranking fica vazio e
+o relatório diz isso — não estima audiência plausível para preencher a lacuna.
 
 **Não escreve no banco.** É SELECT + escreve markdown em disco. A regra do prompt
 do Cowork ("somente SELECT") vira invariante de código: este módulo não chama
@@ -53,6 +53,12 @@ log = logging.getLogger("worker.relatorio_local")
 # Janela do relatório. Uma semana, como o Cowork. Não vira env: é a definição do
 # "relatório semanal", não um número que alguém ajusta.
 JANELA_DIAS = 7
+
+# Quantos hooks o ranking de retenção mostra. É um pódio, não a lista inteira: o
+# relatório aponta o que reteve para a pauta imitar, e 5 cabe na leitura de sexta.
+# Não é janela semanal — é o acervo publicado, porque um hook de 3 semanas atrás
+# que ainda retém é exatamente o que se quer aprender.
+TOP_RETENCAO = 5
 
 # A prosa das recomendações é curta (~5 linhas). Timeout modesto — se o Ollama
 # não respondeu em 2 min para 5 linhas, ele está fora, e o relatório degrada.
@@ -138,6 +144,28 @@ def publicados(publicacoes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return itens
 
 
+def ranking_por_retencao(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Achata o embed `metricas → publicações → vídeo → pauta` num item por linha.
+
+    A ordem chega pronta do banco (retenção desc); esta função só desembrulha —
+    não reordena, para não haver duas fontes de verdade sobre o pódio. Retenção e
+    views vêm da tabela; hook/tema/url descem pela cadeia embutida."""
+    itens = []
+    for linha in linhas:
+        pub = linha.get("publicacoes") or {}
+        pauta = (pub.get("videos") or {}).get("pautas") or {}
+        itens.append(
+            {
+                "retencao": linha.get("retencao_media_pct"),
+                "views": linha.get("views"),
+                "url": pub.get("url"),
+                "hook": pauta.get("hook"),
+                "tema": pauta.get("tema"),
+            }
+        )
+    return itens
+
+
 def maior_gargalo(pautas_prontas: int, aguardando: int, aprovados: int) -> tuple[str, int]:
     """Onde a fila mais empoçou: pauta pronta sem virar vídeo, vídeo esperando
     aprovação, ou aprovado sem publicar. Devolve (nome, quantidade) do maior.
@@ -167,11 +195,22 @@ def _linha_pub(item: dict[str, Any]) -> str:
     return f"- [{item.get('plataforma')}] {hook} — {link} ({item.get('status')})"
 
 
+def _linha_ranking(item: dict[str, Any]) -> str:
+    hook = item.get("hook") or item.get("tema") or "(sem hook)"
+    ret = item.get("retencao")
+    ret_txt = f"{float(ret):.0f}% retenção" if ret is not None else "retenção n/d"
+    views = item.get("views")
+    views_txt = f"{views} views" if views is not None else "views n/d"
+    link = item.get("url") or "(sem link)"
+    return f"- {ret_txt} · {views_txt} — {hook} ({link})"
+
+
 def montar_secoes_de_dados(
     numeros: dict[str, int],
     reprovas: list[dict[str, Any]],
     falhas: list[dict[str, Any]],
     publicos: list[dict[str, Any]],
+    ranking: list[dict[str, Any]],
     gargalo: tuple[str, int],
     saude: list[dict[str, Any]],
     agora: datetime,
@@ -227,9 +266,22 @@ def montar_secoes_de_dados(
         for item in publicos:
             linhas.append(_linha_pub(item))
     linhas.append(
-        "_View e retenção NÃO estão neste banco — confira à mão no YouTube Studio. "
-        "A métrica ainda não é coletada (backlog § 9)._"
+        "_A retenção real está no ranking abaixo (coletada do YouTube). "
+        "Publicação sem retenção ainda não teve o dado puxado._"
     )
+    linhas.append("")
+
+    linhas.append("## Top hooks por retenção")
+    if not ranking:
+        linhas.append(
+            "_Métrica ainda não coletada — rode `uv run coletar_metricas.py` "
+            "(depois do re-consentimento OAuth, item 14b do doc mestre). Sem dado, "
+            "o ranking fica vazio: o relatório não inventa retenção para preencher._"
+        )
+    else:
+        linhas.append("Do que mais reteve para o que menos reteve — imite o topo:")
+        for item in ranking:
+            linhas.append(_linha_ranking(item))
     linhas.append("")
 
     linhas.append("## Gargalo")
@@ -261,15 +313,19 @@ def montar_prompt_recomendacoes(secoes: str) -> str:
     """
     return (
         "You are the analyst for the Atmosfera Viral channel. Below is this week's "
-        "factual report (numbers already computed — do NOT restate them, do NOT "
-        "invent views or retention, which are not tracked).\n\n"
+        "factual report (numbers already computed — do NOT restate them, and do NOT "
+        "invent any views or retention; use only the numbers shown).\n\n"
         f"{secoes}\n\n"
         "Write EXACTLY three concrete recommendations for next Monday's pautas, "
-        "each tied to something above. A recommendation names a pattern and an "
-        'action — "the 4 rejected hooks all opened with a rhetorical question — cut '
-        'that shape", not "improve the hooks". If the week was empty, say so in one '
-        "line instead of inventing advice. Respond in US English, as a markdown "
-        "list of 3 items, nothing else."
+        "each tied to something above. Weight the 'Top hooks por retenção' ranking "
+        "most: if a hook shape retained well, say to do more of it — tie advice to "
+        "what RETAINED, not only to what was rejected. A recommendation names a "
+        'pattern and an action — "the top-retention hooks are all confessions, the '
+        'rejected ones are rhetorical questions — write more confessions", not '
+        '"improve the hooks". If there is no retention data yet, lean on rejections '
+        "and published shapes instead. If the week was empty, say so in one line "
+        "instead of inventing advice. Respond in US English, as a markdown list of "
+        "3 items, nothing else."
     )
 
 
@@ -318,6 +374,11 @@ def montar_relatorio(cfg: Config, sb: Any, sessao: Sessao, agora: datetime) -> s
     falhas = falhas_tecnicas(db.videos_decididos(sb, org, inicio, "erro"))
     publicos = publicados(db.publicacoes_da_semana(sb, org, inicio))
 
+    # O ranking de retenção NÃO é da janela semanal: é o acervo publicado, do que
+    # mais reteve para o menos. Um hook antigo que ainda segura é o que a pauta
+    # deve imitar. Vazio se a métrica ainda não foi coletada — o relatório degrada.
+    ranking = ranking_por_retencao(db.hooks_por_retencao(sb, org, TOP_RETENCAO))
+
     prontas = sum(1 for s in db.pautas_por_status(sb, org) if s == "pronta")
     aguardando = db.contar_videos_por_status(sb, org, "aguardando_aprovacao")
     aprovados = db.contar_videos_por_status(sb, org, "aprovado")
@@ -326,7 +387,7 @@ def montar_relatorio(cfg: Config, sb: Any, sessao: Sessao, agora: datetime) -> s
     saude = db.ler_batimentos(sb)
 
     secoes = montar_secoes_de_dados(
-        numeros, reprovas, falhas, publicos, gargalo, saude, agora
+        numeros, reprovas, falhas, publicos, ranking, gargalo, saude, agora
     )
 
     recomendacoes = pedir_recomendacoes(cfg, montar_prompt_recomendacoes(secoes), sessao)
