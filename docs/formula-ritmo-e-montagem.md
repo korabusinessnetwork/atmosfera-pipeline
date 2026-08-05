@@ -97,6 +97,18 @@ módulo que já é nosso. É a regra da casa: medir antes de mexer.
 **Só isso já vale a rodada.** Se o desalinhamento médio for pequeno, M2 e M3
 morrem aqui e economizamos o trabalho.
 
+> **Implementado** — `worker/ritmo.py`, spec em `specs/ritmo-medir-desalinhamento.md`.
+>
+> Uma coisa que o M1 já ensinou antes mesmo de rodar em vídeo real: o MPT mistura
+> **trilha sonora contínua** (`mpt.py:184`, `bgm_volume: 0.15`), então na pausa o
+> nível não cai a zero — cai até o piso da música. Medido em bancada, esse piso
+> ficou a **4,5 dB** do limiar de detecção. Passou, mas por pouco.
+>
+> Isso tem consequência para o **M3**: se a narração for gerada isolada (`/audio`),
+> ela vem sem trilha e o problema evapora — mais um argumento a favor de gerar o
+> áudio antes, além do alinhamento. E tem consequência para o **M2**: mexer no
+> `bgm_volume` é uma alavanca barata que ninguém tinha considerado.
+
 ### M2 — Afinar o metrônomo (barato, reversível)
 
 Parar de cravar `4` e derivar: `duração estimada ÷ nº de linhas do roteiro`.

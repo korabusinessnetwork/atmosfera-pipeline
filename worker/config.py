@@ -60,6 +60,17 @@ class Config:
     ffprobe_bin: Path = Path("ffprobe")
     fonte_assinatura: Path = FONTE_ASSINATURA_PADRAO
 
+    # Ritmo (M1). Medida passiva: roda uma passada de ffmpeg por vídeo e escreve
+    # o desalinhamento corte×pausa no log. Não muda o render, não escreve no
+    # banco. Ligada por padrão porque o custo é desprezível perto dos ~2,5 min do
+    # MPT e o dado só existe se for coletado desde já.
+    # `ritmo_ruido_db` é o limiar de silêncio: ver o cabeçalho de `ritmo.py` —
+    # a trilha do MPT (`bgm_volume: 0.15`) pode mascarar a pausa, e é o próprio
+    # M1 que vai dizer se mascara.
+    ritmo_medir: bool = True
+    ritmo_ruido_db: float = -30.0
+    ritmo_pausa_min_seg: float = 0.25
+
     # YouTube (Sprint 4). Note o que NÃO está aqui: o teto de 6 uploads/dia.
     # Ele é constante em `publishers/youtube.py` de propósito — é aritmética de
     # cota (10.000 ÷ 1.600), não gosto, e uma variável de ambiente convidaria a
@@ -167,6 +178,25 @@ def _inteiro(nome: str, padrao: int) -> int:
 
 def _texto(nome: str, padrao: str) -> str:
     return os.getenv(nome, "").strip() or padrao
+
+
+def _decimal(nome: str, padrao: float, permite_negativo: bool = False) -> float:
+    """Número com casa decimal.
+
+    `permite_negativo` existe por causa do limiar de silêncio, que é medido em
+    dBFS e portanto é **sempre** negativo — a regra "maior que zero" do
+    `_inteiro` rejeitaria o único valor válido.
+    """
+    bruto = os.getenv(nome, "").strip()
+    if not bruto:
+        return padrao
+    try:
+        valor = float(bruto)
+    except ValueError:
+        raise ConfigInvalida(f"{nome} precisa ser um número.") from None
+    if not permite_negativo and valor <= 0:
+        raise ConfigInvalida(f"{nome} precisa ser maior que zero.")
+    return valor
 
 
 def _booleano(nome: str, padrao: bool) -> bool:
@@ -317,6 +347,9 @@ def carregar(env_path: Path | None = None) -> Config:
         ffmpeg_bin=_binario("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=_binario("FFPROBE_BIN", "ffprobe"),
         fonte_assinatura=fonte_assinatura,
+        ritmo_medir=_booleano("RITMO_MEDIR", True),
+        ritmo_ruido_db=_decimal("RITMO_RUIDO_DB", -30.0, permite_negativo=True),
+        ritmo_pausa_min_seg=_decimal("RITMO_PAUSA_MIN_SEG", 0.25),
         youtube_token=youtube_token,
         youtube_client_secret=youtube_client_secret,
         youtube_categoria=_texto("YOUTUBE_CATEGORIA", "22"),

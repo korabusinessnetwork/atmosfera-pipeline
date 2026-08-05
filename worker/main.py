@@ -31,6 +31,7 @@ import log as logmod
 import mpt
 import postprocess
 import publicar
+import ritmo as ritmomod
 from batimento import Batimento
 from config import Config, ConfigInvalida, carregar
 
@@ -88,6 +89,36 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
         ffprobe=cfg.ffprobe_bin,
         fonte=cfg.fonte_assinatura,
     )
+    # Medida do M1 (`docs/formula-ritmo-e-montagem.md`): o quanto os cortes do
+    # MPT caem longe das pausas da narração. Passiva — só escreve no log.
+    #
+    # Aqui e não antes por dois motivos: o `aplicar_identidade` já pagou o
+    # `ffprobe` da duração (medir de novo seria um processo a troco de nada), e o
+    # áudio do final é cópia bit-a-bit do bruto (`-c:a copy`, e o hook é
+    # sobreposto, não cortado — Sprint 3), então o bruto ainda é o retrato certo
+    # do que o MPT montou. Antes do `descartar_bruto` porque depois ele não
+    # existe mais.
+    #
+    # O `try` é a mesma regra do batimento: observação que mata o observado é
+    # pior que não observar. Um vídeo pronto não pode virar `erro` porque uma
+    # medida opcional tropeçou.
+    if cfg.ritmo_medir:
+        try:
+            ritmomod.registrar(
+                ritmomod.medir(
+                    cfg.ffmpeg_bin,
+                    bruto,
+                    preview.duracao_seg,
+                    mpt.CLIP_SEG,
+                    ruido_db=cfg.ritmo_ruido_db,
+                    pausa_min_seg=cfg.ritmo_pausa_min_seg,
+                ),
+                video_id,
+                mpt.CLIP_SEG,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("medida de ritmo tropecou — video segue", extra={"video_id": video_id})
+
     postprocess.descartar_bruto(bruto)
 
     # O upload é degradável de propósito. Falhar aqui significaria jogar fora

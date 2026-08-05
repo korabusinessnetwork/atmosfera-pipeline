@@ -67,6 +67,15 @@ ESTADO_PROCESSANDO = 4
 # mandar a pasta inteira não melhora nada e incha o corpo da requisição.
 MAX_MATERIAIS = 12
 
+# Cadência de troca de plano, em segundos. O MPT corta nesse intervalo fixo do
+# começo ao fim, sem saber o que a narração está fazendo — é um metrônomo.
+#
+# Virou constante (antes era `4` cravado dentro de `montar_corpo`) porque o M1
+# do `docs/formula-ritmo-e-montagem.md` mede o desalinhamento contra ESTA grade:
+# com o número escrito em dois lugares, mexer no render sem mexer na medida faria
+# a medida mentir sem ninguém notar. Quem mudar isto muda os dois de uma vez.
+CLIP_SEG = 4
+
 # Conexão local não deve demorar. Timeout curto aqui é o que transforma um MPT
 # morto em erro rápido em vez de um loop travado.
 TIMEOUT_HTTP_SEG = 30
@@ -177,7 +186,7 @@ def montar_corpo(
         "video_source": video_source,
         # 9:16 = 1080x1920. Shorts e TikTok não negociam isso.
         "video_aspect": "9:16",
-        "video_clip_duration": 4,
+        "video_clip_duration": CLIP_SEG,
         "video_count": 1,
         "voice_name": voz,
         "voice_rate": 0.95,
