@@ -1144,6 +1144,24 @@ humano: o worker só toca em vídeo que já está `aprovado`.
 
 ## 9. Backlog (não fazer agora)
 
+- **Pauta via Gemini para o cold-start — FEITO na Rodada 20** (`worker/pauta_gemini.py`
+  + migration `20260805120000_pauta_gemini.sql`). Um produtor de pauta **opt-in**, fora
+  do loop, que escreve com um modelo frontier (Gemini, tier grátis do AI Studio)
+  durante o **bootstrap** — enquanto a tabela `metricas` não tem histórico para treinar
+  o modelo local. É a **muleta do começo**: conteúdo bom agora gera retenção que valha
+  aprender depois, e o professor do local segue sendo a **retenção real** (LoRA, abaixo),
+  nunca a imitação do Gemini. É um módulo fino: reusa toda a maquinaria pura do
+  `pauta_local` (parser, prompt com identidade + few-shot dos vencedores, backpressure,
+  `db.inserir_pauta`) e só troca o transporte — chama a REST do Gemini com a chave no
+  header `x-goog-api-key`, sem best-of-N/juiz/reescrita (muleta do modelo pequeno, e cada
+  chamada extra come o rate limit grátis). `origem='gemini'` entrou no check e no
+  `when` do trigger de auto-enfileirar (herda o "auto até o gate" da R4). **É uma exceção
+  DELIBERADA e ESCOPADA à regra "auto só gratuito/local"**: o Gemini grátis não é pago,
+  mas é API na nuvem com token — o dono autorizou como ferramenta manual de bootstrap,
+  opt-in, enquanto o caminho automático padrão (`pauta_local`, loop, publicação) segue
+  100% gratuito/offline. Duas ressalvas do tier grátis, conscientes: rate limits e os
+  prompts são usados pelo Google para treinar. Passo humano: pegar a chave no AI Studio
+  (`specs/_manual.md` § 12) e aplicar a migration.
 - **Voz própria do dono no lugar do edge-tts (enfileirado pelo dono, 2026-08-04).**
   O plano operacional é **3 vídeos/dia** para YouTube e TikTok com legenda e footage
   automáticos (os dois já existem) — a novidade é a **voz: a do próprio dono**, um

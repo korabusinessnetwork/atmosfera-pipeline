@@ -290,6 +290,15 @@ def test_inserir_pauta_carimba_status_e_origem():
     assert "titulo" not in sb.inserido   # opcional vazio não entra
 
 
+def test_inserir_pauta_aceita_origem_gemini():
+    # A assinatura real (não o monkeypatch) tem de aceitar origem sobrescrito — é
+    # o que o pauta_gemini (Rodada 20) usa. status segue carimbado 'pronta'.
+    sb = SbFake()
+    db.inserir_pauta(sb, "org-1", "tema", "roteiro", origem="gemini")
+    assert sb.inserido["origem"] == "gemini"
+    assert sb.inserido["status"] == "pronta"
+
+
 def test_contar_fila_viva_filtra_estados_e_org():
     sb = SbFake(count=7)
     assert db.contar_fila_viva(sb, "org-1") == 7

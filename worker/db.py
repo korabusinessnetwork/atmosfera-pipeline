@@ -58,13 +58,18 @@ def inserir_pauta(
     hook: str | None = None,
     titulo: str | None = None,
     descricao: str | None = None,
+    origem: str = "ollama",
 ) -> str:
-    """Insere uma pauta pronta de origem 'ollama'. Devolve o id.
+    """Insere uma pauta pronta de produtor de máquina. Devolve o id.
 
-    `status` e `origem` são carimbados aqui, não recebidos: o produtor não
-    escolhe — é a mesma disciplina da `pauta_nova` do painel, que fixa os dois
-    no servidor. E é isso que o trigger `t_pautas_auto_enfileirar` espera para
-    enfileirar sozinho até o gate.
+    `status` é carimbado aqui, não recebido: o produtor não escolhe — é a mesma
+    disciplina da `pauta_nova` do painel, que fixa no servidor. E é isso que o
+    trigger `t_pautas_auto_enfileirar` espera para enfileirar sozinho até o gate.
+
+    `origem` tem default 'ollama' (o produtor local, Rodada 4) para não mudar
+    nenhuma chamada existente; o produtor Gemini (Rodada 20) passa 'gemini'. O
+    check `pautas_origem_check` recusa qualquer valor fora do vocabulário, então
+    um typo aqui falha no banco, não vira categoria fantasma.
 
     Campos opcionais só entram se vierem preenchidos: hook e título vazios são
     legítimos (o postprocess não desenha a cartela; o YouTube cai para o tema).
@@ -74,7 +79,7 @@ def inserir_pauta(
         "tema": tema,
         "roteiro": roteiro,
         "status": "pronta",
-        "origem": "ollama",
+        "origem": origem,
     }
     if hook:
         linha["hook"] = hook

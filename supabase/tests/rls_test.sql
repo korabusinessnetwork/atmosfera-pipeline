@@ -41,6 +41,10 @@
 -- em_producao -> descartada escaparia dela — quem fecha é o trigger
 -- `t_pautas_guarda_descarte`, que vê OLD e NEW. Aqui se prova que o descarte legítimo
 -- passa, o proibido é barrado até no PATCH cru, e descartada não ressuscita.
+-- O caso 41 é o auto-enfileirar de 'gemini' (Rodada 20): o quarto valor de origem,
+-- o produtor opt-in de cold-start, é produtor de MÁQUINA como ollama/cowork — pauta
+-- pronta vira vídeo na fila sozinha e para no gate. Fica no fim do arquivo (o
+-- `order by teste` o ordena por último) para não renumerar os casos 29–40.
 -- Os 36–40 são a edição de conteúdo (Rodada 15): reescrever tema/roteiro/hook/titulo/
 -- descricao de uma pauta `pronta`, sem tocar status. Mesma forma do descarte — o grant
 -- de coluna + a política permissiva deixariam editar em em_producao, e o trigger
@@ -88,6 +92,7 @@ declare
   met_pub_a   uuid; -- publicação da org A, base da métrica (Rodada 11)
   met_pub_b   uuid; -- publicação da org B (o vizinho)
   pauta_ed    uuid; -- pauta pronta para a edição de conteúdo (Rodada 15)
+  pauta_ge    uuid; -- pauta gemini que o trigger deve enfileirar (Rodada 20)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -661,7 +666,7 @@ begin
     when check_violation then bloqueou := true;
   end;
 
-  teste := '28 · origem fora de (cowork,manual,ollama) é recusada';
+  teste := '28 · origem fora de (cowork,manual,ollama,gemini) é recusada';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end;
   passou := bloqueou;
@@ -924,6 +929,28 @@ begin
   obtido := (case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end)
             || ' · ' || (case when crd_tema = '[rls-test] tema NOVO' then 'intacto' else 'ALTERADO' end);
   passou := (bloqueou and crd_tema = '[rls-test] tema NOVO');
+  return next;
+
+  -- ================= AUTO-ENFILEIRAR GEMINI (Rodada 20) =================
+  -- 'gemini' é o quarto valor de `origem` — o produtor OPT-IN de cold-start
+  -- (modelo frontier no bootstrap). Como 'ollama'/'cowork', é produtor de
+  -- MÁQUINA: pauta pronta vira video.na_fila sozinha e para no gate humano. Mesma
+  -- pergunta do caso 26 ("esta pauta vira trabalho automaticamente?"), com o valor
+  -- novo — o caso 28 já provou que fora do vocabulário é recusado. Insere como dono
+  -- (o role foi resetado no caso 40); o trigger dispara em qualquer papel.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] gemini enfileira', '[rls-test] roteiro ge', 'pronta', 'gemini')
+  returning id into pauta_ge;
+
+  select count(*) into n
+    from public.videos
+   where pauta_id = pauta_ge and status = 'na_fila';
+  select status into pa_status from public.pautas where id = pauta_ge;
+
+  teste := '41 · pauta gemini pronta é enfileirada pelo trigger';
+  esperado := '1 vídeo na_fila · pauta em_producao';
+  obtido := n::text || ' vídeo na_fila · pauta ' || coalesce(pa_status, '(null)');
+  passou := (n = 1 and pa_status = 'em_producao');
   return next;
 
   -- ---------- limpeza ----------

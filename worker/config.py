@@ -130,6 +130,18 @@ class Config:
     # cabe numa resposta sem virar rolagem infinita no cliente.
     mcp_lote: int = 50
 
+    # Pauta via Gemini para o cold-start (Rodada 20). Produtor OPT-IN, fora do
+    # loop, que escreve pauta com um modelo frontier (tier grátis do AI Studio)
+    # enquanto a tabela `metricas` não tem histórico para treinar o modelo local.
+    # `api_key` é SECRET — vem do .env, default "", NUNCA logada nem impressa.
+    # Vazia é estado normal da instalação (o loop do worker não usa Gemini); quem
+    # exige a chave é o `pauta_gemini.py` na hora de rodar, com instrução — como o
+    # OAuth do YouTube não é pré-requisito do loop. As contagens (quantas pautas,
+    # teto da fila, few-shot de vencedores) reusam as do pauta_local: a fila é a
+    # mesma e não faz sentido um segundo lugar da verdade.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
 
 def _obrigatoria(nome: str) -> str:
     valor = os.getenv(nome, "").strip()
@@ -327,4 +339,8 @@ def carregar(env_path: Path | None = None) -> Config:
         qc_local_visao_model=_texto("QC_LOCAL_VISAO_MODEL", "llama3.2-vision"),
         qc_local_lote=_inteiro("QC_LOCAL_LOTE", 20),
         mcp_lote=_inteiro("MCP_LOTE", 50),
+        # SECRET, mas NÃO obrigatória: chave vazia é estado normal (o loop não usa
+        # Gemini). Quem exige, com instrução, é o pauta_gemini.py. Nunca logar.
+        gemini_api_key=_texto("GEMINI_API_KEY", ""),
+        gemini_model=_texto("GEMINI_MODEL", "gemini-2.0-flash"),
     )

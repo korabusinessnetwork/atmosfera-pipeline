@@ -454,3 +454,59 @@ métrica quando a próxima rodada fechar o loop.
 **O que esta rodada NÃO faz, de propósito:** consumir a métrica. Ranquear a pauta
 por retenção, mostrar no painel e alimentar fine-tuning são as próximas rodadas —
 esta **coleta e guarda**. O relatório e o gerador seguem como estão.
+
+## 12. Pauta via Gemini para o cold-start (Rodada 20)
+
+O produtor `pauta_gemini.py` escreve pauta com um modelo frontier (Gemini) enquanto
+a tabela `metricas` não tem histórico para treinar o modelo local. É **opt-in** e
+**fora do loop** — o produtor gratuito/offline continua sendo `pauta_local.py`
+(Ollama). É uma **exceção deliberada e escopada** à regra "auto só gratuito/local",
+que você autorizou: o Gemini grátis não é pago, mas é API na nuvem com token, então
+fica como ferramenta manual de bootstrap, não no caminho automático.
+
+**Duas ressalvas do tier grátis, que você aceitou conscientemente:**
+1. **Rate limits.** Estourou, o produtor diz "limite do tier grátis" e para; roda de
+   novo mais tarde. Subir o teto exige habilitar billing no Google Cloud (passo seu,
+   fora do código).
+2. **Treino.** No tier grátis, o Google usa os prompts para treinar os modelos deles.
+   No pago, não. Para conteúdo de pauta, você decidiu que tudo bem.
+
+### 12.1 Pegar a chave (grátis, sem cartão)
+
+1. Entre em <https://aistudio.google.com> com sua conta Google.
+2. Clique em **Get API key** → **Create API key**.
+3. Copie a chave e cole no `worker/.env`:
+
+```
+GEMINI_API_KEY=AIza...sua-chave
+```
+
+A chave é **secret**: vai só no `.env` (gitignored), nunca no `.env.example`, nunca
+em log, nunca na Vercel. O `worker/` está dentro do OneDrive — a mesma higiene do
+`token.json` e da `service_role` vale aqui (seção 8).
+
+O modelo tem padrão `gemini-2.0-flash`. Se quiser outro (confira os disponíveis no
+tier grátis no próprio AI Studio, mudam de tempos em tempos), ajuste `GEMINI_MODEL`.
+
+### 12.2 Aplicar a migration
+
+`origem='gemini'` precisa caber no check e disparar o trigger de auto-enfileirar. Com
+o projeto linkado (como nas rodadas recentes):
+
+```bash
+supabase db push
+supabase db advisors --linked          # alvo: No issues found
+supabase db query --linked -f supabase/tests/rls_test.sql   # alvo: 42 ✅
+```
+
+### 12.3 Rodar
+
+```bash
+cd worker && uv run pauta_gemini.py
+```
+
+Ele conta a fila viva (backpressure — não gera em cima de fila cheia), lê a
+identidade da marca e os vencedores por retenção (se houver), pede N pautas ao
+Gemini, valida e insere com `origem='gemini'`. O trigger enfileira cada uma até o
+**gate humano** — aprovar e publicar seguem exigindo você. Se a fila esvaziar e você
+quiser cadência, agende como os outros produtores locais (seção 7).
