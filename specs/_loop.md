@@ -9,6 +9,42 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 20 — pauta via Gemini para o cold-start · 2026-08-05
+
+- Spec: `specs/pauta-gemini-cold-start.md`
+- **Decisão do dono:** usar um modelo frontier (Gemini, tier grátis) para escrever
+  pauta durante o bootstrap, enquanto a `metricas` não tem histórico para treinar o
+  local. Exceção **deliberada, escopada e opt-in** à regra "auto só gratuito/local":
+  o Gemini grátis não é pago, mas é API na nuvem com token — fica fora do loop, e o
+  caminho automático padrão segue gratuito/offline.
+- **Review:** ✅ aprovado sem ressalvas, 21/21 com evidência. Portões: **517 testes
+  do worker** (eram 499; +17 `test_pauta_gemini.py`, +1 passthrough de `origem`) ·
+  `painel/` intocado · `rls_test` ganha o caso 41 (gemini enfileira), alvo 42 ✅.
+- **O que entrou:** `worker/pauta_gemini.py` — produtor opt-in, módulo FINO que reusa
+  a maquinaria transporte-agnóstica do `pauta_local` (parser, prompt+few-shot,
+  backpressure, `db.inserir_pauta`) e só troca o transporte (REST do Gemini, chave no
+  header `x-goog-api-key`). **Sem** best-of-N/juiz/reescrita (muleta do modelo pequeno).
+  `db.inserir_pauta` ganhou `origem: str = "ollama"`. Migration `20260805120000`:
+  `origem='gemini'` no check (drop+add) + trigger `t_pautas_auto_enfileirar` recriado
+  com o `when` alargado. Config `gemini_api_key` (secret) + `gemini_model`.
+- **Aprendido** (`specs/pauta-gemini-cold-start.md` § 9): (1) trocar modelo pequeno
+  por frontier = jogar fora a muleta (best-of-N/juiz), não carregá-la — cada chamada
+  extra come o rate limit grátis; (2) alargar `check` = drop+add validado, alargar o
+  `when` de trigger = drop+create trigger (a função fica intocada); (3) teste de
+  produtor com `db.inserir_pauta` dublado não exercita a assinatura real — kwarg novo
+  pede teste direto da função; (4) chave no header, nunca na URL, fixada por 3 testes.
+- **Commit:** `68400cc` na branch `main` (push direto autorizado). Nota no vault:
+  `2026-08-05-68400cc.md`.
+- **Pendente de decisão:** nenhuma. Passos humanos desta rodada (item 12 do
+  `_manual.md`): pegar a chave grátis no AI Studio, `db push` + `advisors` +
+  `rls_test 42✅`. Os demais passos humanos acumulados seguem os mesmos.
+- **Próximo item recomendado:** `voz-propria` segue sendo o único item de conteúdo
+  novo na fila (sem portão de custo — voice clone local XTTS/Coqui). Alternativa:
+  pausar rodadas e tocar as etapas manuais (aplicar as migrations pendentes, pegar a
+  chave do Gemini, TikTok, footage, agendar produtores).
+
+---
+
 ## Rodada 19 — consolidar as políticas de UPDATE de `pautas` · 2026-08-04
 
 - Spec: `specs/consolidar-politicas-pautas.md`

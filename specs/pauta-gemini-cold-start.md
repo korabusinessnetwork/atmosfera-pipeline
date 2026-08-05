@@ -225,3 +225,46 @@ projeto segue de pé: o professor do modelo local é a **retenção real** (tabe
 qualidade é treinar o local no que reteve, e aí o Gemini pode sair do caminho. Fica
 escrito para o `/aprender` não confundir "usei o Gemini no cold-start" com "destilei
 o Gemini no Ollama".
+
+## 9. Resultado da review e o que a rodada ensinou
+
+**Review:** ✅ aprovado sem ressalvas, 21/21 com evidência. Portões: **517 testes do
+worker** (eram 499; +17 em `test_pauta_gemini.py`, +1 no passthrough de `origem` em
+`test_pauta_local.py`) · `painel/` intocado (`git status` = 0), `next build` não
+afetado. Critérios de banco 5-6 (`advisors`/`rls_test 42✅`) são passo humano — o
+ambiente não aplica migration em produção por conta própria (spec §4, `_manual.md` § 12).
+
+**Aprendido:**
+
+1. **Trocar modelo pequeno por frontier = JOGAR FORA a muleta, não carregá-la.** O
+   best-of-N + juiz + reescrita do `pauta_local` existem para compensar o modelo
+   pequeno (pontuar/reescrever as próprias saídas eleva um hook fraco). Reusar isso
+   com o Gemini seria pior que inútil: cada chamada extra come o rate limit do tier
+   grátis, e o modelo frontier já gera bom em uma passada. O `pauta_gemini` reusa só
+   a parte **transporte-agnóstica** (parser, prompt, backpressure, insert) e descarta
+   a compensação. Padrão para a voz própria e futuras trocas de modelo.
+
+2. **Alargar um `check` é `drop`+`add`; alargar o `when` de um trigger é
+   `drop`+`create trigger`.** Não se altera um `check` in-place — `drop constraint` +
+   `add constraint` (validado, porque **alargar** o conjunto aceito nunca invalida
+   linha existente; só precisaria de `not valid` se fosse restringir). E o `when` de
+   um trigger vive na DEFINIÇÃO do trigger, não na função: `create or replace
+   function` **não** mexe nele, então incluir 'gemini' no `when` exigiu recriar o
+   trigger, com a função intocada. `20260805120000_pauta_gemini.sql` carrega os dois.
+
+3. **Teste de produtor com `db.inserir_pauta` monkeypatchado não exercita a
+   assinatura real.** Os testes de orquestração dublam `db.inserir_pauta`, então o
+   `origem` kwarg novo passava neles sem provar que a função real o aceita. Precisou
+   de um teste direto (`test_inserir_pauta_aceita_origem_gemini`) contra a `SbFake`.
+   Regra: kwarg novo numa função de `db.py` pede teste direto da função, não só do
+   chamador que a dubla.
+
+4. **A chave no header, não na URL, e provada por teste.** `x-goog-api-key`, nunca
+   `?key=` — e três testes afirmam que a `GEMINI_API_KEY` não aparece em nenhuma
+   mensagem de erro (config/transporte/limite). Segredo em query string vaza em log de
+   proxy e Referer; é a mesma disciplina de "URL é credencial" das Sprints 4/5, agora
+   com o teste que a fixa.
+
+**O que ficou para uma próxima rodada:** best-of-N/juiz opcional no Gemini (se o hook
+precisar de polish), e a decisão maior — quando a `metricas` encher, treinar o local
+(LoRA) nos hooks que retiveram e deixar o Gemini sair do caminho (§8 acima).
