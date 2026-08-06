@@ -38,6 +38,12 @@ GENERICO = "— genérico —"
 # Sondagem curta: um serviço lento não pode congelar a janela.
 TIMEOUT_SONDA_SEG = 1.5
 
+# Teto de pautas carregadas por sessão de revisão (R25). Não é limite de negócio: o
+# backpressure dos geradores já segura o volume. É para a janela não puxar o roteiro
+# inteiro de uma fila degenerada de uma vez — e revisar 40 roteiros num fôlego não
+# acontece de qualquer jeito. O que sobrar aparece na próxima abertura.
+TETO_DA_REVISAO = 40
+
 # Paleta (a janela não segue tema do SO; escolhida para ler de relance).
 BG = "#14161a"
 CARD = "#1d2027"
@@ -499,6 +505,52 @@ def frase_da_execucao(quantas: int) -> str:
     )
 
 
+# --------------------------------------------- revisão de pauta (R25)
+
+
+def rotulo_da_revisao(pendentes: int) -> str:
+    """O texto do botão que abre a revisão, com quantas esperam. Pura."""
+    return "📝 Revisar pautas" if not pendentes else f"📝 Revisar pautas ({pendentes})"
+
+
+def cabecalho_da_revisao(indice: int, total: int) -> str:
+    """"2 de 7" — onde o dono está na fila de revisão. Pura, 1-based na tela."""
+    return f"{indice + 1} de {total}"
+
+
+def texto_do_roteiro(pauta: dict[str, Any]) -> str:
+    """O roteiro como ele vai para a tela. Pura.
+
+    Roteiro vazio vira uma frase em vez de painel em branco: a rodada existe porque
+    o dono julga a FINALIZAÇÃO do texto, e "não veio texto" é um veredito diferente
+    de "o texto acabou mal".
+    """
+    return (pauta.get("roteiro") or "").strip() or "(sem roteiro)"
+
+
+def procedencia_da_pauta(pauta: dict[str, Any]) -> str:
+    """Quem escreveu e sob que categoria, em uma linha. Pura.
+
+    A origem importa na decisão: hook de modelo pequeno (`ollama`) é mais fraco que
+    o do Gemini, e saber qual está lendo muda o rigor de quem aprova.
+    """
+    origem = (pauta.get("origem") or "?").strip()
+    categoria = (pauta.get("categoria") or "").strip()
+    return f"{origem} · {categoria}" if categoria else origem
+
+
+def resumo_da_revisao(aprovadas: int, descartadas: int) -> str:
+    """O desfecho da sessão de revisão, em uma frase. Pura."""
+    if not aprovadas and not descartadas:
+        return "Nenhuma pauta decidida."
+    partes = []
+    if aprovadas:
+        partes.append(f"{aprovadas} aprovada(s) — render começa no próximo ciclo")
+    if descartadas:
+        partes.append(f"{descartadas} descartada(s)")
+    return ". ".join(partes) + "."
+
+
 def rodar_status() -> int:
     """Modo headless: imprime o estado uma vez e sai. Para terminal e teste."""
     from config import ConfigInvalida, carregar
@@ -558,6 +610,7 @@ def abrir_janela() -> int:
     gerando = {"v": False}   # gerar pauta (independente do acima)
     limpando = {"v": False}  # limpar a fila (R22) — destrutiva, trava so dela
     executando = {"v": False}  # executar a fila (R23) — idem, independente das outras
+    revisando = {"v": False}   # abrir a revisão de pautas (R25) — idem
     fase = {"p": True}   # alterna a cada tique para pulsar o estágio ativo
 
     def fonte(tam: int, negrito: bool = False) -> tuple:
@@ -615,6 +668,15 @@ def abrir_janela() -> int:
         cursor="hand2", bd=0, bg=BG, fg=AZUL, padx=10, pady=6,
     )
     botao_executar.pack(side="left", padx=(6, 0))
+
+    # "Revisar pautas" ganha linha própria e largura inteira porque, desde a R25, é a
+    # etapa OBRIGATÓRIA entre gerar e renderizar — pauta de máquina não vira vídeo
+    # sozinha. Espremê-lo ao lado dos outros dois o faria parecer opcional.
+    botao_revisar = tk.Button(
+        prod, text="📝 Revisar pautas", font=fonte(10, True), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=VERDE, pady=7,
+    )
+    botao_revisar.pack(fill="x", padx=16, pady=(0, 6))
 
     linha_auto = tk.Frame(prod, bg=CARD)
     linha_auto.pack(fill="x", padx=16, pady=(0, 12))
@@ -870,6 +932,201 @@ def abrir_janela() -> int:
 
         threading.Thread(target=trabalho, daemon=True).start()
 
+    def acao_revisar() -> None:
+        """Carrega as pautas prontas e abre a janela de revisão (R25)."""
+        # Trava própria, como as outras três. A leitura vai para thread porque a
+        # lista traz o ROTEIRO inteiro de cada pauta — é o payload mais pesado que
+        # este painel busca, e travaria a janela num link ruim.
+        if revisando["v"]:
+            return
+        e = estado_atual["e"]
+        if e is None:
+            return
+
+        revisando["v"] = True
+        botao_revisar.config(state="disabled", text="carregando…")
+
+        def trabalho() -> None:
+            try:
+                sb = db_mod.criar_cliente(cfg)
+                pautas = db_mod.listar_pautas_para_revisao(
+                    sb, str(cfg.org_id), TETO_DA_REVISAO
+                )
+                erro = None
+            except Exception as ex:  # noqa: BLE001 — tipo, nunca a mensagem crua
+                pautas, erro = [], f"{type(ex).__name__} ao carregar as pautas."
+
+            def depois() -> None:
+                revisando["v"] = False
+                botao_revisar.config(state="normal", text=rotulo_da_revisao(0))
+                if erro:
+                    messagebox.showerror("Atmosfera — revisar pautas", erro)
+                elif not pautas:
+                    # Não é código morto: o `pintar` desabilita o botão com zero
+                    # pauta, mas a contagem na tela tem a idade do último refresh.
+                    messagebox.showinfo(
+                        "Atmosfera — revisar pautas",
+                        "Nenhuma pauta esperando revisão — gere pauta antes.",
+                    )
+                else:
+                    _abrir_janela_revisao(pautas)
+                disparar_refresh()
+
+            raiz.after(0, depois)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def _abrir_janela_revisao(pautas: list[dict[str, Any]]) -> None:
+        """Uma pauta por vez: lê o roteiro inteiro e decide aprovar/descartar/pular.
+
+        A lista é uma FOTO do momento em que abriu — pauta gerada com a janela
+        aberta aparece na próxima abertura. Paginar ao vivo faria o item sob o
+        cursor mudar de lugar entre ler e clicar, que é o pior defeito possível
+        numa tela cuja única função é decidir sobre o que está na tela.
+        """
+        jan = tk.Toplevel(raiz)
+        jan.title("Atmosfera — Revisar pautas")
+        jan.configure(bg=BG)
+        jan.transient(raiz)
+        jan.geometry("520x660")
+        jan.minsize(420, 520)
+
+        posicao = {"i": 0}
+        placar = {"aprovadas": 0, "descartadas": 0}
+        decidindo = {"v": False}
+
+        bloco = tk.Frame(jan, bg=CARD)
+        bloco.pack(fill="both", expand=True, padx=12, pady=12)
+
+        lbl_contador = tk.Label(bloco, text="", bg=CARD, fg=FRACO, font=fonte(9))
+        lbl_contador.pack(anchor="w", padx=14, pady=(12, 0))
+        lbl_procedencia = tk.Label(bloco, text="", bg=CARD, fg=AZUL, font=fonte(8))
+        lbl_procedencia.pack(anchor="w", padx=14, pady=(2, 6))
+
+        lbl_tema = tk.Label(
+            bloco, text="", bg=CARD, fg=FG, font=fonte(13, True),
+            wraplength=440, justify="left",
+        )
+        lbl_tema.pack(anchor="w", padx=14)
+        lbl_hook = tk.Label(
+            bloco, text="", bg=CARD, fg=ROXO, font=fonte(10),
+            wraplength=440, justify="left",
+        )
+        lbl_hook.pack(anchor="w", padx=14, pady=(4, 10))
+
+        # O roteiro inteiro e rolável é o motivo da rodada: o dono reclamou da
+        # FINALIZAÇÃO, e final de texto não cabe em prévia truncada.
+        caixa = tk.Frame(bloco, bg=BG)
+        caixa.pack(fill="both", expand=True, padx=14)
+        barra = tk.Scrollbar(caixa, relief="flat", bd=0)
+        barra.pack(side="right", fill="y")
+        texto = tk.Text(
+            caixa, bg=BG, fg=FG, font=fonte(10), relief="flat", wrap="word",
+            highlightthickness=0, padx=10, pady=10, yscrollcommand=barra.set,
+        )
+        texto.pack(side="left", fill="both", expand=True)
+        barra.config(command=texto.yview)
+
+        linha_acoes = tk.Frame(bloco, bg=CARD)
+        linha_acoes.pack(fill="x", padx=14, pady=(10, 14))
+        botao_aprovar = tk.Button(
+            linha_acoes, text="✔ Aprovar", font=fonte(10, True), relief="flat",
+            cursor="hand2", bd=0, bg=VERDE, fg=BG, padx=14, pady=7,
+        )
+        botao_aprovar.pack(side="left")
+        botao_descartar = tk.Button(
+            linha_acoes, text="✖ Descartar", font=fonte(10), relief="flat",
+            cursor="hand2", bd=0, bg=BG, fg=VERMELHO, padx=12, pady=7,
+        )
+        botao_descartar.pack(side="left", padx=(8, 0))
+        botao_pular = tk.Button(
+            linha_acoes, text="→ Pular", font=fonte(10), relief="flat",
+            cursor="hand2", bd=0, bg=BG, fg=FRACO, padx=12, pady=7,
+        )
+        botao_pular.pack(side="right")
+
+        def _travar(travado: bool) -> None:
+            estado = "disabled" if travado else "normal"
+            for b in (botao_aprovar, botao_descartar, botao_pular):
+                b.config(state=estado)
+
+        def encerrar(fim: bool = False) -> None:
+            # Fechar no meio de uma escrita deixaria o `depois` mexendo em widget
+            # destruído — e a decisão já foi para o banco de qualquer jeito.
+            if decidindo["v"]:
+                return
+            jan.destroy()
+            if fim or placar["aprovadas"] or placar["descartadas"]:
+                messagebox.showinfo(
+                    "Atmosfera — revisar pautas",
+                    resumo_da_revisao(placar["aprovadas"], placar["descartadas"]),
+                )
+            disparar_refresh()
+
+        def mostrar() -> None:
+            if posicao["i"] >= len(pautas):
+                encerrar(fim=True)
+                return
+            pauta = pautas[posicao["i"]]
+            lbl_contador.config(text=cabecalho_da_revisao(posicao["i"], len(pautas)))
+            lbl_procedencia.config(text=procedencia_da_pauta(pauta))
+            lbl_tema.config(text=(pauta.get("tema") or "(sem tema)").strip())
+            lbl_hook.config(text=(pauta.get("hook") or "").strip())
+            texto.config(state="normal")
+            texto.delete("1.0", "end")
+            texto.insert("1.0", texto_do_roteiro(pauta))
+            texto.config(state="disabled")   # leitura: esta rodada não edita
+            texto.yview_moveto(0)
+
+        def avancar() -> None:
+            posicao["i"] += 1
+            mostrar()
+
+        def _decidir(funcao, chave: str) -> None:
+            if decidindo["v"] or posicao["i"] >= len(pautas):
+                return
+            pauta_id = pautas[posicao["i"]]["id"]
+            decidindo["v"] = True
+            _travar(True)
+
+            def trabalho() -> None:
+                try:
+                    sb = db_mod.criar_cliente(cfg)
+                    funcao(sb, str(cfg.org_id), pauta_id)
+                    falha = None
+                except Exception as ex:  # noqa: BLE001 — tipo, nunca a mensagem crua
+                    falha = (
+                        f"{type(ex).__name__} — esta pauta ainda está 'pronta'? "
+                        "Se alguém já decidiu por ela, sigo para a próxima."
+                    )
+
+                def depois() -> None:
+                    decidindo["v"] = False
+                    _travar(False)
+                    if falha:
+                        messagebox.showwarning(
+                            "Atmosfera — revisar pautas", falha, parent=jan
+                        )
+                    else:
+                        placar[chave] += 1
+                    # Avança nos dois casos: decidida em outro lugar é exatamente
+                    # uma pauta que não precisa mais desta tela.
+                    avancar()
+
+                raiz.after(0, depois)
+
+            threading.Thread(target=trabalho, daemon=True).start()
+
+        botao_aprovar.config(
+            command=lambda: _decidir(db_mod.enfileirar_pauta_da_org, "aprovadas")
+        )
+        botao_descartar.config(
+            command=lambda: _decidir(db_mod.descartar_pauta_da_org, "descartadas")
+        )
+        botao_pular.config(command=avancar)
+        jan.protocol("WM_DELETE_WINDOW", encerrar)
+        mostrar()
+
     def acao_configurar() -> None:
         """Abre o diálogo de produção: liga/desliga, horários e categorias."""
         e = estado_atual["e"]
@@ -1084,6 +1341,16 @@ def abrir_janela() -> int:
                 fg=AZUL if e.pautas_prontas else FRACO,
             )
 
+        # ---- revisar as pautas (R25): mesmo número, outra pergunta. O "executar
+        # fila" enfileira o lote inteiro sem ler; este abre uma a uma. Os dois
+        # existem porque aprovar em bloco é legítimo depois de já ter lido.
+        if not revisando["v"]:
+            botao_revisar.config(
+                text=rotulo_da_revisao(e.pautas_prontas),
+                state="normal" if e.pautas_prontas else "disabled",
+                fg=VERDE if e.pautas_prontas else FRACO,
+            )
+
         if e.supabase:
             rep, err = e.fila.get("reprovado", 0), e.fila.get("erro", 0)
             partes = [f"Pautas prontas: {e.pautas_prontas}", f"Reprovado: {rep}"]
@@ -1154,6 +1421,7 @@ def abrir_janela() -> int:
     botao_config.config(command=acao_configurar)
     botao_limpar.config(command=acao_limpar)
     botao_executar.config(command=acao_executar)
+    botao_revisar.config(command=acao_revisar)
     canvas.bind("<Configure>", lambda _e: (estado_atual["e"] and desenhar_esteira(estado_atual["e"])))
 
     agendar()

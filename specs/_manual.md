@@ -670,3 +670,76 @@ fila é dar trabalho ao worker, não pôr vídeo no ar.
 
 **Clicar duas vezes não duplica.** Depois do primeiro clique não sobra pauta
 `pronta`, então o segundo enfileira zero.
+
+---
+
+## 16. Revisar a pauta antes do render (Rodada 25)
+
+Você disse que **os roteiros estavam com uma finalização ruim**. Antes desta rodada,
+você só descobria isso depois de 2,5 min de MPT, encode, upload de preview e uma vaga
+da fila gastos — no gate de **vídeo**, quando o estrago já tinha custado.
+
+Agora existe um gate **antes**, de texto: **📝 Revisar pautas (N)**, no painel local.
+
+### 16.1 Aplicar a migration
+
+```bash
+supabase db push
+```
+
+```bash
+supabase db advisors --linked
+```
+
+```bash
+supabase db query --linked -f supabase/tests/rls_test.sql
+```
+
+Alvos: `No issues found` e **67 ✅** (eram 63 — quatro casos novos, mais os casos 26 e
+41 **invertidos**). Um `drop trigger` e uma RPC nova (`descartar_pauta_da_org`);
+**nenhuma tabela, coluna ou política**.
+
+**Atenção ao que vai mudar de resposta:** os casos 26 e 41 passaram de "pauta de
+máquina pronta **é** enfileirada pelo trigger" para "**não** vira vídeo sozinha". Se
+algum deles falhar dizendo `1 vídeo`, o `drop trigger` não pegou.
+
+### 16.2 O que mudou no comportamento
+
+| Antes | Agora |
+|---|---|
+| Pauta `gemini`/`ollama` virava vídeo sozinha (trigger) | Ela fica `pronta`, esperando você ler |
+| O roteiro ruim aparecia no preview, já renderizado | Você lê o roteiro antes de gastar render |
+| Um gate (o do vídeo, no celular) | Dois: o do **texto** no PC, o do **vídeo** no celular |
+
+Pauta **manual** não mudou: nunca foi automática e continua com o botão dela.
+
+### 16.3 Como usar
+
+1. `uv run controle.py`
+2. O botão **📝 Revisar pautas (3)** mostra quantas esperam. Com zero, fica cinza.
+3. A janela mostra **uma pauta por vez**, com o contador ("2 de 7"), o tema, o hook,
+   de onde ela veio (`gemini · disciplina`) e o **roteiro inteiro**, rolável.
+4. Três botões:
+   - **✔ Aprovar** — vira `em_producao` + um vídeo `na_fila`. O worker pega no ciclo
+     seguinte e o vídeo **ainda para no gate do celular**.
+   - **✖ Descartar** — vira `descartada`, terminal. Nenhum vídeo nasce.
+   - **→ Pular** — não decide nada; ela continua esperando na próxima abertura.
+5. No fim aparece o placar: quantas aprovadas e quantas descartadas.
+
+Fechar a janela no meio é seguro — o que você já decidiu está no banco.
+
+### 16.4 Duas coisas que valem saber
+
+**A geração agora freia também pela revisão.** O teto que impede a produção automática
+de afogar a fila passou a contar **vídeo vivo + pauta esperando revisão**. Se você
+deixar 20 pautas sem revisar, a automática para de gerar e está certa: pauta em cima
+de pauta não revisada só empurra o gargalo. Revise ou descarte, e ela volta.
+
+**"Executar fila" continua existindo, e é o atalho.** O **▶ Executar fila** enfileira
+o lote inteiro **sem** abrir roteiro nenhum. Ele é legítimo — depois de já ter lido, ou
+quando você quer só tocar a fila —, mas o caminho normal desta rodada é o 📝.
+
+**Se você quiser o automático de volta,** a função `auto_enfileirar_pauta()` continua
+no banco, desatrelada: religar é recriar um trigger de cinco linhas
+(`after insert on public.pautas when (new.status = 'pronta' and new.origem in (...))`).
+O comentário da função no banco guarda a receita.

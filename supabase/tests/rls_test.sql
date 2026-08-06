@@ -25,10 +25,12 @@
 -- desligada esconderia exatamente a falha que a tabela existe para mostrar.
 -- Os 23–25 são a pauta manual (Rodada 3): o primeiro caminho de INSERT que a
 -- anon key alcança em todo o projeto — até aqui o painel só lia e transicionava.
--- Os 26–28 são o auto-enfileirar (Rodada 4): o trigger que leva pauta de máquina
--- (ollama/cowork) até o gate sozinha, sem tocar o gate. Aqui a pergunta é uma
--- quarta: "esta pauta vira trabalho automaticamente?" — sim para máquina, não
--- para a manual, e nunca com origem fora do check.
+-- Os 26–28 nasceram como o auto-enfileirar (Rodada 4) e foram INVERTIDOS na R25. A
+-- pergunta continua a mesma, quarta da lista — "esta pauta vira trabalho
+-- automaticamente?" —, e a resposta virou **não para ninguém**: o trigger
+-- `t_pautas_auto_enfileirar` saiu quando o dono passou a revisar o roteiro antes do
+-- render. Os casos 26 e 41 são hoje a prova de que o `drop trigger` pegou, e são dois
+-- porque religá-lo para uma origem só (ollama ou gemini) é o descuido plausível.
 -- Os 29–31 são a métrica (Rodada 11): a audiência que a Analytics API traz. Aqui
 -- a pergunta é uma quinta: "quem pode VER que este vídeo performou?" — o painel lê
 -- só a sua org, o worker escreve com service_role, e ninguém logado escreve nem o
@@ -41,9 +43,9 @@
 -- em_producao -> descartada escaparia dela — quem fecha é o trigger
 -- `t_pautas_guarda_descarte`, que vê OLD e NEW. Aqui se prova que o descarte legítimo
 -- passa, o proibido é barrado até no PATCH cru, e descartada não ressuscita.
--- O caso 41 é o auto-enfileirar de 'gemini' (Rodada 20): o quarto valor de origem,
--- o produtor opt-in de cold-start, é produtor de MÁQUINA como ollama/cowork — pauta
--- pronta vira vídeo na fila sozinha e para no gate. Fica no fim do arquivo (o
+-- O caso 41 é o par do 26 para 'gemini' (Rodada 20, invertido na R25): o quarto valor
+-- de origem, o produtor opt-in de cold-start, é produtor de MÁQUINA como ollama — e
+-- desde a R25 espera revisão em vez de virar vídeo. Fica no fim do arquivo (o
 -- `order by teste` o ordena por último) para não renumerar os casos 29–40.
 -- Os 36–40 são a edição de conteúdo (Rodada 15): reescrever tema/roteiro/hook/titulo/
 -- descricao de uma pauta `pronta`, sem tocar status. Mesma forma do descarte — o grant
@@ -66,6 +68,14 @@
 -- do celular. O caso 50 guarda o achado da review: `status` sozinho não protege,
 -- porque `publicacoes` cascateia de `videos` e um vídeo em `erro` pode ter subido
 -- no YouTube antes de quebrar no TikTok.
+-- Os 52–58 são o executar-a-fila (Rodada 23) e os 59–66 a revisão de pauta (Rodada
+-- 24). A nona pergunta, que os dois blocos compartilham: "quem pode mandar renderizar
+-- do PC, e sob qual tenant?" — o caso 53 é a resposta crua, e vale mais que os outros
+-- juntos: `enfileirar_pauta` (Sprint 6) NÃO serve à service_role, porque
+-- `current_org_id()` lê `app_metadata` do JWT e a chave service_role não tem esse
+-- claim. Daí a família `_da_org`/`_prontas`, com o tenant por PARÂMETRO — e daí a
+-- trava `and org_id = p_org` nos casos 61 e 65, que a versão `authenticated` não
+-- precisa porque a RLS a aplica sozinha.
 -- ============================================================
 
 create schema if not exists tests;
@@ -80,9 +90,9 @@ declare
   org_a  uuid := '11111111-1111-1111-1111-111111111111';
   org_b  uuid := '22222222-2222-2222-2222-222222222222';
   -- Org só do `limpar_fila` (Rodada 22). A RPC varre a org INTEIRA, então testá-la
-  -- na org A mediria o resto do arquivo junto: o `renderizando` do gate e os
-  -- `na_fila` que os triggers das pautas ollama/gemini criam também são fila, e o
-  -- número esperado mudaria a cada caso novo semeado acima. Aconteceu — o caso 48
+  -- na org A mediria o resto do arquivo junto: o `renderizando` do gate e todo
+  -- `na_fila` que os casos acima criam também são fila, e o número esperado
+  -- mudaria a cada caso novo semeado antes dele. Aconteceu — o caso 48
   -- nasceu esperando 2 e o banco devolveu 5, com a RPC certa.
   org_c  uuid := '33333333-3333-3333-3333-333333333333';
   jwt_a  text := '{"role":"authenticated","sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",'
@@ -645,27 +655,38 @@ begin
   -- que ignora RLS — é esse contexto que o trigger enxerga, não o de sessão.
   -- Inserir aqui (sem `set role`) é exatamente a escrita do gerador.
 
-  -- Uma pauta pronta de MÁQUINA nasce e o trigger a enfileira sozinha: o vídeo
-  -- aparece em `na_fila` e a pauta anda para `em_producao`. É o "auto até o gate"
-  -- inteiro numa linha — e o gate continua depois, em aguardando_aprovacao.
+  -- INVERTIDO NA RODADA 24. Até aqui, pauta pronta de MÁQUINA virava vídeo sozinha
+  -- pelo trigger. O dono passou a revisar o roteiro ANTES do render ("os roteiros
+  -- estão com uma finalização ruim"), então o trigger saiu e a pauta espera. É o
+  -- caso que prova que o `drop trigger` pegou: se ele voltar por descuido, o número
+  -- aqui vira 1 e o teste grita.
   insert into public.pautas (org_id, tema, roteiro, status, origem)
   values (org_a, '[rls-test] ollama', '[rls-test] roteiro ol', 'pronta', 'ollama')
   returning id into pauta_ol;
 
-  select count(*) into n
-    from public.videos
-   where pauta_id = pauta_ol and status = 'na_fila';
+  select count(*) into n from public.videos where pauta_id = pauta_ol;
   select status into pa_status from public.pautas where id = pauta_ol;
 
-  teste := '26 · pauta ollama pronta é enfileirada pelo trigger';
-  esperado := '1 vídeo na_fila · pauta em_producao';
-  obtido := n::text || ' vídeo na_fila · pauta ' || coalesce(pa_status, '(null)');
-  passou := (n = 1 and pa_status = 'em_producao');
+  teste := '26 · pauta ollama pronta NÃO vira vídeo sozinha (espera revisão)';
+  esperado := '0 vídeo · pauta pronta';
+  obtido := n::text || ' vídeo · pauta ' || coalesce(pa_status, '(null)');
+  passou := (n = 0 and pa_status = 'pronta');
   return next;
 
-  -- A pauta MANUAL nasce pronta e o trigger NÃO a toca: quem digitou no painel
-  -- aperta o botão quando quiser. Sem isso, o auto-enfileirar tiraria a escolha
-  -- de quem já está na tela.
+  -- Fixture, não caso: os casos 33 e 40 precisam de uma pauta `em_producao` para
+  -- provar que as guardas barram descarte e edição a partir de produção. Quem a
+  -- levava até lá era o trigger; agora é a aprovação da revisão, e usar a RPC de
+  -- verdade evita que este arranjo divirja do caminho real.
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  execute 'set local role service_role';
+  perform public.enfileirar_pauta_da_org(org_a, pauta_ol);
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  -- A pauta MANUAL nasce pronta e ninguém a toca: quem digitou no painel aperta o
+  -- botão quando quiser. O caso nasceu contra o trigger da R4 e sobrevive a ele —
+  -- hoje é a garantia de que a pauta manual não ganhou um automatismo pela porta
+  -- lateral quando o de máquina saiu.
   insert into public.pautas (org_id, tema, roteiro, status, origem)
   values (org_a, '[rls-test] manual nao enfileira', '[rls-test] roteiro ma', 'pronta', 'manual')
   returning id into pauta_ma;
@@ -673,7 +694,7 @@ begin
   select count(*) into n from public.videos where pauta_id = pauta_ma;
   select status into pa_status from public.pautas where id = pauta_ma;
 
-  teste := '27 · pauta manual pronta NÃO é enfileirada';
+  teste := '27 · pauta manual pronta NÃO é enfileirada (tem o botão dela)';
   esperado := '0 vídeo · pauta pronta';
   obtido := n::text || ' vídeo · pauta ' || coalesce(pa_status, '(null)');
   passou := (n = 0 and pa_status = 'pronta');
@@ -955,26 +976,24 @@ begin
   passou := (bloqueou and crd_tema = '[rls-test] tema NOVO');
   return next;
 
-  -- ================= AUTO-ENFILEIRAR GEMINI (Rodada 20) =================
-  -- 'gemini' é o quarto valor de `origem` — o produtor OPT-IN de cold-start
-  -- (modelo frontier no bootstrap). Como 'ollama'/'cowork', é produtor de
-  -- MÁQUINA: pauta pronta vira video.na_fila sozinha e para no gate humano. Mesma
-  -- pergunta do caso 26 ("esta pauta vira trabalho automaticamente?"), com o valor
-  -- novo — o caso 28 já provou que fora do vocabulário é recusado. Insere como dono
-  -- (o role foi resetado no caso 40); o trigger dispara em qualquer papel.
+  -- ================= PAUTA GEMINI ESPERA REVISÃO (R20, invertido na R25) =========
+  -- 'gemini' é o quarto valor de `origem` — o produtor OPT-IN de cold-start (modelo
+  -- frontier no bootstrap). Nasceu como produtor de MÁQUINA que o trigger enfileirava
+  -- sozinho; na R25 as DUAS origens de máquina passaram a esperar o dono ler o
+  -- roteiro. Este caso e o 26 são a mesma pergunta com os dois valores vivos, e é de
+  -- propósito que sejam dois: religar o trigger para uma origem só é o erro plausível.
+  -- Insere como dono (o role foi resetado no caso 40).
   insert into public.pautas (org_id, tema, roteiro, status, origem)
-  values (org_a, '[rls-test] gemini enfileira', '[rls-test] roteiro ge', 'pronta', 'gemini')
+  values (org_a, '[rls-test] gemini espera', '[rls-test] roteiro ge', 'pronta', 'gemini')
   returning id into pauta_ge;
 
-  select count(*) into n
-    from public.videos
-   where pauta_id = pauta_ge and status = 'na_fila';
+  select count(*) into n from public.videos where pauta_id = pauta_ge;
   select status into pa_status from public.pautas where id = pauta_ge;
 
-  teste := '41 · pauta gemini pronta é enfileirada pelo trigger';
-  esperado := '1 vídeo na_fila · pauta em_producao';
-  obtido := n::text || ' vídeo na_fila · pauta ' || coalesce(pa_status, '(null)');
-  passou := (n = 1 and pa_status = 'em_producao');
+  teste := '41 · pauta gemini pronta NÃO vira vídeo sozinha (espera revisão)';
+  esperado := '0 vídeo · pauta pronta';
+  obtido := n::text || ' vídeo · pauta ' || coalesce(pa_status, '(null)');
+  passou := (n = 0 and pa_status = 'pronta');
   return next;
 
   -- ============ PRODUÇÃO AUTOMÁTICA E CATEGORIAS (Rodada 21) ============
@@ -1454,6 +1473,86 @@ begin
   execute 'reset role';
 
   teste := '62 · painel web não alcança enfileirar_pauta_da_org';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= DESCARTAR PELA REVISÃO (Rodada 25) =================
+  -- A outra metade do gate editorial. `descartar_pauta` (R14) existe e é do painel
+  -- WEB: ela não filtra org porque se apoia na RLS, e a `service_role` ignora RLS —
+  -- chamada do PC, descartaria pauta de qualquer tenant com o id certo. Por isso a
+  -- irmã com `p_org`, mesma família de `limpar_fila`/`enfileirar_prontas`.
+  --
+  -- A vítima é `pauta_ge`, que o caso 41 deixou `pronta` justamente por não ter
+  -- virado vídeo — a pauta de máquina esperando revisão é o alvo real desta RPC.
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  execute 'set local role service_role';
+
+  perform public.descartar_pauta_da_org(org_a, pauta_ge);
+
+  select status into pa_status from public.pautas where id = pauta_ge;
+  select count(*) into vazou from public.videos where pauta_id = pauta_ge;
+
+  teste := '63 · descartar_pauta_da_org move pronta -> descartada sem criar vídeo';
+  esperado := 'descartada · 0 vídeos';
+  obtido := coalesce(pa_status, '(null)') || ' · ' || vazou::text || ' vídeos';
+  passou := (pa_status = 'descartada' and vazou = 0);
+  return next;
+
+  -- Segundo toque: já descartada, cai no P0001. Sem a guarda, a RPC devolveria zero
+  -- linhas em silêncio e a janela de revisão contaria uma decisão que não aconteceu.
+  bloqueou := false;
+  begin
+    perform public.descartar_pauta_da_org(org_a, pauta_ge);
+  exception
+    when sqlstate 'P0001' then bloqueou := true;
+  end;
+
+  teste := '64 · descartar de novo dá P0001 (só pronta é descartável)';
+  esperado := 'P0001';
+  obtido := case when bloqueou then 'P0001' else 'PASSOU — furo' end;
+  passou := bloqueou;
+  return next;
+
+  -- A TRAVA DE TENANT, do mesmo jeito do caso 61: `pauta_ex` é a pauta da org A que
+  -- sobrou `pronta`. Passar o org_c com o id dela tem de cair no P0002 — senão o
+  -- parâmetro escolheria o tenant e um painel local descartaria pauta da vizinha.
+  bloqueou := false;
+  begin
+    perform public.descartar_pauta_da_org(org_c, pauta_ex);
+  exception
+    when sqlstate 'P0002' then bloqueou := true;
+  end;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  select status into pa_status from public.pautas where id = pauta_ex;
+
+  teste := '65 · pauta de outra org não é descartada sob o p_org recebido';
+  esperado := 'P0002 · vizinha pronta';
+  obtido := case when bloqueou then 'P0002' else 'DESCARTOU — FURO GRAVE' end
+            || ' · vizinha ' || coalesce(pa_status, '(null)');
+  passou := (bloqueou and pa_status = 'pronta');
+  return next;
+
+  -- O painel web tem `descartar_pauta`, que passa pela RLS e pelo current_org_id().
+  -- A de máquina é só da service_role — como as outras três desta família.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  bloqueou := true;
+  begin
+    perform public.descartar_pauta_da_org(org_a, pauta_ge);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '66 · painel web não alcança descartar_pauta_da_org';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;

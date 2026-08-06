@@ -8,11 +8,13 @@ plano zerar, a fila continua girando.
 
 ## Como se encaixa no contrato
 
-Este módulo **só insere em `pautas`**. Quem cria o vídeo é o trigger
-`t_pautas_auto_enfileirar`, no banco — a transição vive no schema, não aqui. É a
-mesma divisão que deixou a Sprint 2 trocar o render fake pelo MPT sem tocar no
-`db.py`: o produtor decide, a tabela executa. E o gate humano continua intacto,
-porque a corrente para em `aguardando_aprovacao`.
+Este módulo **só insere em `pautas`**, e nunca criou vídeo. Até a R25 quem criava
+era o trigger `t_pautas_auto_enfileirar`; hoje é o dono, aprovando na revisão do
+painel local (`enfileirar_pauta_da_org`). A divisão que importa é a mesma dos dois
+jeitos — o produtor escreve texto, quem vira trabalho é outro —, e é ela que deixou
+a Sprint 2 trocar o render fake pelo MPT sem tocar no `db.py`. O gate humano
+continua intacto: agora são dois, o do texto aqui e o do vídeo em
+`aguardando_aprovacao`.
 
 ## Decisões que este módulo carrega
 
@@ -703,7 +705,10 @@ def gerar_pautas(
     """
     org = str(cfg.org_id)
 
-    viva = db.contar_fila_viva(sb, org)
+    # Vídeos vivos MAIS pautas esperando revisão (R25). Desde que o trigger de
+    # auto-enfileirar saiu, pauta gerada não cria vídeo — contar só vídeo faria o
+    # freio nunca fechar, e a automática empilharia pauta a cada slot, para sempre.
+    viva = db.contar_fila_viva(sb, org) + db.contar_pautas_prontas(sb, org)
     if fila_cheia(viva, cfg.pauta_local_teto):
         log.info(
             "fila cheia — não gera pauta",
@@ -811,7 +816,7 @@ def main() -> int:
             f"gerou {resumo['gerou']} pautas prontas de um pool de {resumo.get('pool', '?')} "
             f"candidatos, {ranking}, {few_shot} "
             f"(descartou {resumo['descartou']} inválidas do modelo). "
-            "O trigger já enfileirou cada uma até o gate."
+            "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0
 

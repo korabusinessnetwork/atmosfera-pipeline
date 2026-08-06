@@ -190,7 +190,10 @@ def gerar_pautas(
     """
     org = str(cfg.org_id)
 
-    viva = db.contar_fila_viva(sb, org)
+    # Vídeos vivos MAIS pautas esperando revisão (R25) — mesma conta do `pauta_local`,
+    # e pelo mesmo motivo: sem o trigger de auto-enfileirar, pauta gerada não vira
+    # vídeo, e um freio que só conta vídeo deixaria de frear.
+    viva = db.contar_fila_viva(sb, org) + db.contar_pautas_prontas(sb, org)
     if pl.fila_cheia(viva, cfg.pauta_local_teto):
         log.info(
             "fila cheia — não gera pauta",
@@ -289,7 +292,7 @@ def main() -> int:
         print(
             f"gerou {resumo['gerou']} pautas prontas via Gemini ({cfg.gemini_model}), "
             f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo). "
-            "O trigger já enfileirou cada uma até o gate."
+            "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0
 

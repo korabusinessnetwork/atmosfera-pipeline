@@ -22,7 +22,7 @@ Se um estado novo não cabe no `check (status in (...))`, é migration antes de 
 | **Cowork** ~~(aposentado R10)~~ | ~~remoto, agendado~~ | ~~decide: pauta, relatório~~ | — |
 | **Worker** | seu PC (Windows + WSL2), Python 3.11 | executa: render, ffmpeg, upload; decide: pauta e relatório (Ollama local) | abrir porta, receber conexão |
 | **Painel web** (`painel/`) | Vercel, Next.js, anon key | aprova: fila, preview, histórico | usar service_role, operar a máquina |
-| **Painel local** (`worker/controle.py`) | seu PC, Tkinter, service_role | opera: liga/pausa worker, sobe MPT, gera pauta, horários e categorias | aprovar vídeo (o gate é do celular) |
+| **Painel local** (`worker/controle.py`) | seu PC, Tkinter, service_role | opera: liga/pausa worker, sobe MPT, gera pauta, horários e categorias; **revisa a pauta antes do render** (R25) | aprovar vídeo (o gate é do celular) |
 
 O worker **só faz saída** (polling). O PC nunca abre porta — isso elimina a
 superfície de ataque inteira, e não é negociável.
@@ -55,7 +55,7 @@ vídeo, que é do trigger e do gate. Nada mais consome uso de plano.
   schema. Rodar `supabase db advisors --linked` depois de cada migration — o
   alvo é `No issues found`, não "só warnings".
 - Teste de RLS roda pelo CLI: `supabase db query --linked -f supabase/tests/rls_test.sql`.
-  **Todos ✅** (48 desde a R21) é definition-of-done de qualquer migration que toque tabela —
+  **Todos ✅** (67 desde a R25) é definition-of-done de qualquer migration que toque tabela —
   e o teste cresce junto com o schema: política nova sem caso novo não conta como
   pronta. Os casos 09–12 cobrem `storage.objects` (o preview); os 13–19 cobrem a
   máquina de estados, que é outra pergunta: RLS responde "esta linha é sua?", não
@@ -80,6 +80,13 @@ aprovação manual no celular → `publicando`. Isso não é excesso de zelo:
 YouTube tem teto de ~6 uploads/dia por cota e o TikTok não auditado força
 `SELF_ONLY` em direct post. Full-auto = vídeo invisível ou conta queimada.
 Os limites operacionais estão em `ATMOSFERA_PIPELINE.md` § 7 — nenhum é negociável.
+
+**Desde a R25 são DOIS gates, e o novo vem antes.** Pauta de máquina (`gemini`,
+`ollama`) não vira vídeo sozinha: o trigger `t_pautas_auto_enfileirar` saiu, e ela
+espera o dono ler o roteiro em `controle.py` → **📝 Revisar pautas**. O gate do
+**texto** roda no PC (é operação de máquina); o do **vídeo** segue no celular. Quem
+mexer nos geradores lembre que o freio deles conta **vídeo vivo + pauta `pronta`** —
+contar só vídeo pararia de frear no dia em que o trigger saiu, em silêncio.
 
 ## Ciclo de trabalho
 

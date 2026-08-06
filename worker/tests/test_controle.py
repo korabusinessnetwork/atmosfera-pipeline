@@ -8,6 +8,8 @@ funções puras que a janela apenas pinta.
 
 from __future__ import annotations
 
+import pytest
+
 import controle as c
 
 
@@ -275,3 +277,76 @@ def test_frase_da_execucao_diz_quantas_e_o_que_vem_depois():
 def test_frase_da_execucao_sem_pauta_manda_gerar():
     frase = c.frase_da_execucao(0)
     assert "Nenhuma pauta pronta" in frase and "gere pauta" in frase
+
+
+# ----------------------------------------------------------- rotulo_da_revisao
+def test_rotulo_da_revisao_mostra_o_numero():
+    assert c.rotulo_da_revisao(3) == "📝 Revisar pautas (3)"
+
+
+def test_rotulo_da_revisao_sem_pauta_nao_mostra_zero():
+    # Mesma regra do executar: o botão cinza já diz que não há o que revisar.
+    assert c.rotulo_da_revisao(0) == "📝 Revisar pautas"
+
+
+# -------------------------------------------------------- cabecalho_da_revisao
+def test_cabecalho_da_revisao_conta_a_partir_de_um():
+    # O índice é 0-based no código e 1-based na tela — "0 de 7" faria o dono achar
+    # que ainda não começou.
+    assert c.cabecalho_da_revisao(0, 7) == "1 de 7"
+    assert c.cabecalho_da_revisao(6, 7) == "7 de 7"
+
+
+# ------------------------------------------------------------ texto_do_roteiro
+def test_texto_do_roteiro_devolve_o_roteiro():
+    assert c.texto_do_roteiro({"roteiro": "  linha um\nlinha dois  "}) == (
+        "linha um\nlinha dois"
+    )
+
+
+@pytest.mark.parametrize("valor", [None, "", "   \n  "])
+def test_texto_do_roteiro_sem_texto_diz_que_nao_veio(valor):
+    # Painel em branco pareceria bug da janela; a rodada existe para julgar o
+    # texto, e "não veio texto" é um veredito diferente de "o texto acabou mal".
+    assert c.texto_do_roteiro({"roteiro": valor}) == "(sem roteiro)"
+
+
+def test_texto_do_roteiro_aceita_pauta_sem_a_chave():
+    assert c.texto_do_roteiro({}) == "(sem roteiro)"
+
+
+# --------------------------------------------------------- procedencia_da_pauta
+def test_procedencia_da_pauta_junta_origem_e_categoria():
+    # Saber quem escreveu muda o rigor de quem lê: hook de modelo pequeno é mais
+    # fraco que o do Gemini.
+    assert c.procedencia_da_pauta(
+        {"origem": "gemini", "categoria": "disciplina"}
+    ) == "gemini · disciplina"
+
+
+def test_procedencia_da_pauta_sem_categoria_nao_deixa_separador_solto():
+    assert c.procedencia_da_pauta({"origem": "ollama", "categoria": None}) == "ollama"
+    assert c.procedencia_da_pauta({"origem": "ollama"}) == "ollama"
+
+
+def test_procedencia_da_pauta_sem_origem_nao_quebra():
+    assert c.procedencia_da_pauta({}) == "?"
+
+
+# --------------------------------------------------------- resumo_da_revisao
+def test_resumo_da_revisao_conta_os_dois_lados():
+    frase = c.resumo_da_revisao(2, 3)
+    assert "2 aprovada(s)" in frase and "3 descartada(s)" in frase
+    # O que a aprovação faz acontecer, para não render um segundo clique.
+    assert "próximo ciclo" in frase
+
+
+def test_resumo_da_revisao_omite_o_lado_zerado():
+    assert "descartada" not in c.resumo_da_revisao(2, 0)
+    assert "aprovada" not in c.resumo_da_revisao(0, 2)
+
+
+def test_resumo_da_revisao_sem_decisao_diz_isso():
+    # Chegar ao fim pulando tudo é resultado legítimo — e precisa de frase, senão
+    # a janela fecha calada e parece que engoliu as decisões.
+    assert c.resumo_da_revisao(0, 0) == "Nenhuma pauta decidida."

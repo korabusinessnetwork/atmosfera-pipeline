@@ -177,9 +177,10 @@ def test_limite_nunca_contem_a_chave():
 
 
 # ---------------------------------------------------------------- gerar_pautas
-def _capturar_insercoes(monkeypatch, *, fila=0):
+def _capturar_insercoes(monkeypatch, *, fila=0, prontas=0):
     inseridas = []
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: fila)
+    monkeypatch.setattr(db, "contar_pautas_prontas", lambda _sb, _org: prontas)
     monkeypatch.setattr(db, "hooks_por_retencao", lambda _sb, _org, _lim: [])
     monkeypatch.setattr(
         db, "inserir_pauta",
@@ -270,3 +271,22 @@ def test_main_sem_chave_retorna_2(tmp_path, monkeypatch):
     # quebraria. Prova que retorna 2 sem criar cliente.
     monkeypatch.setattr(db, "criar_cliente", lambda _cfg: pytest.fail("não devia criar cliente"))
     assert pg.main() == 2
+
+
+def test_backpressure_conta_pauta_esperando_revisao(tmp_path, monkeypatch):
+    """Teto atingido só por pautas na revisão: não gera (R25).
+
+    Sem isto o freio deixaria de existir. Desde que o trigger de auto-enfileirar
+    saiu, pauta gerada não cria vídeo — então `contar_fila_viva` fica em zero para
+    sempre, e a produção automática empilharia pauta em todo slot, três vezes por
+    dia, sem nunca parar.
+    """
+    inseridas = _capturar_insercoes(monkeypatch, fila=0, prontas=20)
+    sessao = SessaoGeminiFake(texto=_pautas_json(2))
+
+    resumo = pg.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=sessao)
+
+    assert resumo["motivo"] == "fila_cheia"
+    assert inseridas == []
+    # E nem gastou a cota do Gemini para descobrir: o freio vem antes da chamada.
+    assert sessao.chamadas == []

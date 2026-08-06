@@ -64,8 +64,9 @@ def inserir_pauta(
     """Insere uma pauta pronta de produtor de máquina. Devolve o id.
 
     `status` é carimbado aqui, não recebido: o produtor não escolhe — é a mesma
-    disciplina da `pauta_nova` do painel, que fixa no servidor. E é isso que o
-    trigger `t_pautas_auto_enfileirar` espera para enfileirar sozinho até o gate.
+    disciplina da `pauta_nova` do painel, que fixa no servidor. Até a R25, `pronta`
+    também era o gatilho do `t_pautas_auto_enfileirar`, que virava vídeo sozinho;
+    hoje o trigger não existe e `pronta` significa "esperando o dono ler o roteiro".
 
     `origem` tem default 'ollama' (o produtor local, Rodada 4) para não mudar
     nenhuma chamada existente; o produtor Gemini (Rodada 20) passa 'gemini'. O
@@ -274,6 +275,64 @@ def enfileirar_prontas(sb: Client, org_id: str) -> int:
     """Enfileira render para todas as pautas `pronta` da org. Devolve quantas (R23)."""
     resposta = sb.rpc("enfileirar_prontas", {"p_org": org_id}).execute()
     return int(resposta.data or 0)
+
+
+# ================================================ revisão de pauta (R25)
+# O gate editorial: pauta de máquina não vira vídeo sozinha (o trigger
+# `t_pautas_auto_enfileirar` saiu), então alguém precisa ler o roteiro e decidir.
+# APROVAR reusa `enfileirar_pauta_da_org` (logo acima) — a mesma RPC que o verbo do
+# MCP passou a chamar nesta rodada, e não uma segunda porta para o mesmo efeito.
+# DESCARTAR ganha a irmã dela, pelo mesmo motivo de sempre: `current_org_id()` é nulo
+# para a `service_role`, então o tenant vem por parâmetro.
+
+# Diferente de `CAMPOS_PAUTA`, aqui o `roteiro` é o CAMPO PRINCIPAL: a rodada existe
+# porque a finalização dos roteiros estava ruim, e não se julga isso por tema e hook.
+CAMPOS_REVISAO = "id, tema, hook, roteiro, titulo, origem, categoria, created_at"
+
+
+def listar_pautas_para_revisao(
+    sb: Client, org_id: str, limite: int
+) -> list[dict[str, Any]]:
+    """Pautas `pronta` desta org com o roteiro inteiro, mais antiga primeiro.
+
+    Ordem por `created_at` e não por prioridade: revisão é fila de trabalho humano, e
+    o que espera há mais tempo é o que arrisca envelhecer (o hook segue a notícia).
+    """
+    resposta = (
+        sb.table("pautas")
+        .select(CAMPOS_REVISAO)
+        .eq("org_id", org_id)
+        .eq("status", "pronta")
+        .order("created_at")
+        .limit(limite)
+        .execute()
+    )
+    return resposta.data or []
+
+
+def contar_pautas_prontas(sb: Client, org_id: str) -> int:
+    """Pautas desta org esperando revisão humana.
+
+    Entra na conta do backpressure (R25): sem o trigger de auto-enfileirar, pauta
+    gerada não cria vídeo, e um freio que só conta vídeo pararia de frear — a
+    automática empilharia pauta três vezes por dia, para sempre. Pauta esperando
+    decisão É trabalho não decidido, exatamente como um vídeo no gate.
+    """
+    resposta = (
+        sb.table("pautas")
+        .select("id", count="exact")
+        .eq("org_id", org_id)
+        .eq("status", "pronta")
+        .execute()
+    )
+    return int(resposta.count or 0)
+
+
+def descartar_pauta_da_org(sb: Client, org_id: str, pauta_id: str) -> None:
+    """Recusa uma pauta na revisão: `pronta` -> `descartada` (terminal)."""
+    sb.rpc(
+        "descartar_pauta_da_org", {"p_org": org_id, "p_pauta_id": pauta_id}
+    ).execute()
 
 
 def concluir_render(

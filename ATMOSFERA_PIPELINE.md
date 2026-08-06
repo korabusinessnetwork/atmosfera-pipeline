@@ -54,8 +54,8 @@ Versão 1.0 — 2026-08-01
 **Ciclo de vida de um vídeo:**
 
 ```
-pauta.pronta
-  → video.na_fila           (painel ou trigger)
+pauta.pronta               ← GATE DO TEXTO: o dono lê o roteiro (painel local, R25)
+  → video.na_fila           (revisão aprovada, painel web, ou "executar fila")
   → video.renderizando      (worker travou o registro)
   → video.aguardando_aprovacao
   → video.aprovado          (VOCÊ, no celular)
@@ -1081,7 +1081,11 @@ if __name__ == "__main__":
 [x] 16. Limpar a fila e refazer os vídeos (R22)           (40 min)  ← 585 testes, 1 migration (só RPC), rls_test 48→53 casos (verificação humana)
 [x] 16b. Aplicar a migration do limpar_fila               (5 min)   ← FEITO 2026-08-06; advisors limpo, rls_test 53/53 ✅
 [x] 17. Executar a fila — pautas prontas para render (R23) (40 min) ← 589 testes, 1 migration (só RPC), rls_test 53→59 casos (verificação humana)
-[ ] 17b. Aplicar a migration do enfileirar_prontas         (5 min)  ← SEU: db push/advisors/rls_test, ver specs/_manual.md §15
+[x] 17b. Aplicar a migration do enfileirar_prontas         (5 min)  ← FEITO 2026-08-06 junto com a da R24; advisors limpo
+[x] 18. Enfileirar uma pauta pelo MCP — o caminho da service_role (R24) (40 min) ← 589 testes, 1 migration (só RPC), rls_test 59→62 casos
+[x] 18b. Aplicar a migration do enfileirar_pauta_da_org    (5 min)  ← FEITO 2026-08-06; advisors limpo, rls_test 62/62 ✅
+[x] 19. Revisar a pauta antes do render — o gate editorial (R25) (1h) ← 605 testes, 1 migration (drop de trigger + 1 RPC), rls_test 63→67 casos (verificação humana)
+[ ] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← SEU: db push/advisors/rls_test, ver specs/_manual.md §16
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1126,6 +1130,33 @@ parâmetro, como a `limpar_fila`. Consequência fora desta rodada: o verbo
 `enfileirar_pauta` do servidor MCP (`worker/mcp_server.py`) está quebrado pelo mesmo
 motivo, e nunca apareceu porque a conversa real com um cliente MCP ficou como passo
 humano. O caso 53 do `rls_test` prova o P0001 em vez de afirmá-lo.
+
+**Item 18 — o verbo do MCP consertado.** A Rodada 24 fecha exatamente esse defeito:
+`enfileirar_pauta_da_org(p_org, p_pauta_id)` espelha a RPC da Sprint 6 com o tenant
+por parâmetro, e o handler do `mcp_server.py` passa a chamá-la. A **trava de tenant
+nova** é o achado: a original não filtra por org porque roda como `authenticated` e o
+`for update` reaplica o USING da RLS; a `service_role` **ignora RLS**, então sem
+`and org_id = p_org` no `select` um id de pauta de outra org seria enfileirado sob o
+`p_org` recebido — o parâmetro escolhendo o tenant de uma pauta alheia. Vale como
+regra: **toda RPC `service_role` com `p_org` casa cada linha tocada com `p_org`.**
+
+**Item 19 — um gate antes do render, de texto.** Pedido do dono: *"os roteiros estão
+com uma finalização ruim"*. Até aqui ele só descobria isso depois de 2,5 min de MPT,
+encode, upload de preview e uma vaga da fila gastos — no gate de **vídeo**, quando o
+estrago já custou. A Rodada 25 tira o trigger `t_pautas_auto_enfileirar` e põe uma
+**revisão de pauta** no painel local: `📝 Revisar pautas (N)` abre uma janela que
+mostra **uma pauta por vez** com o roteiro inteiro, e o dono aprova (vira `na_fila`,
+reusando a RPC do item 18) ou descarta (`descartar_pauta_da_org`). Isso **aumenta** o
+controle humano — nada passou a ser automático; uma etapa deixou de ser —, e o gate
+de vídeo no celular segue idêntico. Agora são **dois gates**: o do texto, no PC, e o
+do vídeo, no celular.
+
+**A consequência que quase passou calada:** o backpressure dos geradores contava
+**vídeos** (`contar_fila_viva`). Sem o trigger, pauta gerada não cria vídeo nenhum, a
+conta ficaria baixa para sempre e a produção automática empilharia pauta três vezes
+por dia, sem limite — falha muda, com todo componente reportando sucesso. A conta
+passou a somar as **pautas `pronta` esperando revisão**, que é exatamente trabalho não
+decidido, igual a um vídeo no gate. `specs/_manual.md` § 16.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

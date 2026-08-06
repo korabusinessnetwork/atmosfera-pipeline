@@ -9,6 +9,49 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 25 — revisar a pauta antes do render (o gate editorial) · 2026-08-06
+
+- Spec: `specs/revisar-pautas-antes-do-render.md`
+- **Pedido do dono:** "os roteiros eles estão com uma finalização ruim, cria pra mim uma
+  seção no controlador local aonde eu vou conseguir ver as pautas geradas pelo gemini e
+  aprovar elas pra produção". Perguntado antes de construir, estendeu para **todas as
+  origens de máquina** (gemini **e** ollama) e limitou a **aprovar e descartar** — sem
+  edição na janela.
+- **O que entrou:** migration `20260806212432_revisao_de_pauta.sql` (`drop trigger
+  t_pautas_auto_enfileirar` + a RPC `descartar_pauta_da_org(p_org, p_pauta_id)`, com
+  `revoke`/`grant` da família de máquina) · `db.listar_pautas_para_revisao`,
+  `db.contar_pautas_prontas`, `db.descartar_pauta_da_org` · botão **📝 Revisar pautas
+  (N)** e a janela de revisão no `controle.py`, uma pauta por vez com o roteiro inteiro
+  rolável · quatro funções puras com teste (`rotulo_da_revisao`,
+  `cabecalho_da_revisao`, `texto_do_roteiro`, `procedencia_da_pauta`,
+  `resumo_da_revisao`).
+- **Portões:** **605 testes do worker** (eram 589) · `rls_test` 63 → **67** (casos
+  63–66 novos, **26 e 41 invertidos**) · `painel/` intocado. `db push`/`advisors`/
+  `rls_test` contra o banco são passo humano (item 19b).
+- **A consequência que quase passou calada — e é o aprendizado da rodada:** tirar o
+  trigger quebra o **backpressure** dos geradores, que contava `videos`
+  (`na_fila`/`renderizando`/`aguardando_aprovacao`). Sem trigger, pauta gerada não cria
+  vídeo, a conta fica baixa **para sempre** e a produção automática empilharia pauta
+  três vezes por dia, sem limite — falha muda, com todo componente reportando sucesso.
+  A conta passou a somar as pautas `pronta`. **Regra:** ao remover o que CRIA a linha
+  que um contador mede, o contador é parte da mudança, não vizinhança.
+- **Colisão com a R24, reconciliada durante o build:** as duas rodadas correram em
+  paralelo e convergiram para a **mesma RPC de aprovação**. A migration desta rodada
+  **não** recria `enfileirar_pauta_da_org` — usa a de `20260806204920` (R24), que é
+  idêntica em contrato e melhor documentada; `db.enfileirar_pauta_da_org` idem. Os
+  casos 59–62 (aprovar) são da R24, os 63–66 (descartar) desta. Duas definições da
+  mesma função seriam duas guardas de estado divergindo na primeira mudança.
+  Registrado no § 9 do spec.
+- **Isto AUMENTA o gate humano** (ADR-06): nada passou a ser automático; uma etapa
+  deixou de ser. São dois gates agora — o do **texto**, no PC, e o do **vídeo**, no
+  celular. A divisão é a do `CLAUDE.md`: operação de máquina nasce no `controle.py`.
+- **Pendente de decisão:** nenhuma.
+- **Próximo item recomendado:** **melhorar o prompt de finalização do roteiro** — a
+  revisão revela o problema, não o conserta; agora dá para medir antes/depois lendo o
+  que o modelo entrega, em vez de julgar pelo vídeo pronto.
+
+---
+
 ## Rodada 24 — enfileirar uma pauta pelo MCP (o caminho da service_role) · 2026-08-06
 
 - Spec: `specs/enfileirar-pauta-mcp-service-role.md`

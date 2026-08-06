@@ -451,6 +451,7 @@ def test_gerar_pool_faz_ceil_chamadas(tmp_path):
 def _capturar_insercoes(monkeypatch):
     inseridas = []
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    monkeypatch.setattr(db, "contar_pautas_prontas", lambda _sb, _org: 0)
     # Sem métrica por padrão: o few-shot de vencedores degrada para vazio, e os
     # testes de orquestração best-of-N seguem exercitando só a espinha.
     monkeypatch.setattr(db, "hooks_por_retencao", lambda _sb, _org, _lim: [])
@@ -462,6 +463,7 @@ def _capturar_insercoes(monkeypatch):
 
 def test_gerar_para_quando_fila_cheia(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 20)
+    monkeypatch.setattr(db, "contar_pautas_prontas", lambda _sb, _org: 0)
     inseriu = []
     monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: inseriu.append(k) or "x")
     sessao = SessaoRoteada(geracao=_pool_json(6))
@@ -470,6 +472,26 @@ def test_gerar_para_quando_fila_cheia(tmp_path, monkeypatch):
 
     assert resumo["gerou"] == 0 and resumo["motivo"] == "fila_cheia"
     assert inseriu == [] and sessao.chamadas == []   # nem chamou o Ollama
+
+
+def test_backpressure_conta_pauta_esperando_revisao(tmp_path, monkeypatch):
+    """Teto atingido só por pautas na revisão: não gera (R25).
+
+    Desde que o trigger de auto-enfileirar saiu, pauta gerada não vira vídeo — fica
+    `pronta` esperando o dono ler o roteiro. Um freio que contasse só vídeo veria
+    zero para sempre e a automática empilharia pauta três vezes por dia, calada. É o
+    caso que prova que a conta virou fila viva + prontas.
+    """
+    monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    monkeypatch.setattr(db, "contar_pautas_prontas", lambda _sb, _org: 20)
+    inseriu = []
+    monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: inseriu.append(k) or "x")
+    sessao = SessaoRoteada(geracao=_pool_json(6))
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path), sb=object(), sessao=sessao)
+
+    assert resumo["motivo"] == "fila_cheia"
+    assert inseriu == [] and sessao.chamadas == []
 
 
 def test_gerar_ranqueia_e_insere_top_n(tmp_path, monkeypatch):
@@ -546,6 +568,7 @@ def test_refinar_desligado_nao_reescreve(tmp_path, monkeypatch):
 
 def test_pool_vazio_levanta(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "contar_fila_viva", lambda _sb, _org: 0)
+    monkeypatch.setattr(db, "contar_pautas_prontas", lambda _sb, _org: 0)
     monkeypatch.setattr(db, "hooks_por_retencao", lambda _sb, _org, _lim: [])
     monkeypatch.setattr(db, "inserir_pauta", lambda *a, **k: "x")
     # modelo devolve só lixo sem tema/roteiro → pool vazio.
