@@ -572,3 +572,50 @@ rodada). Categoria dirige o **assunto**; a voz da marca continua vindo inteira d
 
 **O gate humano continua de pé.** Nada disto publica sozinho: pauta → vídeo →
 `aguardando_aprovacao` → **você**, no celular.
+
+## 14. Limpar a fila e refazer (Rodada 22)
+
+O botão **🧹 limpar fila** (painel local, no cartão de produção, ao lado de
+`ajustar`) apaga os vídeos que ainda não saíram e **recria um vídeo novo por pauta**
+— mesmo roteiro, mesmo hook, render do zero. Serve para quando alguma coisa do
+render mudou e o que está na fila ficou velho: foi exatamente o caso do footage
+repetido, quando `MPT_VIDEO_SOURCE` passou de `local` para `pexels`.
+
+### 14.1 Aplicar a migration
+
+```bash
+supabase db push
+supabase db advisors --linked
+supabase db query --linked -f supabase/tests/rls_test.sql
+```
+
+Alvos: `No issues found` e **51 ✅** (eram 48 — quatro casos novos, um deles
+renumerado). Uma RPC nova (`limpar_fila`), **nenhuma tabela, coluna ou política**.
+
+### 14.2 O que ele apaga, e o que não encosta
+
+| Apaga | Não encosta |
+|---|---|
+| `na_fila`, `renderizando`, `aguardando_aprovacao`, `reprovado`, `erro` | `aprovado`, `publicando`, `publicado` |
+| | **qualquer vídeo que já tocou plataforma**, mesmo em `erro` |
+
+A segunda linha da coluna direita é a que importa e não é óbvia: `publicacoes`
+cascateia de `videos`, e um vídeo em `erro` pode ter chegado ali **depois** de subir
+no YouTube (falha no TikTok, por exemplo). Apagá-lo levaria junto o registro do
+upload e a audiência que ele já rendeu. Esses ficam.
+
+**A pauta não muda de estado.** Continua `em_producao`, que é a verdade — ela ganhou
+um vídeo novo. Nada é descartado, nada volta para a lista de pautas prontas.
+
+### 14.3 Três coisas que valem saber antes de clicar
+
+- **Confirma em dois toques** e diz quantos vídeos vão embora.
+- **Render em curso é perdido no meio.** A linha some e o worker termina o encode
+  contra um id que não existe mais; o `.mp4` fica órfão em `output/pending/`. A pauta
+  já ganhou um vídeo novo, então o conteúdo não se perde — só aquele trabalho.
+- **Não apaga arquivo do disco.** `output/pending/` acumula, de propósito: apagar
+  arquivo é irreversível de um jeito que uma linha de tabela não é. Limpe à mão
+  quando quiser.
+
+O gate humano segue de pé: os vídeos recriados nascem `na_fila` e param de novo em
+`aguardando_aprovacao`, esperando você no celular.

@@ -1067,6 +1067,8 @@ if __name__ == "__main__":
 [ ] 14b. Re-consentir OAuth (analytics) + aplicar migration (15 min) ← SEU: autorizar_youtube.py + db push/advisors/rls_test, ver specs/_manual.md §11
 [x] 15. Produção automática + categorias + MPT sob o worker (R21) (2h) ← 578 testes, 2 migrations, rls_test 42→48 casos (verificação humana)
 [~] 15b. Aplicar as migrations + criar as categorias no painel local (10 min) ← migrations APLICADAS 2026-08-06 (advisors limpo, rls_test 48/48 ✅); falta criar as categorias em `uv run controle.py`, ver specs/_manual.md §13
+[x] 16. Limpar a fila e refazer os vídeos (R22)           (40 min)  ← 585 testes, 1 migration (só RPC), rls_test 48→51 casos (verificação humana)
+[ ] 16b. Aplicar a migration do limpar_fila               (5 min)   ← SEU: db push/advisors/rls_test, ver specs/_manual.md §14
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1078,6 +1080,19 @@ assunto da geração e etiquetam a pauta, e o **MPT sob o worker** (sobe junto, 
 morre junto). Os passos que tocam o Supabase são seus (item 15b) — o ambiente do
 agente não alcança o banco. Detalhe em `specs/producao-gerar-agora-e-agendada.md` e
 `specs/_manual.md` § 13.
+
+**Item 16 — recomeçar sem perder o que está escrito.** A troca de
+`MPT_VIDEO_SOURCE` de `local` para `pexels` deixou uma fila inteira de vídeos com a
+mesma imagem reciclada e o texto ainda bom. A Rodada 22 dá o botão **"🧹 limpar
+fila"** no painel local: uma RPC (`limpar_fila`) apaga os vídeos não publicados e
+**recria um `na_fila` por pauta atingida** — mesmo roteiro, render novo — numa
+transação só, porque apagar sem recriar deixaria pauta `em_producao` órfã. Ela não
+encosta em `aprovado`/`publicando`/`publicado` **nem em vídeo que já tocou
+plataforma**, mesmo em `erro`: `publicacoes` cascateia de `videos`, e um `erro` pode
+ser falha de TikTok **depois** de o YouTube ter subido — apagá-lo destruiria o
+registro do upload e a métrica junto. Nenhuma tabela, coluna ou política nova; só a
+função, com `revoke` de `anon`/`authenticated` (limpar a fila inteira do celular é a
+operação mais destrutiva do sistema, e é a única sem volta). `specs/_manual.md` § 14.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

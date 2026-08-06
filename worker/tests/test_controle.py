@@ -208,3 +208,44 @@ def test_frase_do_resultado_zero_mostra_o_motivo():
 
 def test_frase_do_resultado_zero_sem_motivo_nao_fica_vazia():
     assert c.frase_do_resultado(_ResultadoFake(0)) == "Não gerou pauta."
+
+
+# ------------------------------------------------------------ videos_da_limpeza
+def test_limpeza_conta_so_o_que_a_rpc_apaga():
+    fila = {
+        "na_fila": 2,
+        "renderizando": 1,
+        "aguardando_aprovacao": 3,
+        "reprovado": 1,
+        "erro": 4,
+        # Estes NÃO entram: vídeo a caminho do YouTube tem cota gasta, e apagar a
+        # linha faria o sistema perder o rastro de um upload que já aconteceu.
+        "aprovado": 5,
+        "publicando": 2,
+        "publicado": 9,
+    }
+    assert c.videos_da_limpeza(fila) == 11
+
+
+def test_limpeza_de_fila_vazia_e_zero():
+    assert c.videos_da_limpeza({}) == 0
+    assert c.videos_da_limpeza({"publicado": 20}) == 0
+
+
+def test_estados_da_limpeza_nao_inclui_publicacao():
+    # A lista canônica mora na RPC; esta cópia só conta na tela. Divergir faria a
+    # confirmação mentir sobre quanto será apagado.
+    for proibido in ("aprovado", "publicando", "publicado"):
+        assert proibido not in c.ESTADOS_DA_LIMPEZA
+
+
+# ------------------------------------------------------------- frase_da_limpeza
+def test_frase_da_limpeza_diz_os_dois_numeros():
+    # Apagados e recriados diferem quando uma pauta acumulou tentativas — e é
+    # justamente aí que "apaguei 6" enganaria.
+    frase = c.frase_da_limpeza(6, 4)
+    assert "6" in frase and "4" in frase
+
+
+def test_frase_da_limpeza_de_fila_vazia():
+    assert "já está vazia" in c.frase_da_limpeza(0, 0)

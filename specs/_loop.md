@@ -9,6 +9,43 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 22 — limpar a fila e refazer os vídeos · 2026-08-06
+
+- Spec: `specs/limpar-fila-e-refazer.md`
+- **Pedido do dono:** "cria um botão de limpar a fila pra quando eu quiser limpar e
+  recomeçar os videos". Origem concreta: os vídeos da fila nasceram com
+  `MPT_VIDEO_SOURCE=local`, reciclando os mesmos 4 clipes; trocada a fonte para
+  `pexels`, o que precisa nascer de novo é a **imagem**, não o texto.
+- **Duas escolhas do dono** (perguntadas antes de construir, porque mudavam o
+  trabalho): *refazer com as mesmas pautas* (não descartar) e *tudo que não foi
+  publicado* (`na_fila`, `renderizando`, `aguardando_aprovacao`, `reprovado`, `erro`).
+- **Review:** ✅ aprovado sem ressalvas, 12/12 com evidência. Portões: **585 testes
+  do worker** (eram 580) · `painel/` intocado · `rls_test` 48 → **51** (casos 48–51).
+- **O que entrou:** migration `20260806201502_limpar_fila.sql` (só a RPC
+  `public.limpar_fila(p_org)`, `revoke` de `public`/`anon`/`authenticated`, `grant`
+  para `service_role`) · `db.limpar_fila` · botão **🧹 limpar fila** no cartão de
+  produção do `controle.py`, com confirmação em dois toques e thread própria ·
+  `videos_da_limpeza`/`frase_da_limpeza` (puras, com teste).
+- **O defeito achado na auditoria e corrigido:** filtrar por `status` **não bastava**.
+  `publicacoes.video_id` tem `on delete cascade` (e `metricas` cascateia dele), e um
+  vídeo em `erro` pode ter chegado ali **por falha de publicação** — com o upload do
+  YouTube já feito. Apagá-lo destruiria o registro do upload e a audiência que ele
+  rendeu, que é exatamente o que o critério 2 prometia proteger. Virou
+  `not exists (select 1 from publicacoes …)` + critério 2b + caso 50 do `rls_test`.
+- **Aprendido:** cascade é parte do alcance de um DELETE, e "escolhi os status
+  certos" não é evidência de que nada além deles morre — a pergunta é *quais tabelas
+  apontam para esta com cascade*, e ela se responde lendo o schema, não o WHERE.
+  Registrado no spec e no § 8 do `ATMOSFERA_PIPELINE.md`.
+- Commit: (abaixo) na branch `rodada-21-producao-automatica`
+- Pendente de decisão: nenhuma
+- Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
+  (alvo **51 ✅**) — item 16b, `specs/_manual.md` § 14
+- Próximo item recomendado: **14b** (re-consentir o OAuth com o escopo de Analytics)
+  — é o único passo que ainda separa a tabela `metricas` de encher, e ela é o
+  professor do gerador de pauta.
+
+---
+
 ## Rodada 21 — produção automática, categorias e MPT sob o worker · 2026-08-06
 
 - Spec: `specs/producao-gerar-agora-e-agendada.md`

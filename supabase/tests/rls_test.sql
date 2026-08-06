@@ -50,15 +50,22 @@
 -- de coluna + a política permissiva deixariam editar em em_producao, e o trigger
 -- `t_pautas_guarda_edicao` fecha (vê OLD e NEW). Prova: edição de pronta passa, a de
 -- em_producao é barrada até no PATCH cru, org alheia e branco são recusados. Nenhuma
+-- política nova entrou (editar pronta já passa a política de update de `pautas`),
+-- então a edição não mexeu no case 02 — foi a R19 que depois o levou de 11 a 10, ao
+-- fundir `pautas_producao` + `pautas_descartar` na única `pautas_atualizar`.
 -- Os 42–47 são a produção automática e as categorias (Rodada 21). A pergunta é uma
 -- sétima: "quem pode MUDAR o que a máquina produz sozinha?" — o painel web lê a
 -- própria org e nada mais, porque quem escreve nessas duas tabelas decide quantos
 -- vídeos por dia o canal publica e sobre o que eles falam. Dois casos não são de
 -- RLS e estão ali porque o schema é que os garante: no máximo uma categoria padrão
 -- por org (índice parcial) e horário fora de 0–23 ou lista vazia recusados (check).
--- política nova entrou (editar pronta já passa a política de update de `pautas`),
--- então a edição não mexeu no case 02 — foi a R19 que depois o levou de 11 a 10, ao
--- fundir `pautas_producao` + `pautas_descartar` na única `pautas_atualizar`.
+-- Os 48–51 são o limpar-a-fila (Rodada 22). A oitava pergunta: "quem pode APAGAR a
+-- fila inteira, e o que fica de fora?" — a RPC recria um vídeo por pauta atingida,
+-- não encosta em aprovado/publicando/publicado (cota do YouTube já gasta) e é a
+-- única do projeto concedida SÓ à service_role: destrutiva sem volta não se opera
+-- do celular. O caso 50 guarda o achado da review: `status` sozinho não protege,
+-- porque `publicacoes` cascateia de `videos` e um vídeo em `erro` pode ter subido
+-- no YouTube antes de quebrar no TikTok.
 -- ============================================================
 
 create schema if not exists tests;
@@ -99,6 +106,8 @@ declare
   met_pub_b   uuid; -- publicação da org B (o vizinho)
   pauta_ed    uuid; -- pauta pronta para a edição de conteúdo (Rodada 15)
   pauta_ge    uuid; -- pauta gemini que o trigger deve enfileirar (Rodada 20)
+  pauta_lf    uuid; -- pauta com a fila completa, para o limpar_fila (Rodada 22)
+  vid_lf_pub  uuid; -- vídeo em erro QUE JÁ PUBLICOU (o cascade que quase passou)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -1105,6 +1114,92 @@ begin
   teste := '47 · horário inválido e lista vazia são recusados';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= LIMPAR A FILA (Rodada 22) =================
+  -- A oitava pergunta: "quem pode APAGAR a fila inteira, e o que fica de fora?".
+  -- A RPC é destrutiva e não tem volta, então duas coisas precisam de prova: que
+  -- ela respeita a fronteira do que já saiu para o YouTube, e que ninguém com a
+  -- anon key a alcança do celular.
+  --
+  -- Semeia como dono uma fila completa numa pauta só: dois vídeos que a limpeza
+  -- atinge e três que ela não pode tocar.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] limpar fila', '[rls-test] roteiro lf', 'em_producao', 'manual')
+  returning id into pauta_lf;
+
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_a, pauta_lf, 'na_fila'),
+         (org_a, pauta_lf, 'erro'),
+         (org_a, pauta_lf, 'aprovado'),
+         (org_a, pauta_lf, 'publicando'),
+         (org_a, pauta_lf, 'publicado');
+
+  -- O caso que status sozinho NÃO cobre: vídeo em `erro` que chegou ali por falha
+  -- de publicação — subiu no YouTube e quebrou no TikTok. `publicacoes` cascateia
+  -- de `videos`, então apagá-lo destruiria o registro de um upload que aconteceu.
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_a, pauta_lf, 'erro') returning id into vid_lf_pub;
+  insert into public.publicacoes (org_id, video_id, plataforma, status, external_id)
+  values (org_a, vid_lf_pub, 'youtube', 'publicado', '[rls-test]-ext-lf');
+
+  select lf.apagados, lf.recriados into n, vazou
+    from public.limpar_fila(org_a) lf;
+
+  teste := '48 · limpar_fila apaga os 2 da fila e recria 1 por pauta';
+  esperado := '2 apagados · 1 recriado';
+  obtido := n::text || ' apagados · ' || vazou::text || ' recriado';
+  passou := (n = 2 and vazou = 1);
+  return next;
+
+  -- O que já saiu para o YouTube (ou está saindo) tem cota gasta: apagar a linha
+  -- faria o sistema perder o rastro de um upload que já aconteceu.
+  select count(*) into n
+    from public.videos
+   where pauta_id = pauta_lf and status in ('aprovado', 'publicando', 'publicado');
+  select count(*) into vazou
+    from public.videos
+   where pauta_id = pauta_lf and status = 'na_fila';
+  select status into pa_status from public.pautas where id = pauta_lf;
+
+  teste := '49 · limpar_fila não toca aprovado/publicando/publicado nem a pauta';
+  esperado := '3 intocados · 1 novo na_fila · pauta em_producao';
+  obtido := n::text || ' intocados · ' || vazou::text || ' novo na_fila · pauta '
+            || coalesce(pa_status, '(null)');
+  passou := (n = 3 and vazou = 1 and pa_status = 'em_producao');
+  return next;
+
+  -- O vídeo em `erro` COM publicação sobrevive, e a publicação junto. Status
+  -- sozinho não o protegeria: ele está numa das cinco faixas apagáveis.
+  select count(*) into n from public.videos where id = vid_lf_pub;
+  select count(*) into vazou
+    from public.publicacoes where external_id = '[rls-test]-ext-lf';
+
+  teste := '50 · limpar_fila poupa vídeo em erro que já publicou (cascade)';
+  esperado := '1 vídeo · 1 publicação';
+  obtido := n::text || ' vídeo · ' || vazou::text || ' publicação';
+  passou := (n = 1 and vazou = 1);
+  return next;
+
+  -- O painel web NUNCA alcança esta RPC. Diferente de aprovar/reprovar, ela não
+  -- tem volta — e a anon key mora no navegador de um celular.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  bloqueou := true;
+  begin
+    perform public.limpar_fila(org_a);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '51 · painel web não alcança limpar_fila';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;
   return next;
 

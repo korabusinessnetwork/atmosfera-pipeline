@@ -441,6 +441,37 @@ def frase_do_resultado(resultado: Any) -> str:
     return resultado.motivo or "Não gerou pauta."
 
 
+# --------------------------------------------------- limpar a fila (R22)
+
+# Os estados que a limpeza atinge. A lista canônica mora na RPC `limpar_fila`; esta
+# cópia serve só para CONTAR na tela de confirmação — o que vai ser apagado quem
+# decide é o banco, e ter a contagem errada aqui seria mentir para o dono na única
+# tela em que ele pode desistir.
+ESTADOS_DA_LIMPEZA = (
+    "na_fila", "renderizando", "aguardando_aprovacao", "reprovado", "erro",
+)
+
+
+def videos_da_limpeza(fila: dict[str, int]) -> int:
+    """Quantos vídeos a limpeza vai apagar, segundo a contagem da tela. Pura."""
+    return sum(fila.get(estado, 0) for estado in ESTADOS_DA_LIMPEZA)
+
+
+def frase_da_limpeza(apagados: int, recriados: int) -> str:
+    """O desfecho da limpeza, em uma frase. Pura.
+
+    Diz os DOIS números porque eles não são iguais e a diferença é informação: uma
+    pauta que acumulou duas tentativas some duas vezes e volta uma só. Ver só
+    "apaguei 6" faria parecer que a fila esvaziou.
+    """
+    if not apagados:
+        return "Nada para limpar — a fila já está vazia."
+    return (
+        f"Apaguei {apagados} vídeo(s) e recriei {recriados} na fila, "
+        "com as mesmas pautas. O render começa no próximo ciclo."
+    )
+
+
 def rodar_status() -> int:
     """Modo headless: imprime o estado uma vez e sai. Para terminal e teste."""
     from config import ConfigInvalida, carregar
@@ -498,6 +529,7 @@ def abrir_janela() -> int:
     estado_atual: dict[str, Estado | None] = {"e": None}
     ocupado = {"v": False}   # ligar/pausar o worker
     gerando = {"v": False}   # gerar pauta (independente do acima)
+    limpando = {"v": False}  # limpar a fila (R22) — destrutiva, trava so dela
     fase = {"p": True}   # alterna a cada tique para pulsar o estágio ativo
 
     def fonte(tam: int, negrito: bool = False) -> tuple:
@@ -558,6 +590,13 @@ def abrir_janela() -> int:
         bd=0, bg=BG, fg=AZUL, padx=8,
     )
     botao_config.pack(side="right")
+    # Destrutivo fica de propósito discreto e longe do "Gerar agora": mesmo tamanho
+    # de um link, na cor de aviso. Quem procura, acha; quem não procura, não esbarra.
+    botao_limpar = tk.Button(
+        linha_auto, text="🧹 limpar fila", font=fonte(8), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=VERMELHO, padx=8,
+    )
+    botao_limpar.pack(side="right", padx=(0, 6))
 
     # ================= a esteira (Canvas desenhado) =======================
     canvas = tk.Canvas(raiz, bg=BG, highlightthickness=0, height=380)
@@ -686,6 +725,52 @@ def abrir_janela() -> int:
                     messagebox.showerror("Atmosfera — gerar pauta", erro)
                 else:
                     messagebox.showinfo("Atmosfera — gerar pauta", frase)
+                disparar_refresh()
+
+            raiz.after(0, depois)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def acao_limpar() -> None:
+        """Apaga os vídeos não publicados e recria um por pauta. Dois toques."""
+        # Trava própria, pelo mesmo motivo do `gerar`: são ações independentes, e
+        # compartilhar deixaria uma delas muda sem explicar por quê.
+        if limpando["v"]:
+            return
+        e = estado_atual["e"]
+        if e is None:
+            return
+        quantos = videos_da_limpeza(e.fila)
+        if not quantos:
+            messagebox.showinfo("Atmosfera — limpar fila", frase_da_limpeza(0, 0))
+            return
+        if not messagebox.askyesno(
+            "Atmosfera — limpar fila",
+            f"Apagar {quantos} vídeo(s) e refazer com as mesmas pautas?\n\n"
+            "O que já foi publicado, aprovado ou está publicando NÃO é tocado.\n"
+            "Se houver um vídeo renderizando agora, esse render é perdido no meio "
+            "— a pauta ganha um vídeo novo do mesmo jeito.",
+        ):
+            return
+
+        limpando["v"] = True
+        botao_limpar.config(state="disabled", text="limpando…")
+
+        def trabalho() -> None:
+            try:
+                sb = db_mod.criar_cliente(cfg)
+                apagados, recriados = db_mod.limpar_fila(sb, str(cfg.org_id))
+                frase, erro = frase_da_limpeza(apagados, recriados), None
+            except Exception as ex:  # noqa: BLE001 — tipo, nunca a mensagem crua
+                frase, erro = "", f"{type(ex).__name__} ao limpar a fila."
+
+            def depois() -> None:
+                limpando["v"] = False
+                botao_limpar.config(state="normal", text="🧹 limpar fila")
+                if erro:
+                    messagebox.showerror("Atmosfera — limpar fila", erro)
+                else:
+                    messagebox.showinfo("Atmosfera — limpar fila", frase)
                 disparar_refresh()
 
             raiz.after(0, depois)
@@ -964,6 +1049,7 @@ def abrir_janela() -> int:
     botao_mpt.config(command=acao_mpt)
     botao_gerar.config(command=acao_gerar)
     botao_config.config(command=acao_configurar)
+    botao_limpar.config(command=acao_limpar)
     canvas.bind("<Configure>", lambda _e: (estado_atual["e"] and desenhar_esteira(estado_atual["e"])))
 
     agendar()
