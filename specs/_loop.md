@@ -40,7 +40,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   uma transação — e SQL exótico é o que não consigo executar aqui, foi assim que a
   R21 quebrou no `db push`); e o caso 57 passou a semear a org vizinha em vez de
   herdar o estado dos 52 casos acima, que é a lição do caso 48.
-- Commit: (abaixo) na branch `rodada-21-producao-automatica`
+- Commit: `034c484` na branch `rodada-21-producao-automatica`
 - Pendente de decisão: nenhuma
 - Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
   (alvo **59 ✅**) — item 17b, `specs/_manual.md` § 15
