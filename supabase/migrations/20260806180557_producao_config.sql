@@ -60,16 +60,23 @@ create table public.configuracao_producao (
 
   -- Pelo menos um horário, e todo horário entre 0 e 23. Array vazio deixaria a
   -- automática ligada e nunca disparando — o pior estado possível, porque parece
-  -- configurado. O `<@ int4range` não serve para array; a checagem é por unnest.
+  -- configurado.
   --
   -- O `coalesce` não é enfeite: `array_length('{}', 1)` devolve NULL, e CHECK que
   -- avalia NULL PASSA. Sem ele, a constraint que existe justamente para barrar a
   -- lista vazia deixaria a lista vazia entrar — calada.
+  --
+  -- A faixa é por CONTENÇÃO de array (`<@`), e não por `unnest`: CHECK não aceita
+  -- subquery ("cannot use subquery in check constraint", 0A000), e todo caminho
+  -- natural para "todo elemento do array satisfaz X" — `not exists`, `all (select
+  -- ...)` — é subquery. `<@` é operador, resolve no mesmo lugar, e o preço é
+  -- escrever as 24 horas à mão.
   constraint configuracao_producao_horarios_validos check (
     coalesce(array_length(horarios, 1), 0) between 1 and 24
-    and not exists (
-      select 1 from unnest(horarios) as h where h < 0 or h > 23
-    )
+    and horarios <@ array[
+      0,1,2,3,4,5,6,7,8,9,10,11,
+      12,13,14,15,16,17,18,19,20,21,22,23
+    ]
   )
 );
 
