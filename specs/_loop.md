@@ -9,6 +9,50 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 24 — enfileirar uma pauta pelo MCP (o caminho da service_role) · 2026-08-06
+
+- Spec: `specs/enfileirar-pauta-mcp-service-role.md`
+- **O item:** o defeito latente que a R23 registrou e deixou fora de escopo — o verbo
+  `enfileirar_pauta` do servidor MCP (`worker/mcp_server.py`) está quebrado desde o R17.
+  Chamava `db.enfileirar_pauta` → RPC `public.enfileirar_pauta(uuid)`, que faz
+  `v_org := current_org_id()` e levanta P0001 para a `service_role` (JWT sem
+  `app_metadata`). Nunca apareceu porque a conversa real com um cliente MCP ficou como
+  passo humano no R17 e não foi feita.
+- **Review:** ✅ aprovado sem ressalvas, 11/11 com evidência. Portões: **589 testes do
+  worker** (mesmo total; `test_mcp_server` reescrito, não somado) · `rls_test` 59 →
+  **62** (casos 59–62) · `painel/` intocado.
+- **O que entrou:** migration `20260806204920_enfileirar_pauta_da_org.sql` — a RPC
+  `enfileirar_pauta_da_org(p_org, p_pauta_id)`, espelho da `enfileirar_pauta` com o
+  tenant por parâmetro, `revoke` de `public`/`anon`/`authenticated`, `grant` só para
+  `service_role` (a família de `enfileirar_prontas`/`limpar_fila`) · `db.enfileirar_pauta_da_org`
+  · handler `_enfileirar_pauta` do MCP religado para passar `str(cfg.org_id)`.
+- **Achado que definiu o desenho — a trava de tenant nova:** a original NÃO filtra por
+  org porque roda como `authenticated` e o `for update` reaplica o USING da RLS. A
+  `service_role` **ignora RLS**, então a função de máquina precisa de `and org_id = p_org`
+  no `select ... for update` — senão um id de pauta de outra org é enfileirado sob o
+  `p_org` recebido. `enfileirar_prontas` já tinha isso no `where` por ser em lote; a
+  versão por-id torna a armadilha afiada (`where id = p_pauta_id` pelado acha qualquer
+  org). Virou o **caso 61** (P0002 + vizinha intacta). **Regra:** toda RPC `service_role`
+  com `p_org` casa cada linha tocada com `p_org`.
+- **`enfileirar_pauta` original intocada** (critério 5, `git diff` vazio na migration R6):
+  é o caminho do painel web (`authenticated`), funciona, e a nota do § 2 do spec o
+  protegeu de virar refactor.
+- **Nota de decisão (aguarda o dono):** `db.enfileirar_pauta` (wrapper Python) ficou sem
+  caller — mantido como binding da RPC do painel web. Apagar é opção do dono no commit.
+- **Base:** o worktree começou em R20 (`main`); as R21–R23 viviam no branch
+  `rodada-21-producao-automatica`. Fast-forward do branch de trabalho para o tip da R23
+  (`7f2ea2c`) antes de começar — sem isso a migration e o `rls_test` colidiriam na
+  mesla. Só move o próprio ponteiro; o outro worktree fica intocado.
+- **Pendência do dono (não é falha):** `supabase db push` + `advisors --linked`
+  (`No issues found`) + `rls_test.sql` (**62 ✅**). O ambiente do agente não alcança o
+  Supabase.
+- **Fora de escopo, para frente:** transporte remoto do MCP (Vercel + OAuth + `anon`),
+  e o handshake real com um cliente MCP (`.mcp.json`, stdio) — passo humano no PC.
+- **Commit:** _(preenchido no `/commit`)_
+- **Próximo:** `/proximo` — raio-x do que falta.
+
+---
+
 ## Rodada 23 — executar a fila (pautas prontas para render) · 2026-08-06
 
 - Spec: `specs/executar-fila-pautas-prontas.md`

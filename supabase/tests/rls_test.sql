@@ -116,6 +116,7 @@ declare
   vid_lf_pub  uuid; -- vídeo em erro QUE JÁ PUBLICOU (o cascade que quase passou)
   lf_org_a    int;  -- fila apagável da org A ANTES da limpeza da org C (isolamento)
   pauta_ex    uuid; -- pauta pronta do `enfileirar_prontas` (Rodada 23)
+  pauta_r24   uuid; -- pauta pronta do `enfileirar_pauta_da_org` (Rodada 24)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -1352,6 +1353,107 @@ begin
   execute 'reset role';
 
   teste := '58 · painel web não alcança enfileirar_prontas';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= ENFILEIRAR UMA PAUTA PELO MCP (Rodada 24) =================
+  -- A décima pergunta: "quem pode mandar renderizar UMA pauta pelo id, do PC?". É o
+  -- verbo `enfileirar_pauta` do servidor MCP (R17), que estava quebrado — o caso 53
+  -- provou por quê. `enfileirar_pauta_da_org` é a resposta: espelha a original, mas o
+  -- tenant vem por parâmetro (a service_role não tem `app_metadata`) e a pauta é
+  -- casada com `p_org` — a trava de tenant que a original não precisa, porque roda
+  -- como `authenticated` sob a RLS.
+  --
+  -- Uma pronta nova na org C (as do bloco 23 já foram consumidas) e a vizinha da org A
+  -- ainda `pronta`, semeadas aqui e não herdadas — a lição do caso 48.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_c, '[rls-test] mcp uma', '[rls-test] roteiro m1', 'pronta', 'manual')
+  returning id into pauta_r24;
+
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] mcp vizinha', '[rls-test] roteiro mv', 'pronta', 'manual');
+
+  -- Como o worker/MCP chama: papel service_role, claims sem org, tenant por parâmetro.
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  execute 'set local role service_role';
+
+  perform public.enfileirar_pauta_da_org(org_c, pauta_r24);
+
+  select count(*) into vazou
+    from public.videos v
+   where v.pauta_id = pauta_r24 and v.status = 'na_fila'
+     and v.org_id = org_c and v.tentativas = 0
+     and v.locked_by is null and v.locked_at is null and v.erro_msg is null;
+  select status into pa_status from public.pautas where id = pauta_r24;
+
+  teste := '59 · enfileirar_pauta_da_org põe 1 vídeo na_fila e a pauta em em_producao';
+  esperado := '1 vídeo limpo · em_producao';
+  obtido := vazou::text || ' vídeo limpo · ' || coalesce(pa_status, '(null)');
+  passou := (vazou = 1 and pa_status = 'em_producao');
+  return next;
+
+  -- Segundo toque na mesma pauta: já está em_producao, cai no P0001 e NÃO nasce um
+  -- segundo vídeo. É a idempotência que separa "enfileirou" de "duplicou a fila".
+  bloqueou := false;
+  begin
+    perform public.enfileirar_pauta_da_org(org_c, pauta_r24);
+  exception
+    when sqlstate 'P0001' then bloqueou := true;
+  end;
+  select count(*) into n
+    from public.videos v where v.pauta_id = pauta_r24 and v.status = 'na_fila';
+
+  teste := '60 · pauta fora de pronta dá P0001 e não cria segundo vídeo';
+  esperado := 'P0001 · 1 vídeo';
+  obtido := case when bloqueou then 'P0001' else 'PASSOU — furo' end || ' · ' || n::text || ' vídeo';
+  passou := (bloqueou and n = 1);
+  return next;
+
+  -- A TRAVA DE TENANT: passar o org_c mas o id de uma pauta da org A. Sem o
+  -- `and org_id = p_org`, a service_role (que ignora RLS) acharia a linha e a
+  -- enfileiraria sob o org_c — o parâmetro escolhendo o tenant de uma pauta alheia.
+  -- Com ele, a pauta some da visão do org_c e a chamada cai no P0002.
+  select id into pauta_ex from public.pautas where tema = '[rls-test] mcp vizinha';
+
+  bloqueou := false;
+  begin
+    perform public.enfileirar_pauta_da_org(org_c, pauta_ex);
+  exception
+    when sqlstate 'P0002' then bloqueou := true;
+  end;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  select status into pa_status from public.pautas where id = pauta_ex;
+  select count(*) into vazou from public.videos where pauta_id = pauta_ex;
+
+  teste := '61 · pauta de outra org não enfileira sob o p_org recebido (trava de tenant)';
+  esperado := 'P0002 · vizinha pronta · 0 vídeos';
+  obtido := case when bloqueou then 'P0002' else 'ENFILEIROU — FURO GRAVE' end
+            || ' · vizinha ' || coalesce(pa_status, '(null)') || ' · ' || vazou::text || ' vídeos';
+  passou := (bloqueou and pa_status = 'pronta' and vazou = 0);
+  return next;
+
+  -- O painel web (`authenticated`) tem a `enfileirar_pauta`, pauta a pauta com o humano
+  -- lendo o tema. A função de máquina é só da service_role — como limpar_fila e
+  -- enfileirar_prontas.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  bloqueou := true;
+  begin
+    perform public.enfileirar_pauta_da_org(org_c, pauta_r24);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '62 · painel web não alcança enfileirar_pauta_da_org';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;

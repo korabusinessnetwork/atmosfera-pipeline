@@ -241,10 +241,33 @@ def enfileirar_pauta(sb: Client, pauta_id: str) -> list[dict[str, Any]]:
     ATENÇÃO (achado da R23): esta RPC deriva o tenant de `current_org_id()`, que é
     NULL para a `service_role` — a chave é um JWT sem `app_metadata`. Chamada daqui,
     ela levanta P0001 antes de tocar em linha nenhuma. É o caminho do painel WEB
-    (`authenticated`); para enfileirar do PC, use `enfileirar_prontas`, que recebe a
-    org por parâmetro.
+    (`authenticated`); para enfileirar do PC UMA pauta pelo id, use
+    `enfileirar_pauta_da_org` (R24); para enfileirar TODAS as prontas de uma vez,
+    `enfileirar_prontas` (R23). As duas recebem a org por parâmetro.
     """
     return sb.rpc("enfileirar_pauta", {"p_pauta_id": pauta_id}).execute().data or []
+
+
+def enfileirar_pauta_da_org(
+    sb: Client, org_id: str, pauta_id: str
+) -> list[dict[str, Any]]:
+    """Enfileira UMA pauta pronta pelo id, com a org por parâmetro — o caminho da
+    service_role (R24).
+
+    Espelha `enfileirar_pauta`, mas serve ao worker/MCP: `current_org_id()` é null
+    para a `service_role`, então o tenant vem em `p_org`. Carrega a guarda de estado
+    completa da original (pauta sumida -> P0002, fora de `pronta` -> P0001), ao
+    contrário de `enfileirar_prontas`, que ignora quem não está pronta.
+    """
+    return (
+        sb.rpc(
+            "enfileirar_pauta_da_org",
+            {"p_org": org_id, "p_pauta_id": pauta_id},
+        )
+        .execute()
+        .data
+        or []
+    )
 
 
 def enfileirar_prontas(sb: Client, org_id: str) -> int:

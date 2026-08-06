@@ -172,19 +172,23 @@ class TestListarPautasProntas:
 
 # ---------------------------------------------------------------- enfileirar
 class TestEnfileirarPauta:
-    def test_sucesso_reusa_a_rpc(self):
+    def test_sucesso_reusa_a_rpc_da_service_role(self):
+        # R24: o verbo do MCP passa a chamar enfileirar_pauta_da_org, com a org da
+        # sessão por parâmetro — nunca enfileirar_pauta, que exige current_org_id().
         sb = SbFake(rpc_data=[{"id": "v-novo", "status": "na_fila"}])
-        saida = mcp._enfileirar_pauta(sb, "p1")
+        saida = mcp._enfileirar_pauta(sb, _cfg(org_id="org-7"), "p1")
         assert "Enfileirado" in saida
-        assert sb.rpcs == [{"nome": "enfileirar_pauta", "params": {"p_pauta_id": "p1"}}]
+        assert sb.rpcs == [
+            {"nome": "enfileirar_pauta_da_org", "params": {"p_org": "org-7", "p_pauta_id": "p1"}}
+        ]
 
     def test_p0001_pauta_saiu_de_pronta(self):
         sb = SbFake(rpc_erro=FakeApiError("P0001"))
-        assert "não está mais disponível" in mcp._enfileirar_pauta(sb, "p1")
+        assert "não está mais disponível" in mcp._enfileirar_pauta(sb, _cfg(), "p1")
 
     def test_id_vazio_nem_chama(self):
         sb = SbFake()
-        assert "Preciso do id" in mcp._enfileirar_pauta(sb, "")
+        assert "Preciso do id" in mcp._enfileirar_pauta(sb, _cfg(), "")
         assert sb.rpcs == []
 
 

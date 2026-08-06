@@ -127,11 +127,14 @@ def _listar_pautas_prontas(sb: Any, cfg: Config) -> str:
     return "\n".join(partes)
 
 
-def _enfileirar_pauta(sb: Any, pauta_id: str) -> str:
+def _enfileirar_pauta(sb: Any, cfg: Config, pauta_id: str) -> str:
+    # `enfileirar_pauta_da_org` (R24), não `enfileirar_pauta`: a original deriva o
+    # tenant de current_org_id(), que é null para a service_role — a chave do MCP.
+    # Aqui a org vai por parâmetro, como no painel local.
     if not pauta_id.strip():
         return "Preciso do id da pauta."
     try:
-        db.enfileirar_pauta(sb, pauta_id)
+        db.enfileirar_pauta_da_org(sb, str(cfg.org_id), pauta_id)
     except Exception as erro:  # noqa: BLE001
         return _traduzir(erro, "Não deu para enfileirar agora. Tente de novo.")
     return f"Enfileirado: pauta {pauta_id} virou um vídeo na fila. O worker rende no próximo ciclo."
@@ -192,7 +195,7 @@ def listar_pautas_prontas() -> str:
 
 @servidor.tool(description="Enfileira uma pauta pronta para render, pelo id.")
 def enfileirar_pauta(pauta_id: str) -> str:
-    return _com_contexto(lambda sb, _cfg: _enfileirar_pauta(sb, pauta_id))
+    return _com_contexto(lambda sb, cfg: _enfileirar_pauta(sb, cfg, pauta_id))
 
 
 def main() -> int:
