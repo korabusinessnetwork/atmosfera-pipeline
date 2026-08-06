@@ -39,7 +39,11 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 - **Aprendido** (`specs/producao-gerar-agora-e-agendada.md` § 8 e `CLAUDE.md`):
   screenshot de UI se localiza por **grep antes de projetar**; falha também tem de
   carimbar o slot; alias de modelo (`gemini-flash-latest`), nunca versão cravada.
-- **Commit:** `108e49f` na branch `rodada-21-producao-automatica` (push feito).
+- **Um terceiro defeito, achado só no `db push` do dono:** CHECK constraint **não
+  aceita subquery** (0A000), e `not exists (select 1 from unnest(horarios))` é
+  subquery. Trocado por `horarios <@ array[0,…,23]` — operador, mesmo resultado
+  (`9a69c1a`). O `coalesce` que barra a lista vazia continua igual.
+- **Commit:** `108e49f` + `9a69c1a` na branch `rodada-21-producao-automatica`.
 - **Pendente de decisão:** nenhuma.
 - **Passo humano (item 15b):** `supabase db push` + `advisors --linked` +
   `rls_test.sql` (alvo 48 ✅) e criar as categorias no painel local — o ambiente do

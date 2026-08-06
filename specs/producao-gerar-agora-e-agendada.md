@@ -292,7 +292,14 @@ parecer configurada). Corrigido com `coalesce(array_length(horarios, 1), 0)`. O 
    `limit: 0` e `gemini-2.5-flash` diz "no longer available to new users" para conta
    nova. O default virou `gemini-flash-latest`. O sintoma de versão aposentada é um
    produtor que só falha — não parece configuração, parece bug.
-5. **MPT desligado transformava a fila inteira em `erro`.** Seis vídeos, todos com
+5. **CHECK constraint não aceita subquery** — `cannot use subquery in check
+   constraint` (SQLSTATE 0A000), e o erro só aparece no `db push`, não em revisão.
+   O problema é que **todo caminho natural** para "todo elemento deste array
+   satisfaz X" é subquery: `not exists (select 1 from unnest(...))`,
+   `x = all (select ...)`. A saída é operador — `horarios <@ array[0,1,…,23]` —
+   ao preço de escrever a faixa à mão. Vale para qualquer validação de `array` em
+   check daqui para frente.
+6. **MPT desligado transformava a fila inteira em `erro`.** Seis vídeos, todos com
    `[WinError 10061]`, no dia da rodada. O supervisor (Etapa C) é a correção
    permanente; `supabase/reprocessar_erros.sql` é a recuperação pontual.
 
