@@ -88,3 +88,123 @@ def test_mistura_pesos_extremos():
 
 def test_mistura_meio_a_meio():
     assert c._mistura("#ffffff", "#000000", 0.5) == "#808080"
+
+
+# ----------------------------------------------------------- validar_horarios
+def test_horarios_aceita_o_que_uma_pessoa_digita():
+    assert c.validar_horarios("8, 14, 18") == ([8, 14, 18], None)
+    assert c.validar_horarios("8h,14h,18h") == ([8, 14, 18], None)
+    assert c.validar_horarios("08;14") == ([8, 14], None)
+
+
+def test_horarios_ordena_e_deduplica():
+    assert c.validar_horarios("18, 8, 8, 14") == ([8, 14, 18], None)
+
+
+def test_horarios_vazio_devolve_erro_em_portugues():
+    horas, erro = c.validar_horarios("  ")
+    assert horas == []
+    assert erro and "pelo menos um" in erro
+
+
+def test_horarios_fora_da_faixa_devolve_erro():
+    horas, erro = c.validar_horarios("8, 25")
+    assert horas == []
+    assert erro and "25" in erro
+
+
+def test_horarios_com_texto_devolve_erro():
+    # Vale a validação local: o dono lê uma frase em vez do texto de um check
+    # violado do Postgres.
+    horas, erro = c.validar_horarios("manhã")
+    assert horas == []
+    assert erro and "não é um horário" in erro
+
+
+def test_horarios_zero_e_valido():
+    assert c.validar_horarios("0") == ([0], None)
+
+
+# ---------------------------------------------------------- categoria_escolhida
+def test_categoria_generica_vira_none():
+    # Gravar o rótulo de UI em `pautas.categoria` criaria uma categoria fantasma.
+    assert c.categoria_escolhida(c.GENERICO) is None
+    assert c.categoria_escolhida("") is None
+    assert c.categoria_escolhida("   ") is None
+
+
+def test_categoria_real_passa_limpa():
+    assert c.categoria_escolhida("  religião  ") == "religião"
+
+
+# ----------------------------------------------------------- frase_da_automatica
+def _estado(**campos):
+    padrao = {
+        "tarefa": "Running",
+        "fila": {},
+        "pautas_prontas": 0,
+        "veredito_frase": "",
+        "veredito_cor": c.CINZA,
+        "ollama": True,
+        "mpt": True,
+        "supabase": True,
+        "footage": "",
+        "quando": "",
+        "producao_ativa": True,
+        "producao_horarios": (8, 14, 18),
+        "producao_pausa": None,
+        "categoria_padrao": None,
+    }
+    padrao.update(campos)
+    return c.Estado(**padrao)
+
+
+def test_frase_da_automatica_desligada():
+    assert c.frase_da_automatica(_estado(producao_ativa=False)) == "Automática desligada."
+
+
+def test_frase_da_automatica_lista_horarios_e_categoria():
+    frase = c.frase_da_automatica(_estado(categoria_padrao="motivação"))
+    assert "8h, 14h, 18h" in frase
+    assert "motivação" in frase
+
+
+def test_frase_da_automatica_sem_categoria_diz_generico():
+    assert "genérico" in c.frase_da_automatica(_estado())
+
+
+def test_frase_da_automatica_mostra_a_pausa():
+    frase = c.frase_da_automatica(_estado(producao_pausa="Gemini sem cota"))
+    # A pausa termina a leitura: é o que muda a decisão de quem olha.
+    assert frase.endswith("⚠ pausada: Gemini sem cota")
+
+
+# ------------------------------------------------------------ frase_do_resultado
+class _ResultadoFake:
+    def __init__(self, gerou, origem=None, motivo=None, categoria=None):
+        self.gerou = gerou
+        self.origem = origem
+        self.motivo = motivo
+        self.categoria = categoria
+
+
+def test_frase_do_resultado_diz_qual_modelo_escreveu():
+    frase = c.frase_do_resultado(_ResultadoFake(6, "gemini", categoria="lifestyle"))
+    assert "6" in frase and "Gemini" in frase and "lifestyle" in frase
+
+
+def test_frase_do_resultado_avisa_quando_caiu_no_ollama():
+    # "Gerou 3" esconderia o que importa: hook do modelo pequeno é mais fraco, e
+    # o dono decide isso na hora de aprovar.
+    frase = c.frase_do_resultado(_ResultadoFake(3, "ollama"))
+    assert "Ollama" in frase and "sem cota" in frase
+
+
+def test_frase_do_resultado_zero_mostra_o_motivo():
+    assert c.frase_do_resultado(_ResultadoFake(0, None, "fila cheia — nada gerado")) == (
+        "fila cheia — nada gerado"
+    )
+
+
+def test_frase_do_resultado_zero_sem_motivo_nao_fica_vazia():
+    assert c.frase_do_resultado(_ResultadoFake(0)) == "Não gerou pauta."

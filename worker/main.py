@@ -29,7 +29,9 @@ import time
 import db
 import log as logmod
 import mpt
+import mpt_supervisor
 import postprocess
+import producao
 import publicar
 from batimento import Batimento
 from config import Config, ConfigInvalida, carregar
@@ -123,8 +125,23 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
 
 def ciclo(sb, cfg: Config, log: logging.Logger) -> bool:
     """Um ciclo. Devolve True se havia trabalho — quem chama decide o sono."""
+    # O relógio da produção (Rodada 21) vem ANTES do claim: sem pauta não há
+    # vídeo para reivindicar, e um worker que renderiza a fila até o fim e só
+    # então pergunta "tem slot?" ficaria 30s ocioso à toa no primeiro ciclo do
+    # dia. Falha aqui não impede o render — é a esteira que importa.
+    try:
+        gerou = producao.tick(cfg, sb)
+    except Exception:  # noqa: BLE001 — produção não pode travar o render
+        log.exception("producao automatica falhou — seguindo")
+        gerou = None
+
     video = db.claim_proximo_video(sb, logmod.WORKER_ID)
     if video is None:
+        if gerou is not None and gerou.houve_trabalho:
+            # Gerou pauta neste ciclo: o trigger já criou os vídeos, então há
+            # trabalho esperando. Não dormir aqui os pega no ciclo seguinte, na
+            # hora, em vez de daqui a `poll_seg`.
+            return True
         # Render tem prioridade sobre publicação, e não é ordem arbitrária: o
         # render segura um lock e tem `tentativas < 3` correndo contra ele;
         # publicar não segura nada e o excedente é adiado de graça. Quem espera
@@ -158,6 +175,15 @@ def loop(cfg: Config, log: logging.Logger, uma_vez: bool = False) -> None:
         },
     )
 
+    # O MPT sobe junto com o worker (Rodada 21) e oculto. Antes disto, um MPT
+    # desligado virava a fila inteira em `erro` — aconteceu, com 6 vídeos. Não
+    # bloqueia a largada: `esperar=False` inicia e o primeiro `garantir_mpt` do
+    # loop confirma. Falhar aqui não impede nada — publicar não usa o MPT.
+    try:
+        mpt_supervisor.garantir_mpt(cfg, esperar=False)
+    except Exception:  # noqa: BLE001 — supervisor nunca derruba o supervisionado
+        log.exception("nao consegui subir o MPT na largada — seguindo")
+
     ultimo_gc: float | None = None  # nunca varreu → varre no primeiro ciclo
 
     # O batimento envolve o loop inteiro, e não cada ciclo: o que ele afirma é
@@ -182,6 +208,10 @@ def loop(cfg: Config, log: logging.Logger, uma_vez: bool = False) -> None:
                         log.warning(
                             "orfaos devolvidos a fila", extra={"quantidade": soltos}
                         )
+
+                # Reergue o MPT se ele caiu. Barato no caminho comum: quando está
+                # vivo, é um GET no loopback e nada mais.
+                mpt_supervisor.garantir_mpt(cfg, esperar=False)
 
                 teve_trabalho = ciclo(sb, cfg, log)
                 # Ciclo vazio conta como ciclo: o que `ciclo_em` mede é o loop
@@ -209,6 +239,13 @@ def loop(cfg: Config, log: logging.Logger, uma_vez: bool = False) -> None:
                 if uma_vez:
                     return
                 _parar.wait(60)
+
+    # Derruba só o MPT que ESTE worker subiu (o que o dono iniciou à mão
+    # sobrevive). Fora do `with` do batimento: encerrar é a última coisa.
+    try:
+        mpt_supervisor.encerrar()
+    except Exception:  # noqa: BLE001
+        log.exception("falha ao encerrar o MPT — seguindo")
 
     log.info("worker encerrado")
 

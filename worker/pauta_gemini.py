@@ -173,12 +173,20 @@ def chamar_gemini(
 # ---------------------------------------------------------------- entrada
 
 
-def gerar_pautas(cfg: Config, sb: Any, sessao: pl.Sessao | None = None) -> dict[str, Any]:
+def gerar_pautas(
+    cfg: Config,
+    sb: Any,
+    sessao: pl.Sessao | None = None,
+    categoria: str | None = None,
+) -> dict[str, Any]:
     """Gera → valida → insere. Uma chamada ao Gemini, sem best-of-N.
 
     Devolve um resumo para o log e o exit code decidirem — nunca levanta por fila
     cheia (é resultado normal), só por Gemini fora do ar/limite/config ou por
     nenhuma pauta utilizável ter voltado.
+
+    `categoria` (Rodada 21) dirige o assunto e vira etiqueta na pauta — pelo mesmo
+    `montar_prompt` do `pauta_local`, porque o prompt é transporte-agnóstico.
     """
     org = str(cfg.org_id)
 
@@ -195,7 +203,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: pl.Sessao | None = None) -> dict[
 
     vencedores = pl.ler_vencedores(cfg, sb)
 
-    prompt = pl.montar_prompt(identidade, cfg.pauta_local_n, vencedores)
+    prompt = pl.montar_prompt(identidade, cfg.pauta_local_n, vencedores, categoria)
     texto = chamar_gemini(cfg.gemini_api_key, cfg.gemini_model, prompt, sessao)
     validas, invalidas = pl.separar_validas(pl.extrair_pautas(texto))
     if not validas:
@@ -206,7 +214,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: pl.Sessao | None = None) -> dict[
         log.warning("hooks acima do teto — o render vai cortar", extra={"quantos": longos})
 
     for pauta in validas:
-        db.inserir_pauta(sb, org, origem="gemini", **pauta)
+        db.inserir_pauta(sb, org, origem="gemini", categoria=categoria, **pauta)
 
     log.info(
         "pautas geradas (gemini)",
@@ -214,6 +222,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: pl.Sessao | None = None) -> dict[
             "gerou": len(validas),
             "invalidas": invalidas,
             "vencedores": len(vencedores),
+            "categoria": categoria,
             "fila_viva": viva,
         },
     )
@@ -221,6 +230,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: pl.Sessao | None = None) -> dict[
         "gerou": len(validas),
         "descartou": invalidas,
         "vencedores": len(vencedores),
+        "categoria": categoria,
         "fila_viva": viva,
     }
 

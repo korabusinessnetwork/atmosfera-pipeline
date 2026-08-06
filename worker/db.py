@@ -59,6 +59,7 @@ def inserir_pauta(
     titulo: str | None = None,
     descricao: str | None = None,
     origem: str = "ollama",
+    categoria: str | None = None,
 ) -> str:
     """Insere uma pauta pronta de produtor de máquina. Devolve o id.
 
@@ -70,6 +71,10 @@ def inserir_pauta(
     nenhuma chamada existente; o produtor Gemini (Rodada 20) passa 'gemini'. O
     check `pautas_origem_check` recusa qualquer valor fora do vocabulário, então
     um typo aqui falha no banco, não vira categoria fantasma.
+
+    `categoria` (Rodada 21) é o NOME da categoria que dirigiu a geração, gravado
+    como snapshot — não FK. Vazia/None é estado normal (pauta genérica), e é o
+    que toda chamada anterior a esta rodada produz.
 
     Campos opcionais só entram se vierem preenchidos: hook e título vazios são
     legítimos (o postprocess não desenha a cartela; o YouTube cai para o tema).
@@ -87,6 +92,8 @@ def inserir_pauta(
         linha["titulo"] = titulo
     if descricao:
         linha["descricao"] = descricao
+    if categoria:
+        linha["categoria"] = categoria
 
     resposta = sb.table("pautas").insert(linha).execute()
     return resposta.data[0]["id"]
@@ -637,6 +644,185 @@ def hooks_por_retencao(
         .execute()
     )
     return resposta.data or []
+
+
+# ================================================ produção e categorias (R21)
+#
+# O relógio da produção automática e as categorias que dirigem a geração. Escrita
+# com service_role — pelo worker (que carimba o slot) e pelo painel LOCAL
+# (`controle.py`, que roda no PC ao lado, com o mesmo `.env`). O painel web só lê
+# (políticas `configuracao_producao_leitura` / `categorias_leitura`).
+#
+# Nenhuma destas funções levanta por "não tem linha": org sem config é o estado de
+# uma instalação nova, e quem decide o padrão é o `producao.py`, num lugar só.
+
+CAMPOS_CONFIG_PRODUCAO = "id, ativa, horarios, fuso, ultimo_slot, pausada_motivo"
+CAMPOS_CATEGORIA = "id, nome, padrao"
+
+
+def ler_config_producao(sb: Client, org_id: str) -> dict[str, Any] | None:
+    """Config da produção automática desta org, ou None se nunca foi salva.
+
+    None é estado normal (instalação nova), não erro: quem traduz ausência em
+    padrões é `producao.config_efetiva`, para o default viver num lugar só.
+    """
+    resposta = (
+        sb.table("configuracao_producao")
+        .select(CAMPOS_CONFIG_PRODUCAO)
+        .eq("org_id", org_id)
+        .limit(1)
+        .execute()
+    )
+    return resposta.data[0] if resposta.data else None
+
+
+def salvar_config_producao(
+    sb: Client, org_id: str, ativa: bool, horarios: list[int], fuso: str | None = None
+) -> None:
+    """Grava liga/desliga e horários. Upsert em `org_id` (a tabela tem unique).
+
+    NÃO toca `ultimo_slot` nem `pausada_motivo`: quem os escreve é o worker, ao
+    cumprir ou ao pausar um slot. Se esta função os zerasse, salvar a config às
+    8h05 faria o slot das 8h ser gerado de novo — a tela do dono não deve poder
+    duplicar produção sem querer.
+
+    O check `configuracao_producao_horarios_validos` recusa lista vazia ou hora
+    fora de 0–23; validar aqui também seria ter a regra em dois lugares, mas quem
+    chama valida ANTES para dar mensagem humana em vez de erro do Postgres.
+    """
+    linha: dict[str, Any] = {
+        "org_id": org_id,
+        "ativa": ativa,
+        "horarios": horarios,
+    }
+    if fuso:
+        linha["fuso"] = fuso
+    sb.table("configuracao_producao").upsert(linha, on_conflict="org_id").execute()
+
+
+def carimbar_slot(sb: Client, org_id: str, slot: str) -> None:
+    """Marca o slot como cumprido e limpa a pausa. Chamado após gerar com sucesso.
+
+    Limpar `pausada_motivo` aqui (e só aqui) é o que faz o aviso do painel sumir
+    sozinho quando a produção volta a funcionar — sem uma segunda ação humana
+    para "reconhecer" um alarme que já passou.
+    """
+    (
+        sb.table("configuracao_producao")
+        .upsert(
+            {"org_id": org_id, "ultimo_slot": slot, "pausada_motivo": None},
+            on_conflict="org_id",
+        )
+        .execute()
+    )
+
+
+def marcar_pausa(sb: Client, org_id: str, slot: str, motivo: str) -> None:
+    """Registra por que o slot não gerou — e carimba o slot mesmo assim.
+
+    Carimbar na falha é deliberado: sem isso, um Gemini sem cota faria o worker
+    tentar de novo a cada 30s até a virada do dia, queimando rate limit e enchendo
+    o log. O slot fica gasto, o motivo fica visível no painel, e o próximo horário
+    tenta de novo naturalmente.
+
+    `motivo` é truncado pela mesma razão que `videos.erro_msg`: quem lê é uma tela,
+    e mensagem de exceção crua pode carregar mais do que se quer mostrar.
+    """
+    (
+        sb.table("configuracao_producao")
+        .upsert(
+            {
+                "org_id": org_id,
+                "ultimo_slot": slot,
+                "pausada_motivo": truncar_erro(motivo, 300),
+            },
+            on_conflict="org_id",
+        )
+        .execute()
+    )
+
+
+def listar_categorias(sb: Client, org_id: str) -> list[dict[str, Any]]:
+    """Categorias da org, a padrão primeiro e o resto em ordem alfabética."""
+    resposta = (
+        sb.table("categorias")
+        .select(CAMPOS_CATEGORIA)
+        .eq("org_id", org_id)
+        .order("padrao", desc=True)
+        .order("nome")
+        .execute()
+    )
+    return resposta.data or []
+
+
+def categoria_padrao(sb: Client, org_id: str) -> str | None:
+    """Nome da categoria padrão desta org, ou None se nenhuma foi marcada.
+
+    None é estado normal: sem padrão a produção automática gera genérico, que é
+    melhor que não gerar — falta de categoria não é motivo para parar a esteira.
+    """
+    resposta = (
+        sb.table("categorias")
+        .select("nome")
+        .eq("org_id", org_id)
+        .eq("padrao", True)
+        .limit(1)
+        .execute()
+    )
+    return resposta.data[0]["nome"] if resposta.data else None
+
+
+def criar_categoria(sb: Client, org_id: str, nome: str) -> str:
+    """Cria uma categoria. Devolve o id.
+
+    `padrao` não é parâmetro: nasce falsa e vira padrão por
+    `definir_categoria_padrao`, que é quem sabe desmarcar a anterior. Deixar as
+    duas coisas na criação convidaria a criar uma segunda padrão sem passar pelo
+    lugar que garante a exclusividade.
+    """
+    resposta = (
+        sb.table("categorias")
+        .insert({"org_id": org_id, "nome": nome.strip()})
+        .execute()
+    )
+    return resposta.data[0]["id"]
+
+
+def remover_categoria(sb: Client, org_id: str, categoria_id: str) -> None:
+    """Apaga a categoria. As pautas já geradas mantêm a etiqueta (é snapshot)."""
+    (
+        sb.table("categorias")
+        .delete()
+        .eq("org_id", org_id)
+        .eq("id", categoria_id)
+        .execute()
+    )
+
+
+def definir_categoria_padrao(sb: Client, org_id: str, categoria_id: str) -> None:
+    """Marca uma categoria como padrão, desmarcando a anterior.
+
+    Duas escritas, e a ORDEM importa: desmarca todas antes de marcar a nova. Na
+    ordem inversa, o índice `categorias_uma_padrao_por_org` recusaria a segunda
+    padrão e a operação falharia sempre que já houvesse uma. Não é transação — o
+    PostgREST não a expõe —, então a janela entre as duas escritas é uma org com
+    zero padrão, que o `categoria_padrao` já trata (gera genérico). O contrário
+    (duas padrões) é que seria ambíguo, e o índice o impede.
+    """
+    (
+        sb.table("categorias")
+        .update({"padrao": False})
+        .eq("org_id", org_id)
+        .eq("padrao", True)
+        .execute()
+    )
+    (
+        sb.table("categorias")
+        .update({"padrao": True})
+        .eq("org_id", org_id)
+        .eq("id", categoria_id)
+        .execute()
+    )
 
 
 def upsert_metrica(

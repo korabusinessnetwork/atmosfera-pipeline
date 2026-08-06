@@ -688,6 +688,47 @@ def test_gerar_injeta_vencedores_no_prompt_de_geracao(tmp_path, monkeypatch):
     assert len(inseridas) == 2   # o resto do fluxo segue normal
 
 
+def test_bloco_categoria_vazio_e_string_vazia():
+    # Mesmo pivô de degradação dos vencedores: sem categoria, o bloco some.
+    assert pl.montar_bloco_categoria(None) == ""
+    assert pl.montar_bloco_categoria("") == ""
+    assert pl.montar_bloco_categoria("   ") == ""
+
+
+def test_prompt_sem_categoria_igual_ao_de_hoje():
+    # Compatibilidade: quem não escolheu categoria gera como sempre gerou.
+    base = pl.montar_prompt("VOZ", 6)
+    assert pl.montar_prompt("VOZ", 6, None, None) == base
+    assert "TOPIC FOCUS" not in base
+
+
+def test_bloco_categoria_dirige_o_assunto_e_nao_a_voz():
+    bloco = pl.montar_bloco_categoria("religion")
+    assert "TOPIC FOCUS" in bloco and "religion" in bloco
+    # A identidade continua mandando no tom — categoria é o QUE, não o COMO.
+    assert "never HOW" in bloco
+
+
+def test_gerar_com_categoria_injeta_no_prompt_e_carimba_a_pauta(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2"}',
+    )
+
+    resumo = pl.gerar_pautas(
+        _cfg(tmp_path, n=2), sb=object(), sessao=sessao, categoria="lifestyle"
+    )
+
+    geracao = [p for t, p in sessao.chamadas if t == "geracao"]
+    assert geracao and all("lifestyle" in p for p in geracao)
+    # A categoria vai junto para o banco: é o snapshot que sobrevive à remoção
+    # da categoria depois.
+    assert all(c["categoria"] == "lifestyle" for c in inseridas)
+    assert resumo["categoria"] == "lifestyle"
+
+
 def test_gerar_degrada_sem_metricas(tmp_path, monkeypatch):
     # hooks_por_retencao devolve [] (métrica não coletada) → prompt de sempre.
     inseridas = _capturar_insercoes(monkeypatch)   # já patcha hooks_por_retencao → []

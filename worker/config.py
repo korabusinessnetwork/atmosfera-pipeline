@@ -139,8 +139,20 @@ class Config:
     # OAuth do YouTube não é pré-requisito do loop. As contagens (quantas pautas,
     # teto da fila, few-shot de vencedores) reusam as do pauta_local: a fila é a
     # mesma e não faz sentido um segundo lugar da verdade.
+    # `gemini-flash-latest` é ALIAS: acompanha o flash atual sozinho. Medido na
+    # Rodada 20 — `gemini-2.0-flash` e `gemini-2.5-flash` estão aposentados para
+    # contas novas ("no longer available to new users" / `limit: 0`), e um id
+    # cravado vira erro de config no dia em que o Google girar a geração.
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-flash-latest"
+
+    # Supervisão do MPT (Rodada 21). O worker sobe o MoneyPrinterTurbo e o mantém
+    # de pé, oculto — antes disso, um MPT desligado virava fila inteira em `erro`
+    # (aconteceu: 6 vídeos, WinError 10061). `mpt_dir` vazio = a pasta irmã de
+    # worker/, que é onde o clone mora por padrão. `mpt_auto_start=False` devolve
+    # o controle a quem prefere subir à mão.
+    mpt_dir: Path | None = None
+    mpt_auto_start: bool = True
 
 
 def _obrigatoria(nome: str) -> str:
@@ -301,6 +313,8 @@ def carregar(env_path: Path | None = None) -> Config:
     if not ollama_url.startswith(("http://", "https://")):
         raise ConfigInvalida("OLLAMA_URL precisa começar com http:// ou https://.")
 
+    bruto_mpt_dir = os.getenv("MPT_DIR", "").strip()
+
     return Config(
         supabase_url=url,
         supabase_service_role_key=chave,
@@ -342,5 +356,10 @@ def carregar(env_path: Path | None = None) -> Config:
         # SECRET, mas NÃO obrigatória: chave vazia é estado normal (o loop não usa
         # Gemini). Quem exige, com instrução, é o pauta_gemini.py. Nunca logar.
         gemini_api_key=_texto("GEMINI_API_KEY", ""),
-        gemini_model=_texto("GEMINI_MODEL", "gemini-2.0-flash"),
+        gemini_model=_texto("GEMINI_MODEL", "gemini-flash-latest"),
+        # Não validado como pasta aqui: MPT ausente é estado normal de quem só
+        # usa o painel, e quem reclama (com instrução) é o supervisor na hora de
+        # subir. Mesma disciplina do OAuth do YouTube.
+        mpt_dir=Path(bruto_mpt_dir) if bruto_mpt_dir else None,
+        mpt_auto_start=_booleano("MPT_AUTO_START", True),
     )

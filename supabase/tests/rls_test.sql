@@ -50,6 +50,12 @@
 -- de coluna + a política permissiva deixariam editar em em_producao, e o trigger
 -- `t_pautas_guarda_edicao` fecha (vê OLD e NEW). Prova: edição de pronta passa, a de
 -- em_producao é barrada até no PATCH cru, org alheia e branco são recusados. Nenhuma
+-- Os 42–47 são a produção automática e as categorias (Rodada 21). A pergunta é uma
+-- sétima: "quem pode MUDAR o que a máquina produz sozinha?" — o painel web lê a
+-- própria org e nada mais, porque quem escreve nessas duas tabelas decide quantos
+-- vídeos por dia o canal publica e sobre o que eles falam. Dois casos não são de
+-- RLS e estão ali porque o schema é que os garante: no máximo uma categoria padrão
+-- por org (índice parcial) e horário fora de 0–23 ou lista vazia recusados (check).
 -- política nova entrou (editar pronta já passa a política de update de `pautas`),
 -- então a edição não mexeu no case 02 — foi a R19 que depois o levou de 11 a 10, ao
 -- fundir `pautas_producao` + `pautas_descartar` na única `pautas_atualizar`.
@@ -953,7 +959,158 @@ begin
   passou := (n = 1 and pa_status = 'em_producao');
   return next;
 
+  -- ============ PRODUÇÃO AUTOMÁTICA E CATEGORIAS (Rodada 21) ============
+  -- A sétima pergunta da tabela: "quem pode MUDAR o que a máquina produz sozinha?".
+  -- As duas tabelas seguem a forma de `metricas`/`batimentos` — o painel web LÊ a
+  -- própria org e mais nada; quem escreve é o painel LOCAL (`worker/controle.py`)
+  -- com service_role, ao lado do worker. Isso não é excesso: `configuracao_producao`
+  -- é o relógio, e quem escreve nela decide quantos vídeos por dia o canal publica;
+  -- `categorias.padrao` decide sobre O QUE eles falam. Escrita pela anon key
+  -- significaria comandar a produção do canal a partir do navegador.
+  --
+  -- Semeia como dono (o papel foi resetado no caso 40).
+  delete from public.categorias where nome like '[rls-test]%';
+  delete from public.configuracao_producao where org_id in (org_a, org_b);
+
+  insert into public.configuracao_producao (org_id, ativa, horarios, ultimo_slot)
+  values (org_a, true, '{8,14,18}', '2026-08-06T08'),
+         (org_b, true, '{9}',       '2026-08-06T09');
+
+  insert into public.categorias (org_id, nome, padrao)
+  values (org_a, '[rls-test] motivacao', true),
+         (org_a, '[rls-test] lifestyle', false),
+         (org_b, '[rls-test] religiao',  true);
+
+  -- Segue authenticated do 42 ao 44 sem resetar no meio (padrão do batimento e da
+  -- métrica): resetar faria os writes rodarem como dono e passarem.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n from public.configuracao_producao;
+
+  teste := '42 · org A vê só a própria config de produção';
+  esperado := '1 de 2 semeadas';
+  obtido := n::text || case when n > 1 then '  — VAZOU' else '' end;
+  passou := (n = 1);
+  return next;
+
+  -- Dois caminhos de escrita, os dois negados: desligar a automática da própria
+  -- org e mudar o horário. Quem opera a máquina é o painel local.
+  bloqueou := true;
+
+  begin
+    update public.configuracao_producao set ativa = false where org_id = org_a;
+    if found then bloqueou := false; end if;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.configuracao_producao (org_id, horarios)
+    values (org_a, '{3}');
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+    when unique_violation then null;   -- se passar do grant, o unique barra depois
+  end;
+
+  teste := '43 · painel web não escreve config de produção';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ESCREVEU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  select count(*) into n from public.categorias;
+  bloqueou := true;
+
+  begin
+    -- Trocar a categoria padrão pelo navegador mudaria o assunto de tudo que a
+    -- máquina escreve às 8h, sem ninguém no painel local ver.
+    update public.categorias set padrao = true where nome = '[rls-test] lifestyle';
+    if found then bloqueou := false; end if;
+  exception
+    when insufficient_privilege then null;
+    when unique_violation then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '44 · org A lê só as próprias categorias e não as escreve';
+  esperado := '2 de 3 semeadas · bloqueado';
+  obtido := n::text || ' de 3 semeadas · '
+            || case when bloqueou then 'bloqueado' else 'ESCREVEU — FURO GRAVE' end;
+  passou := (n = 2 and bloqueou);
+  return next;
+
+  -- Anônimo não lê nem uma nem outra: horário de produção e lista de categorias
+  -- são dado de operação, e a anon key mora no navegador de qualquer visitante.
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+
+  n := -1;
+  begin
+    select count(*) into n from public.configuracao_producao;
+  exception
+    when insufficient_privilege then n := 0;
+  end;
+
+  vazou := -1;
+  begin
+    select count(*) into vazou from public.categorias;
+  exception
+    when insufficient_privilege then vazou := 0;
+  end;
+
+  execute 'reset role';
+
+  teste := '45 · anônimo não lê config de produção nem categorias';
+  esperado := '0 · 0';
+  obtido := n::text || ' · ' || vazou::text;
+  passou := (n = 0 and vazou = 0);
+  return next;
+
+  -- O índice parcial é a garantia de "no máximo uma padrão por org" no SCHEMA.
+  -- Sem ele, marcar a segunda sem desmarcar a primeira daria duas padrões e o
+  -- worker leria a que o banco devolvesse primeiro — estável só por acaso.
+  begin
+    insert into public.categorias (org_id, nome, padrao)
+    values (org_a, '[rls-test] segunda padrao', true);
+    bloqueou := false;
+  exception
+    when unique_violation then bloqueou := true;
+  end;
+
+  teste := '46 · no máximo uma categoria padrão por org';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ACEITOU DUAS — FURO' end;
+  passou := bloqueou;
+  return next;
+
+  -- Horário fora de 0–23 e lista vazia são recusados pelo check. Array vazio é o
+  -- pior estado possível: automática ligada que nunca dispara, e parece configurada.
+  bloqueou := true;
+  begin
+    update public.configuracao_producao set horarios = '{25}' where org_id = org_a;
+    bloqueou := false;
+  exception
+    when check_violation then null;
+  end;
+  begin
+    update public.configuracao_producao set horarios = '{}' where org_id = org_a;
+    bloqueou := false;
+  exception
+    when check_violation then null;
+  end;
+
+  teste := '47 · horário inválido e lista vazia são recusados';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'ACEITOU — FURO' end;
+  passou := bloqueou;
+  return next;
+
   -- ---------- limpeza ----------
+  delete from public.categorias where nome like '[rls-test]%';
+  delete from public.configuracao_producao where org_id in (org_a, org_b);
   delete from public.pautas where tema like '[rls-test]%';
   delete from public.batimentos where maquina like '[rls-test]%';
   delete from storage.objects

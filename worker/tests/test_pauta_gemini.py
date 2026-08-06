@@ -202,6 +202,18 @@ def test_gerar_pautas_insere_com_origem_gemini(tmp_path, monkeypatch):
     assert inseridas[0]["tema"] == "t0"
 
 
+def test_gerar_pautas_com_categoria_dirige_o_prompt_e_carimba(tmp_path, monkeypatch):
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoGeminiFake(texto=_pautas_json(2))
+
+    pg.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao, categoria="religião")
+
+    prompt = sessao.chamadas[0]["json"]["contents"][0]["parts"][0]["text"]
+    assert "TOPIC FOCUS" in prompt and "religião" in prompt
+    assert all(c["categoria"] == "religião" for c in inseridas)
+    assert all(c["origem"] == "gemini" for c in inseridas)
+
+
 def test_gerar_pautas_fila_cheia_nao_insere(tmp_path, monkeypatch):
     inseridas = _capturar_insercoes(monkeypatch, fila=20)
     cfg = _cfg(tmp_path, teto=20)

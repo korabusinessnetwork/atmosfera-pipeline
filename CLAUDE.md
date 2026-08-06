@@ -21,10 +21,18 @@ Se um estado novo não cabe no `check (status in (...))`, é migration antes de 
 |--------|-----------|-----|-----------|
 | **Cowork** ~~(aposentado R10)~~ | ~~remoto, agendado~~ | ~~decide: pauta, relatório~~ | — |
 | **Worker** | seu PC (Windows + WSL2), Python 3.11 | executa: render, ffmpeg, upload; decide: pauta e relatório (Ollama local) | abrir porta, receber conexão |
-| **Painel** | Vercel, Next.js | aprova: fila, preview, histórico | usar service_role |
+| **Painel web** (`painel/`) | Vercel, Next.js, anon key | aprova: fila, preview, histórico | usar service_role, operar a máquina |
+| **Painel local** (`worker/controle.py`) | seu PC, Tkinter, service_role | opera: liga/pausa worker, sobe MPT, gera pauta, horários e categorias | aprovar vídeo (o gate é do celular) |
 
 O worker **só faz saída** (polling). O PC nunca abre porta — isso elimina a
 superfície de ataque inteira, e não é negociável.
+
+**São dois painéis, e confundi-los custa uma rodada inteira** (custou, na R21): o da
+Vercel é o **gate humano** no celular; o `controle.py` é o **console da máquina**, ao
+lado dela. A divisão não é gosto — a Vercel não alcança o PC (ADR-05), e a
+`service_role` que opera a máquina nunca sai do `.env` local. Feature de operação
+(botão de gerar, horário, categoria) nasce no **painel local**; feature de aprovação
+nasce no **web**.
 
 **O Cowork foi aposentado na Rodada 10** (decisão do dono, 2026-08-04). A camada de
 decisão que rodava remota — pauta de segunda e relatório de sexta — migrou para o
@@ -47,7 +55,7 @@ vídeo, que é do trigger e do gate. Nada mais consome uso de plano.
   schema. Rodar `supabase db advisors --linked` depois de cada migration — o
   alvo é `No issues found`, não "só warnings".
 - Teste de RLS roda pelo CLI: `supabase db query --linked -f supabase/tests/rls_test.sql`.
-  **Vinte e três ✅** é definition-of-done de qualquer migration que toque tabela —
+  **Todos ✅** (48 desde a R21) é definition-of-done de qualquer migration que toque tabela —
   e o teste cresce junto com o schema: política nova sem caso novo não conta como
   pronta. Os casos 09–12 cobrem `storage.objects` (o preview); os 13–19 cobrem a
   máquina de estados, que é outra pergunta: RLS responde "esta linha é sua?", não

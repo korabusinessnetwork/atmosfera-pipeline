@@ -485,8 +485,11 @@ A chave é **secret**: vai só no `.env` (gitignored), nunca no `.env.example`, 
 em log, nunca na Vercel. O `worker/` está dentro do OneDrive — a mesma higiene do
 `token.json` e da `service_role` vale aqui (seção 8).
 
-O modelo tem padrão `gemini-2.0-flash`. Se quiser outro (confira os disponíveis no
-tier grátis no próprio AI Studio, mudam de tempos em tempos), ajuste `GEMINI_MODEL`.
+O modelo tem padrão **`gemini-flash-latest`** (alias, aponta sempre para o flash
+atual). Não use versão cravada: medido em 2026-08-06 com a chave nova,
+`gemini-2.0-flash` responde 429 "limit: 0" e `gemini-2.5-flash` responde "no longer
+available to new users" — o sintoma é um produtor que só falha, e não parece
+"modelo aposentado". Se quiser outro, ajuste `GEMINI_MODEL`.
 
 ### 12.2 Aplicar a migration
 
@@ -510,3 +513,62 @@ identidade da marca e os vencedores por retenção (se houver), pede N pautas ao
 Gemini, valida e insere com `origem='gemini'`. O trigger enfileira cada uma até o
 **gate humano** — aprovar e publicar seguem exigindo você. Se a fila esvaziar e você
 quiser cadência, agende como os outros produtores locais (seção 7).
+
+## 13. Produção automática, categorias e o MPT sob o worker (Rodada 21)
+
+Esta rodada muda **o que você opera**: o botão "Gerar agora", os horários da produção
+automática e as categorias moram no **painel local** (`worker/controle.py`), não no
+painel da Vercel. O painel web continua sendo só o **gate humano** (aprovar/reprovar
+no celular) — quem opera a máquina é a tela que roda ao lado dela.
+
+### 13.1 Aplicar as duas migrations
+
+Duas tabelas novas (`configuracao_producao` e `categorias`) e uma coluna
+(`pautas.categoria`). Sem elas o painel local mostra a fila normalmente, mas a seção
+de produção fica vazia e a automática não dispara.
+
+```bash
+supabase db push
+supabase db advisors --linked
+supabase db query --linked -f supabase/tests/rls_test.sql
+```
+
+Alvos: `No issues found` nos advisors e **48 ✅** no rls_test (eram 42 — seis casos
+novos: leitura por org das duas tabelas, escrita negada ao painel web, anônimo cego,
+uma só categoria padrão por org e horário inválido recusado).
+
+### 13.2 Criar suas categorias
+
+```bash
+cd worker && uv run controle.py
+```
+
+No cartão **produção**, clique em `ajustar`:
+
+- **Automática ligada** e os **horários** (padrão `8, 14, 18`). Aceita `8h`, `08`,
+  separado por vírgula ou ponto e vírgula.
+- **Categorias**: crie as suas (`religião`, `motivação`, `lifestyle`…) e marque uma
+  como **padrão**. A padrão é a que a produção automática usa — você escolhe antes,
+  não às 8h da manhã.
+
+Sem categoria padrão, a automática gera **genérico** (o comportamento de antes desta
+rodada). Categoria dirige o **assunto**; a voz da marca continua vindo inteira de
+`memory/00_IDENTIDADE.md`.
+
+### 13.3 O que muda no dia a dia
+
+- **"⚡ Gerar agora"** gera na hora, na categoria escolhida no seletor ao lado. Tenta
+  o Gemini e, sem cota, **cai para o Ollama** — o manual sempre produz, e a janela diz
+  qual dos dois escreveu (hook do Ollama é mais fraco; você decide isso na aprovação).
+- **A automática** (8/14/18h) usa **só o Gemini**. Sem cota, ela **pausa** e o motivo
+  aparece no painel (`⚠ pausada: …`). Foi decisão sua: três vídeos por dia com hook
+  fraco é pior que nenhum. O próximo horário tenta de novo sozinho.
+- **PC desligado na hora do slot?** Ao voltar, o slot mais recente ainda é cumprido —
+  uma vez só. Não acumula os três.
+- **O MPT sobe junto com o worker**, oculto, e o log vai para
+  `worker/logs/mpt-<data>.log`. Foi o que resolveu os seis vídeos em `erro` do dia
+  2026-08-06 (`[WinError 10061]` = MPT desligado). Para voltar a subir o MPT à mão,
+  `MPT_AUTO_START=false` no `.env`.
+
+**O gate humano continua de pé.** Nada disto publica sozinho: pauta → vídeo →
+`aguardando_aprovacao` → **você**, no celular.

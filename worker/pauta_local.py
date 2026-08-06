@@ -377,8 +377,35 @@ def montar_bloco_vencedores(vencedores: list[dict[str, Any]]) -> str:
     )
 
 
+def montar_bloco_categoria(categoria: str | None) -> str:
+    """Monta o bloco que direciona o TEMA da geração. Pura.
+
+    None/vazio → string vazia, e o prompt fica byte-a-byte o de antes da Rodada 21.
+    É o mesmo pivô de degradação do `montar_bloco_vencedores`: quem não escolheu
+    categoria continua gerando como sempre gerou.
+
+    O bloco dirige o ASSUNTO, nunca a voz: a identidade (tom, estética, o que
+    nunca fazer) segue vindo inteira de `00_IDENTIDADE.md`, acima deste bloco no
+    prompt. Categoria é sobre o que falar; identidade é sobre como falar — mistura
+    os dois e a marca vira genérica quando o dono trocar de categoria.
+    """
+    if not (categoria or "").strip():
+        return ""
+    return (
+        "=== TOPIC FOCUS ===\n"
+        f"Every pauta in this batch must be about: {categoria.strip()}.\n"
+        "Stay inside this subject — vary the angle, never the subject. The voice, "
+        "tone and rules from the IDENTITY above still apply unchanged; this only "
+        "decides WHAT you talk about, never HOW.\n"
+        "=== END OF TOPIC FOCUS ===\n\n"
+    )
+
+
 def montar_prompt(
-    identidade: str, n: int, vencedores: list[dict[str, Any]] | None = None
+    identidade: str,
+    n: int,
+    vencedores: list[dict[str, Any]] | None = None,
+    categoria: str | None = None,
 ) -> str:
     """Monta o prompt do gerador, com a identidade da marca embutida.
 
@@ -390,8 +417,11 @@ def montar_prompt(
     `vencedores` (Rodada 13) são os hooks de maior retenção real, injetados como
     few-shot logo após a identidade. Vazio/None → o prompt é byte-a-byte o de antes
     da rodada, então nenhuma chamada existente muda de comportamento.
+
+    `categoria` (Rodada 21) dirige o assunto do lote. None → mesmo prompt de antes,
+    pela mesma razão.
     """
-    bloco = montar_bloco_vencedores(vencedores or [])
+    bloco = montar_bloco_vencedores(vencedores or []) + montar_bloco_categoria(categoria)
     return (
         "You are the content strategist for Atmosfera Viral. Your identity, "
         "voice, and what never to do are described below. Respect every limit "
@@ -558,6 +588,7 @@ def gerar_pool(
     identidade: str,
     sessao: Sessao,
     vencedores: list[dict[str, Any]] | None = None,
+    categoria: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Gera o pool de candidatos em lotes que cabem no timeout.
 
@@ -566,7 +597,8 @@ def gerar_pool(
     previsível. Devolve (candidatos válidos, quantos o modelo entregou tortos).
 
     `vencedores` (Rodada 13) vai a cada prompt de geração como few-shot dos hooks
-    que retiveram — vazio/None mantém o prompt de sempre.
+    que retiveram — vazio/None mantém o prompt de sempre. `categoria` (Rodada 21)
+    dirige o assunto do lote inteiro, pela mesma via.
     """
     from math import ceil
 
@@ -574,7 +606,7 @@ def gerar_pool(
     pool: list[dict[str, Any]] = []
     invalidas = 0
     for _ in range(ceil(alvo / LOTE_GERACAO)):
-        prompt = montar_prompt(identidade, LOTE_GERACAO, vencedores)
+        prompt = montar_prompt(identidade, LOTE_GERACAO, vencedores, categoria)
         texto = chamar_ollama(cfg.ollama_url, cfg.ollama_model, prompt, sessao)
         validas, descartou = separar_validas(extrair_pautas(texto))
         pool.extend(validas)
@@ -653,13 +685,21 @@ def ler_vencedores(cfg: Config, sb: Any) -> list[dict[str, Any]]:
     return formatar_vencedores(linhas)
 
 
-def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str, Any]:
+def gerar_pautas(
+    cfg: Config,
+    sb: Any,
+    sessao: Sessao | None = None,
+    categoria: str | None = None,
+) -> dict[str, Any]:
     """Best-of-N + crítica: gera pool → pontua → seleciona top N → reescreve → insere.
 
     Devolve um resumo para o log e o exit code do CLI decidirem — nunca levanta
     por fila cheia (é resultado normal), só por Ollama fora do ar ou pool vazio.
     A pontuação e a reescrita são degradáveis: um polish que falha não pode
     derrubar o run inteiro nem custar uma pauta.
+
+    `categoria` (Rodada 21) dirige o assunto e é gravada como etiqueta em cada
+    pauta inserida. None = genérico, o comportamento de antes da rodada.
     """
     org = str(cfg.org_id)
 
@@ -676,7 +716,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
 
     vencedores = ler_vencedores(cfg, sb)
 
-    pool, invalidas = gerar_pool(cfg, identidade, sessao, vencedores)
+    pool, invalidas = gerar_pool(cfg, identidade, sessao, vencedores, categoria)
     if not pool:
         raise RespostaInvalida("Ollama respondeu, mas nenhuma pauta veio utilizável.")
 
@@ -702,7 +742,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
         log.warning("hooks acima do teto — o render vai cortar", extra={"quantos": longos})
 
     for pauta in finais:
-        db.inserir_pauta(sb, org, **pauta)
+        db.inserir_pauta(sb, org, categoria=categoria, **pauta)
 
     log.info(
         "pautas geradas",
@@ -713,6 +753,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
             "ranqueou": ranqueou,
             "refinou": cfg.pauta_local_refinar,
             "vencedores": len(vencedores),
+            "categoria": categoria,
             "fila_viva": viva,
         },
     )
@@ -722,6 +763,7 @@ def gerar_pautas(cfg: Config, sb: Any, sessao: Sessao | None = None) -> dict[str
         "pool": len(pool),
         "ranqueou": ranqueou,
         "vencedores": len(vencedores),
+        "categoria": categoria,
         "fila_viva": viva,
     }
 

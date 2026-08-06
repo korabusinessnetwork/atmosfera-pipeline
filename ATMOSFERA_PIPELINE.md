@@ -260,6 +260,9 @@ atmosfera-pipeline/
 │   ├── render.py                  # onde o mp4 nasce e como se chama
 │   ├── postprocess.py             # ffmpeg: hook, grão, 亡者
 │   ├── publicar.py                # orquestra as duas plataformas + cota
+│   ├── producao.py                # relógio 8/14/18h + "gerar agora" (R21)
+│   ├── mpt_supervisor.py          # sobe o MPT oculto, confere, derruba (R21)
+│   ├── controle.py                # painel LOCAL: opera a máquina (Tkinter)
 │   ├── batimento.py               # thread daemon: "o processo está vivo"
 │   ├── saude.py                   # CLI que JULGA o batimento (exit code)
 │   ├── log.py                     # logging estruturado em JSON
@@ -1062,7 +1065,33 @@ if __name__ == "__main__":
 [ ] 13c. Agendar pauta_local + relatorio_local no PC      (10 min)  ← SEU: Task Scheduler local, ver specs/_manual.md §7
 [x] 14. Métrica de verdade — coleta do YouTube (R11)      (1h)      ← 417 testes, migration metricas, rls_test 29→32 casos (verificação humana)
 [ ] 14b. Re-consentir OAuth (analytics) + aplicar migration (15 min) ← SEU: autorizar_youtube.py + db push/advisors/rls_test, ver specs/_manual.md §11
+[x] 15. Produção automática + categorias + MPT sob o worker (R21) (2h) ← 578 testes, 2 migrations, rls_test 42→48 casos (verificação humana)
+[ ] 15b. Aplicar as migrations + criar as categorias no painel local (10 min) ← SEU: db push/advisors/rls_test + uv run controle.py, ver specs/_manual.md §13
 ```
+
+**Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
+rodar um CLI: com o worker no boot e nada produzindo, o sistema completo acordava a
+cada 30s, não achava nada e voltava a dormir. A Rodada 21 põe o relógio **dentro do
+worker** (`worker/producao.py`, uma pergunta por ciclo, slots 8/14/18h configuráveis
+no banco), um botão **"Gerar agora"** no painel local, **categorias** que dirigem o
+assunto da geração e etiquetam a pauta, e o **MPT sob o worker** (sobe junto, oculto,
+morre junto). Os passos que tocam o Supabase são seus (item 15b) — o ambiente do
+agente não alcança o banco. Detalhe em `specs/producao-gerar-agora-e-agendada.md` e
+`specs/_manual.md` § 13.
+
+**Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
+painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)
+**opera a máquina** — liga/pausa o worker, sobe o MPT, gera pauta, define horários e
+categorias; `painel/` (Next.js na Vercel, `anon`) é **o gate humano** — aprovar e
+reprovar pelo celular, e nada mais. A divisão não é estética: a Vercel não alcança o
+PC (ADR-05), e a chave que opera a máquina nunca pode sair do `.env` local.
+
+**A produção automática usa Gemini e PAUSA sem cota; o botão manual cai para o
+Ollama.** Decisão do dono, e é a extensão consciente da regra "auto só
+gratuito/local": três vídeos por dia com hook fraco valem menos que nenhum, então a
+automática para e diz por quê na tela. No manual o dono está olhando e prefere pauta
+imperfeita a tela vazia. O professor do modelo local continua sendo a **retenção
+real** (a tabela `metricas`, § 9), nunca a imitação do Gemini.
 
 **Item 14 — métrica de verdade (coleta).** Até aqui o banco sabia que publicou e
 não se alguém assistiu. A Rodada 11 adiciona a tabela `metricas` e o coletor
