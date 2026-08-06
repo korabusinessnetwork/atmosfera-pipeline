@@ -363,6 +363,17 @@ por isso VPN e servidor gringo não entram na conta. Entre os modelos locais, o
 qwen2.5 venceu o llama3.1 no hook em inglês (medido em teste seco); o llama3.1
 escreve inglês limpo, mas com menos tensão no hook.
 
+**A voz virou `en-US-AndrewMultilingualNeural` em 2026-08-06,** escolhida pelo dono
+ouvindo oito amostras da mesma frase (`output/vozes/`, gitignored). Era
+`en-US-GuyNeural`, que entrou na R5 por ser *uma* voz masculina en-US e nunca foi
+comparada com nada — locutor de telejornal, articulação limpa e entonação plana. As
+vozes `…MultilingualNeural` do edge-tts são de um modelo mais novo: respiram e variam
+de intensidade dentro da frase. Segue grátis e sem chave; as `-V2` exigem chave paga
+da Azure e ficam fora pela regra "auto só gratuito/local". **O ritmo continua cravado
+no código** (`voice_rate = 0.95`, `mpt.py:183`) — em vídeo curto ele pesa tanto quanto
+o timbre, e hoje não é ajustável sem editar Python. Nada disso é o destino: a **voz
+própria** (voice clone local) segue no § 9.
+
 **Os dois prompts saíram deste arquivo e viraram `cowork/*.md`.** Ficaram aqui
 até a Rodada 3 como esboço; foram para arquivo próprio quando passaram a citar
 nome de coluna, valor de `check` e SQL — coisa que quebra em silêncio quando o
