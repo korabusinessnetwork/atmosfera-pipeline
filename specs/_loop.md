@@ -39,7 +39,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 - Aprendido: `memory/anchor-concreto-colapsa-o-lote.md` — em modelo pequeno, exemplo
   concreto no prompt conserta a forma e uniformiza a sintaxe do lote inteiro;
   proibição negativa piora os dois. Registrado também no comentário de `FECHO`.
-- Commit: <preencher> na branch `rodada-21-producao-automatica`
+- Commit: `5ab903f` na branch `rodada-21-producao-automatica`
 - Pendente de decisão: nenhuma
 - Próximo item recomendado: **variedade de fecho dentro do lote** — o único defeito
   medido que sobrou, e a mecânica que o resolve (âncora rotativa por chamada, ou
