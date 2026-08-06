@@ -216,6 +216,17 @@ def gerar_pautas(
     if longos:
         log.warning("hooks acima do teto — o render vai cortar", extra={"quantos": longos})
 
+    # Mesmo contador do `pauta_local` (R26), e não é duplicação sem motivo: os dois
+    # produtores compartilham o `montar_prompt`, então a mudança de prompt vale para os
+    # dois e a medição também precisa valer. Como o Gemini não tem juiz nem reescrita,
+    # aqui o número é o ÚNICO sinal de que o prompt está entregando roteiro em forma.
+    curtos = sum(1 for p in validas if pl.roteiro_fora_de_forma(p["roteiro"]))
+    if curtos:
+        log.warning(
+            f"roteiros com menos de {pl.LINHAS_DO_ROTEIRO} linhas — a curva não fecha",
+            extra={"quantos": curtos, "de": len(validas)},
+        )
+
     for pauta in validas:
         db.inserir_pauta(sb, org, origem="gemini", categoria=categoria, **pauta)
 
@@ -227,6 +238,7 @@ def gerar_pautas(
             "vencedores": len(vencedores),
             "categoria": categoria,
             "fila_viva": viva,
+            "fora_de_forma": curtos,
         },
     )
     return {
@@ -235,6 +247,7 @@ def gerar_pautas(
         "vencedores": len(vencedores),
         "categoria": categoria,
         "fila_viva": viva,
+        "fora_de_forma": curtos,
     }
 
 
@@ -289,9 +302,14 @@ def main() -> int:
             f"com {venc} vencedores reais no few-shot" if venc
             else "sem vencedores no few-shot (métrica ainda não coletada)"
         )
+        curtos = resumo.get("fora_de_forma", 0)
+        forma = (
+            f" {curtos} com menos de {pl.LINHAS_DO_ROTEIRO} linhas — confira o fecho."
+            if curtos else ""
+        )
         print(
             f"gerou {resumo['gerou']} pautas prontas via Gemini ({cfg.gemini_model}), "
-            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo). "
+            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo).{forma} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0

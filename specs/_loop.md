@@ -9,6 +9,44 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 26 — a finalização do roteiro entra no prompt · 2026-08-06
+
+- Spec: `specs/finalizacao-do-roteiro.md`
+- **Pedido do dono:** "melhorar a finalização do roteiro no prompt de geração" — a
+  causa do que a R25 deu instrumento para ver.
+- **O que entrou:** constante `FECHO` (as regras de fecho, INLINE no comando, com
+  três exemplos reais dos 18 exemplos-ouro) · a curva nomeada linha a linha no
+  `montar_prompt` (`line 1 = the hook` … `line 5 = the close`) · funções puras
+  `linhas_do_roteiro` e `roteiro_fora_de_forma` · contador de forma no log, no
+  resumo e na CLI dos **dois** produtores (`pauta_local` e `pauta_gemini`, que
+  compartilham o prompt).
+- **Diagnóstico medido antes de escrever código** (qwen2.5, n=6, prompt de
+  produção): 4 de 6 roteiros com 4 linhas, **0 de 6** fechando em imagem — um deles
+  literalmente *"But the only limit is yourself"*, o clichê que a regra 9 da
+  identidade proíbe. Causa: o prompt gastava todas as instruções com o hook e
+  descrevia o roteiro em uma frase; as regras de fecho existiam só na identidade, na
+  linha 93 de um documento de 326.
+- **Depois:** **6 de 6** com 5 linhas, **6 de 6** fechando em imagem.
+- **O defeito que a medição revelou e fica em aberto:** os seis fechos saem com a
+  mesma sintaxe, e um copia o exemplo do prompt literal. Quatro variantes do bloco
+  foram medidas; as quatro colapsam, e tirar o exemplo concreto devolve o fecho
+  abstrato (pior). A causa é o lote inteiro nascer de UMA chamada — resolve-se com
+  mecânica, não com mais palavras. Próxima rodada.
+- **Portões:** **620 testes do worker** (eram 605) · sem migration (`rls_test` segue
+  67) · `painel/` e `supabase/` intocados.
+- Resultado da review: **aprovado sem ressalvas** (§ 10 do spec, com a tabela das
+  quatro variantes).
+- Aprendido: `memory/anchor-concreto-colapsa-o-lote.md` — em modelo pequeno, exemplo
+  concreto no prompt conserta a forma e uniformiza a sintaxe do lote inteiro;
+  proibição negativa piora os dois. Registrado também no comentário de `FECHO`.
+- Commit: <preencher> na branch `rodada-21-producao-automatica`
+- Pendente de decisão: nenhuma
+- Próximo item recomendado: **variedade de fecho dentro do lote** — o único defeito
+  medido que sobrou, e a mecânica que o resolve (âncora rotativa por chamada, ou
+  quebrar a geração em mais de uma) é pequena e testável.
+
+---
+
 ## Rodada 25 — revisar a pauta antes do render (o gate editorial) · 2026-08-06
 
 - Spec: `specs/revisar-pautas-antes-do-render.md`

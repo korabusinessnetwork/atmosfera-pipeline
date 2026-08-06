@@ -111,6 +111,48 @@ def test_hook_longo_no_limite():
     assert pl.hook_longo("") is False
 
 
+# ------------------------------------------------------------ linhas_do_roteiro
+def test_linhas_do_roteiro_conta_as_com_conteudo():
+    assert pl.linhas_do_roteiro("a\nb\nc\nd\ne") == 5
+
+
+def test_linhas_do_roteiro_ignora_branco():
+    # `"a\n\n\nb"` são DUAS falas, não quatro. Contar as brancas faria um roteiro
+    # de duas linhas passar por cinco — e o defeito medido é falta de linha.
+    assert pl.linhas_do_roteiro("a\n\n\nb") == 2
+    assert pl.linhas_do_roteiro("a\n   \nb") == 2
+
+
+def test_linhas_do_roteiro_sem_texto_nao_estoura():
+    assert pl.linhas_do_roteiro(None) == 0
+    assert pl.linhas_do_roteiro("") == 0
+    assert pl.linhas_do_roteiro("   \n  ") == 0
+
+
+# -------------------------------------------------------- roteiro_fora_de_forma
+def test_roteiro_de_cinco_linhas_esta_em_forma():
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne") is False
+
+
+def test_roteiro_de_quatro_linhas_e_flagrado():
+    # O defeito medido na R26: 4 de 6 gerações vieram com 4 linhas. Falta uma
+    # batida do meio, e o fecho aterrissa antes de a consequência acontecer.
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd") is True
+    assert pl.roteiro_fora_de_forma("só o hook") is True
+
+
+def test_roteiro_mais_longo_nao_e_flagrado():
+    # Nenhum dos 18 ouros nem das 6 amostras passou de 5 linhas. Flagrar seria
+    # inventar um problema que ninguém tem, e flag falso ensina a ignorar o aviso.
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf") is False
+
+
+def test_roteiro_vazio_e_flagrado_sem_estourar():
+    # `limpar_pauta` já descarta antes de chegar aqui; o contrato é não explodir.
+    assert pl.roteiro_fora_de_forma(None) is True
+    assert pl.roteiro_fora_de_forma("") is True
+
+
 # ---------------------------------------------------------------- extrair
 def test_extrai_objeto_com_lista_pautas():
     texto = '{"pautas": [{"tema": "t1", "roteiro": "r1"}, {"tema": "t2", "roteiro": "r2"}]}'
@@ -219,6 +261,59 @@ def test_identidade_tem_18_exemplos_bem_formados():
         linhas = p["roteiro"].split("\n")
         assert len(linhas) == 5, f"exemplo {i}: roteiro com {len(linhas)} linhas"
         assert linhas[0].strip() == p["hook"].strip(), f"exemplo {i}: 1ª linha ≠ hook"
+
+
+def test_nenhum_exemplo_ouro_e_flagrado_como_fora_de_forma():
+    # Os 18 exemplos são a definição operacional de "bom" neste projeto. Critério
+    # mecânico que reprova um deles está errado por definição — foi assim que a
+    # heurística de "fecho começando por conjunção" morreu antes do build (ela
+    # flagraria "Until the outline changes" e "So it waits"). O teste é a régua.
+    for i, p in enumerate(_exemplos_da_identidade()):
+        assert not pl.roteiro_fora_de_forma(p["roteiro"]), f"exemplo {i} flagrado"
+
+
+def test_teto_do_fecho_cabe_nos_18_exemplos():
+    # O número no prompt é lido dos exemplos, não inventado: o fecho mais longo
+    # dos 18 tem 7 palavras. Um teto menor mandaria o modelo bater uma régua que
+    # o próprio few-shot desmente, e o few-shot ganha essa briga.
+    for i, p in enumerate(_exemplos_da_identidade()):
+        fecho = [ln for ln in p["roteiro"].split("\n") if ln.strip()][-1]
+        assert len(fecho.split()) <= pl.FECHO_MAX_PALAVRAS, f"exemplo {i}: {fecho}"
+
+
+def test_prompt_ensina_a_fechar_o_roteiro():
+    # O defeito da R26: o prompt descrevia o roteiro em uma frase e gastava TODO
+    # o resto com o hook. As regras de fecho existiam só na identidade, na linha
+    # 93 de um documento de 326 — e num modelo pequeno isso some.
+    prompt = pl.montar_prompt("VOZ", 6)
+    assert pl.FECHO in prompt
+    assert str(pl.FECHO_MAX_PALAVRAS) in prompt
+    assert "CLOSES; it does not " in prompt      # fecha, não resume
+    assert "IMAGE or a concrete fact" in prompt  # imagem, não lição
+
+
+def test_prompt_nomeia_a_curva_linha_a_linha():
+    # "5 lines" sozinho produziu 4 linhas em 4 de 6 gerações medidas. Dar função
+    # a cada linha é o que torna a contagem verificável pelo próprio modelo.
+    prompt = pl.montar_prompt("VOZ", 6)
+    assert f"EXACTLY {pl.LINHAS_DO_ROTEIRO} lines" in prompt
+    for papel in ("line 1 = the hook", "line 2 = the discomfort",
+                  "line 3 = the turn", "line 4 = the consequence",
+                  "line 5 = the close"):
+        assert papel in prompt, f"falta o papel: {papel}"
+
+
+def test_prompt_ancora_o_fecho_com_exemplo_real_da_identidade():
+    # As duas frases citadas no bloco de fecho saíram dos 18 exemplos-ouro. Se
+    # alguém reescrever a identidade e elas sumirem, o prompt passa a ensinar
+    # com exemplo que o few-shot não confirma — e este teste avisa.
+    exemplos = _exemplos_da_identidade()
+    fechos = {
+        [ln for ln in p["roteiro"].split("\n") if ln.strip()][-1].strip()
+        for p in exemplos
+    }
+    citados = [c for c in fechos if c and c in pl.FECHO]
+    assert citados, "o bloco de fecho não cita nenhum fecho real dos exemplos"
 
 
 def test_prompt_juiz_cita_a_regua_nomeada():
@@ -511,6 +606,22 @@ def test_gerar_ranqueia_e_insere_top_n(tmp_path, monkeypatch):
     # top 2 por nota são os índices 4 (9) e 1 (8) — tema sobrevive à reescrita.
     assert [p["tema"] for p in inseridas] == ["t4", "t1"]
     assert [p["hook"] for p in inseridas] == ["H-forte", "H-forte"]   # reescrito
+
+
+def test_gerar_conta_roteiro_fora_de_forma_e_insere_assim_mesmo(tmp_path, monkeypatch):
+    # Roteiro curto é FRACO, não quebrado: renderiza e publica. Descartar com 4
+    # em 6 fora de forma mataria a fila de fome. Vira contador, como o hook longo.
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2"}',   # 2 linhas — fora de forma
+    )
+
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["fora_de_forma"] == 2
+    assert resumo["gerou"] == 2 and len(inseridas) == 2
 
 
 def test_juiz_falha_degrada_para_primeiros(tmp_path, monkeypatch):

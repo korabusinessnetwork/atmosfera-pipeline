@@ -1086,6 +1086,7 @@ if __name__ == "__main__":
 [x] 18b. Aplicar a migration do enfileirar_pauta_da_org    (5 min)  ← FEITO 2026-08-06; advisors limpo, rls_test 62/62 ✅
 [x] 19. Revisar a pauta antes do render — o gate editorial (R25) (1h) ← 605 testes, 1 migration (drop de trigger + 1 RPC), rls_test 63→67 casos (verificação humana)
 [x] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← FEITO 2026-08-06; rls_test 67/67 ✅ (26 e 41 invertidos confirmados no banco)
+[x] 20. A finalização do roteiro entra no prompt (R26)     (40 min) ← 620 testes, sem migration; medido antes/depois no qwen2.5
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1157,6 +1158,37 @@ conta ficaria baixa para sempre e a produção automática empilharia pauta trê
 por dia, sem limite — falha muda, com todo componente reportando sucesso. A conta
 passou a somar as **pautas `pronta` esperando revisão**, que é exatamente trabalho não
 decidido, igual a um vídeo no gate. `specs/_manual.md` § 16.
+
+**Item 20 — a causa do que o item 19 deu para ver.** A revisão de pauta mostrou o
+defeito; a Rodada 26 ataca a origem dele, que estava no prompt e não no modelo.
+`montar_prompt` gastava **todas** as instruções com o hook — o teto de 88, as cinco
+formas, o "aim for 40 to 60" — e descrevia o roteiro em uma frase. As regras de fecho
+existiam, certas, na identidade: só que na linha 93 de um documento de 326, e num
+modelo pequeno critério enterrado no meio de 18 exemplos **some**. É a mesma lição que
+a R7 já tinha escrito no código para o hook (a `RUBRICA_HOOK` subiu inline) e que
+ninguém tinha aplicado ao fecho. Agora sobe a constante `FECHO`, e a curva do roteiro
+é nomeada linha a linha (`line 1 = the hook` … `line 5 = the close`), porque "5 lines"
+sozinho produziu 4 linhas em 4 de 6 medições.
+
+**Medido dos dois lados, mesmo modelo e mesmo n** — qwen2.5, n=6, prompt de produção:
+roteiros com 5 linhas foram de **2/6 para 6/6**; fechos que caem numa imagem, de
+**0/6 para 6/6**. Um dos fechos de antes era literalmente *"But the only limit is
+yourself"*, o clichê de empoderamento que a regra 9 da identidade proíbe.
+
+**E a medição revelou um defeito que fica em aberto, escrito porque custa caro
+redescobrir:** os seis fechos novos saem com a **mesma sintaxe**, e um copia o exemplo
+do prompt literal. Quatro variantes do bloco foram medidas — as quatro colapsam, e
+tirar o exemplo concreto conserta a repetição devolvendo o fecho abstrato, que é pior.
+Uma regra explícita proibindo repetir o template **piorou os dois números**: proibição
+negativa em modelo pequeno gasta atenção e não compra comportamento. A causa é o lote
+inteiro nascer de **uma** chamada, então não se resolve com mais palavras no prompt —
+é mecânica (âncora rotativa por chamada, ou quebrar a geração), e é a rodada seguinte.
+Enquanto isso quem vê a repetição é a revisão de pauta do item 19.
+
+**Nada disso vira descarte.** Roteiro curto é **fraco, não quebrado**: renderiza e
+publica. Com 4 em 6 fora de forma, descartar mataria a fila de fome. Vira contador
+logado, no molde do `hook_longo` desde a R4 — e o contador aparece no resumo e na
+linha que a CLI imprime, porque quem roda o gerador é quem vai revisar.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

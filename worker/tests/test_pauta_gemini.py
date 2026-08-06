@@ -203,6 +203,30 @@ def test_gerar_pautas_insere_com_origem_gemini(tmp_path, monkeypatch):
     assert inseridas[0]["tema"] == "t0"
 
 
+def test_gerar_pautas_conta_roteiro_fora_de_forma(tmp_path, monkeypatch):
+    # Aqui a contagem é o ÚNICO sinal de forma que existe: o caminho do Gemini
+    # não tem juiz nem reescrita (R20), então nada mais olharia o roteiro. Sem
+    # ela, um lote inteiro de 4 linhas passaria calado — foi o que aconteceu.
+    _capturar_insercoes(monkeypatch)
+    sessao = SessaoGeminiFake(texto=_pautas_json(2))   # roteiro de 1 linha
+
+    resumo = pg.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
+
+    assert resumo["fora_de_forma"] == 2
+    assert resumo["gerou"] == 2   # conta, não descarta
+
+
+def test_gerar_pautas_nao_conta_roteiro_em_forma(tmp_path, monkeypatch):
+    _capturar_insercoes(monkeypatch)
+    roteiro = "l1\\nl2\\nl3\\nl4\\nl5"
+    texto = f'{{"pautas": [{{"tema": "t0", "hook": "h0", "roteiro": "{roteiro}"}}]}}'
+    sessao = SessaoGeminiFake(texto=texto)
+
+    resumo = pg.gerar_pautas(_cfg(tmp_path, n=1), sb=object(), sessao=sessao)
+
+    assert resumo["fora_de_forma"] == 0 and resumo["gerou"] == 1
+
+
 def test_gerar_pautas_com_categoria_dirige_o_prompt_e_carimba(tmp_path, monkeypatch):
     inseridas = _capturar_insercoes(monkeypatch)
     sessao = SessaoGeminiFake(texto=_pautas_json(2))

@@ -92,6 +92,55 @@ TIMEOUT_OLLAMA_SEG = 300
 # de timeout, não gosto — pedir 18 numa chamada só estouraria os 300s.
 LOTE_GERACAO = 6
 
+# Roteiro em forma: cinco linhas não vazias. Não é gosto — os 18 exemplos-ouro da
+# identidade têm 5, todos, sem exceção, e o teste
+# `test_nenhum_exemplo_ouro_e_flagrado_como_fora_de_forma` cobra isso do arquivo em
+# vez de confiar nesta linha.
+LINHAS_DO_ROTEIRO = 5
+
+# Teto de palavras do fecho, LIDO dos exemplos-ouro (3 a 7 palavras; a moda é 4–5).
+# Vai para o prompt como número, não como "seja breve": 18/18 o satisfazem, então é
+# descrição do padrão, não invenção. Não vira gate em código — ver `FECHO`.
+FECHO_MAX_PALAVRAS = 7
+
+# As regras de FECHO, inline no comando. Elas já existem na identidade (§5 "the last
+# line closes, it does not summarize", a curva "discomfort → turn → consequence →
+# close", a regra 8 "lands on an image, not a lesson") — e é justamente esse o
+# problema: vivem nas linhas 93/96/138 de um documento de 326.
+#
+# Este projeto já aprendeu isso uma vez e escreveu no código, no comentário de
+# `montar_prompt_juiz`: num modelo pequeno, um critério enterrado no meio de 18
+# exemplos + identidade SOME. A lição foi aplicada ao hook (a RUBRICA_HOOK subiu
+# inline) e nunca ao fecho — daí a medição da R26: 0 de 6 fechos caíram numa imagem
+# e 4 de 6 roteiros vieram com 4 linhas em vez de 5.
+#
+# Os três exemplos citados aqui saem dos próprios exemplos-ouro, de propósito:
+# repetir o padrão que a identidade já ensina custa duas linhas de prompt e é o
+# único jeito de o modelo ver o alvo sem ter de achá-lo.
+#
+# LIMITE MEDIDO, e não é retórico: com anchor concreto, o qwen2.5 acerta a forma
+# (6/6 com 5 linhas, 6/6 fechando em imagem) e IMITA A SINTAXE DO PRIMEIRO EXEMPLO
+# no lote inteiro — quatro variantes deste bloco foram medidas e as quatro
+# colapsaram do mesmo jeito, inclusive copiando "Same door. Still closed." literal.
+# Tirar o anchor conserta a repetição e devolve o fecho abstrato, que é pior. A
+# causa é o lote inteiro nascer de UMA chamada: não se resolve com mais palavras
+# aqui, e sim com mecânica (rodar o anchor por chamada, ou gerar em mais de uma).
+# Fica para a rodada seguinte; a revisão de pauta da R25 é quem vê isso hoje.
+FECHO = (
+    "THE LAST LINE IS THE HARDEST AND THE MOST NEGLECTED. It CLOSES; it does not "
+    "summarize. Rules for it, all of them binding:\n"
+    "- It lands on an IMAGE or a concrete fact, never on a lesson or a moral. "
+    'Good, and each a DIFFERENT shape: "Same door. Still closed." / "There when '
+    'the battery dies" / "A draft envies the finished". '
+    'Bad: "So remember: discomfort is growth."\n'
+    "- It does not repeat what the viewer just saw in the lines above. A summary "
+    "spends the last second saying nothing new.\n"
+    "- No call to action, no \"follow\", no \"watch till the end\".\n"
+    "- No empowerment cliché. \"The only limit is yourself\", \"you are stronger "
+    "than you think\" — any channel could post those, so they belong to none.\n"
+    f"- AT MOST {FECHO_MAX_PALAVRAS} words. Aim for 4 or 5."
+)
+
 # As 8 dimensões da régua de hook (docs/hook-playbook.md; espelhadas em
 # memory/00_IDENTIDADE.md §9). Ficam INLINE no prompt do juiz de propósito: a
 # identidade inteira é longa e um modelo pequeno perde a régua no meio dos 18
@@ -139,6 +188,37 @@ def fila_cheia(viva: int, teto: int) -> bool:
 
 def hook_longo(hook: str | None) -> bool:
     return bool(hook) and len(hook) > HOOK_MAX
+
+
+def linhas_do_roteiro(roteiro: str | None) -> int:
+    """Quantas linhas NÃO VAZIAS o roteiro tem.
+
+    Conta só as com conteúdo porque é isso que o render fala: `"a\\n\\n\\nb"` são
+    duas falas, não quatro. Contar as brancas faria um roteiro de duas linhas passar
+    por cinco — e o defeito que esta função existe para medir é exatamente falta de
+    linha.
+    """
+    return sum(1 for linha in (roteiro or "").split("\n") if linha.strip())
+
+
+def roteiro_fora_de_forma(roteiro: str | None) -> bool:
+    """Roteiro com menos de cinco linhas — a curva não cabe, e o fecho chega cedo.
+
+    A identidade manda cinco: hook → desconforto → virada → consequência → fecho. Com
+    quatro, alguma batida do meio some e o fecho aterrissa antes de a consequência ter
+    acontecido — que é uma das formas de "finalização ruim" que o dono relatou. Os 18
+    exemplos-ouro têm cinco linhas, os 18.
+
+    **NÃO flagra roteiro com mais de cinco.** Nenhum dos 18 ouros nem nenhuma das 6
+    amostras medidas passou de cinco; flagrar seria inventar um problema que ninguém
+    tem, e todo flag falso ensina a ignorar o contador.
+
+    Isto é CONTADOR, não portão: quem chama loga o número e insere a pauta do mesmo
+    jeito (ver `gerar_pautas`). Um roteiro de quatro linhas é fraco, não quebrado —
+    renderiza e publica —, e descartá-lo com 4 em 6 fora de forma mataria a fila de
+    fome. Mesma disciplina do `hook_longo`, que avisa e deixa passar desde a R4.
+    """
+    return linhas_do_roteiro(roteiro) < LINHAS_DO_ROTEIRO
 
 
 def extrair_pautas(texto: str) -> list[dict[str, Any]]:
@@ -422,6 +502,11 @@ def montar_prompt(
 
     `categoria` (Rodada 21) dirige o assunto do lote. None → mesmo prompt de antes,
     pela mesma razão.
+
+    **A Rodada 26 acrescentou o bloco `FECHO` e a curva linha a linha.** Até ela, o
+    roteiro cabia numa frase ("5 sequential lines, the first is the hook") e todo o
+    resto do prompt falava do hook — medido contra o qwen2.5, isso dava 4 linhas em
+    4 de 6 casos e nenhum fecho em imagem. Ver `specs/finalizacao-do-roteiro.md`.
     """
     bloco = montar_bloco_vencedores(vencedores or []) + montar_bloco_categoria(categoria)
     return (
@@ -448,8 +533,16 @@ def montar_prompt(
         "- hook: the first line of the roteiro, read with no image and no "
         f"context. MAXIMUM {HOOK_MAX} characters (past that the video cuts with "
         "an ellipsis). Aim for 40 to 60.\n"
-        "- roteiro: 5 sequential lines, 8 to 12 seconds total. The first line "
-        "is the hook. REQUIRED and cannot be empty.\n"
+        f"- roteiro: EXACTLY {LINHAS_DO_ROTEIRO} lines, 8 to 12 seconds total. "
+        "REQUIRED and cannot be empty. Not 4, not 6 — five, and each one has a "
+        "job:\n"
+        "    line 1 = the hook (same text as the hook field)\n"
+        "    line 2 = the discomfort, stated plainly\n"
+        "    line 3 = the turn — what is actually going on\n"
+        "    line 4 = the consequence, what it costs over time\n"
+        "    line 5 = the close (see CLOSING below)\n"
+        "  One idea per line. A line with two ideas becomes an unreadable caption.\n"
+        f"\n=== CLOSING ===\n{FECHO}\n=== END OF CLOSING ===\n\n"
         "- titulo: YouTube title, up to 60 characters.\n"
         "- descricao: 2 lines, do not repeat the roteiro.\n\n"
         "The identity above has a 'Reference examples' section with pautas in "
@@ -746,6 +839,16 @@ def gerar_pautas(
     if longos:
         log.warning("hooks acima do teto — o render vai cortar", extra={"quantos": longos})
 
+    # Contador de forma (R26), no molde do `hook_longo`: avisa e deixa passar. O
+    # número é o que torna a próxima mudança de prompt mensurável em vez de opinada —
+    # sem ele, "o roteiro melhorou?" só se responde lendo pauta a pauta.
+    curtos = sum(1 for p in finais if roteiro_fora_de_forma(p["roteiro"]))
+    if curtos:
+        log.warning(
+            f"roteiros com menos de {LINHAS_DO_ROTEIRO} linhas — a curva não fecha",
+            extra={"quantos": curtos, "de": len(finais)},
+        )
+
     for pauta in finais:
         db.inserir_pauta(sb, org, categoria=categoria, **pauta)
 
@@ -760,6 +863,7 @@ def gerar_pautas(
             "vencedores": len(vencedores),
             "categoria": categoria,
             "fila_viva": viva,
+            "fora_de_forma": curtos,
         },
     )
     return {
@@ -770,6 +874,7 @@ def gerar_pautas(
         "vencedores": len(vencedores),
         "categoria": categoria,
         "fila_viva": viva,
+        "fora_de_forma": curtos,
     }
 
 
@@ -812,10 +917,17 @@ def main() -> int:
             f"com {venc} vencedores reais no few-shot" if venc
             else "sem vencedores no few-shot (métrica ainda não coletada)"
         )
+        # A contagem de forma vai para a tela, não só para o log: quem roda o CLI
+        # é quem vai revisar, e saber "3 destas 6 estão curtas" muda o que se olha.
+        curtos = resumo.get("fora_de_forma", 0)
+        forma = (
+            f" {curtos} com menos de {LINHAS_DO_ROTEIRO} linhas — confira o fecho."
+            if curtos else ""
+        )
         print(
             f"gerou {resumo['gerou']} pautas prontas de um pool de {resumo.get('pool', '?')} "
             f"candidatos, {ranking}, {few_shot} "
-            f"(descartou {resumo['descartou']} inválidas do modelo). "
+            f"(descartou {resumo['descartou']} inválidas do modelo).{forma} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0
