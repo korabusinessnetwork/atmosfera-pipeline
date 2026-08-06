@@ -619,3 +619,54 @@ um vídeo novo. Nada é descartado, nada volta para a lista de pautas prontas.
 
 O gate humano segue de pé: os vídeos recriados nascem `na_fila` e param de novo em
 `aguardando_aprovacao`, esperando você no celular.
+
+## 15. Executar a fila — pautas prontas para render (Rodada 23)
+
+O botão **▶ Executar fila** (painel local, ao lado do `⚡ Gerar agora`) pega **todas
+as pautas `pronta`** da org e manda renderizar: cada pauta vira um vídeo `na_fila`.
+Ele não escreve texto nenhum — é o par do "Gerar agora", para quando o conteúdo já
+existe e só falta virar vídeo.
+
+O número no botão é a quantidade esperando: `▶ Executar fila (3)`. Com zero, ele fica
+cinza e desabilitado.
+
+### 15.1 Aplicar a migration
+
+```bash
+supabase db push
+```
+
+```bash
+supabase db advisors --linked
+```
+
+```bash
+supabase db query --linked -f supabase/tests/rls_test.sql
+```
+
+Alvos: `No issues found` e **59 ✅** (eram 53 — seis casos novos). Uma RPC nova
+(`enfileirar_prontas`), **nenhuma tabela, coluna ou política**.
+
+### 15.2 Por que este botão precisava existir
+
+Pauta de origem `manual` **nunca era enfileirada sozinha**. O trigger
+`t_pautas_auto_enfileirar` só dispara para `ollama`, `gemini` e `cowork`, então uma
+pauta que você escreveu à mão (ou que voltou para `pronta`) ficava parada para
+sempre — e o único jeito de tirá-la de lá era o botão do painel **web**, no celular,
+uma por uma. Quem está na frente da máquina não tinha como dizer "renderiza o que já
+está escrito".
+
+### 15.3 O que ele faz e o que não faz
+
+| Faz | Não faz |
+|---|---|
+| Move as pautas `pronta` → `em_producao` | Toca em `rascunho`, `em_producao`, `consumida` ou `descartada` |
+| Cria **um** vídeo `na_fila` por pauta | Renderiza na hora — quem renderiza é o worker, no ciclo dele |
+| Diz quantas foram | Publica qualquer coisa |
+
+**O gate humano continua no caminho.** Cada vídeo enfileirado vai parar em
+`aguardando_aprovacao` esperando você no celular, como qualquer outro. Executar a
+fila é dar trabalho ao worker, não pôr vídeo no ar.
+
+**Clicar duas vezes não duplica.** Depois do primeiro clique não sobra pauta
+`pronta`, então o segundo enfileira zero.

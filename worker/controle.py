@@ -472,6 +472,33 @@ def frase_da_limpeza(apagados: int, recriados: int) -> str:
     )
 
 
+# ----------------------------------------------- executar a fila (R23)
+
+
+def rotulo_do_executar(prontas: int) -> str:
+    """O texto do botão, com o número de pautas esperando. Pura.
+
+    O número no botão é o que diferencia "não há nada para executar" de "o botão não
+    funciona" — sem ele, os dois casos são um clique que abre uma caixa de aviso.
+    """
+    return "▶ Executar fila" if not prontas else f"▶ Executar fila ({prontas})"
+
+
+def frase_da_execucao(quantas: int) -> str:
+    """O desfecho do "executar fila", em uma frase. Pura.
+
+    Diz que o render começa no PRÓXIMO CICLO de propósito: enfileirar é escrever
+    `na_fila`, e quem renderiza é o worker no ritmo dele. Sem isso, o dono clica,
+    não vê nada mudar em dois segundos e clica de novo.
+    """
+    if not quantas:
+        return "Nenhuma pauta pronta para executar — gere pauta antes."
+    return (
+        f"Enfileirei {quantas} pauta(s) para render. "
+        "O worker começa no próximo ciclo, e cada vídeo para no gate para você aprovar."
+    )
+
+
 def rodar_status() -> int:
     """Modo headless: imprime o estado uma vez e sai. Para terminal e teste."""
     from config import ConfigInvalida, carregar
@@ -530,6 +557,7 @@ def abrir_janela() -> int:
     ocupado = {"v": False}   # ligar/pausar o worker
     gerando = {"v": False}   # gerar pauta (independente do acima)
     limpando = {"v": False}  # limpar a fila (R22) — destrutiva, trava so dela
+    executando = {"v": False}  # executar a fila (R23) — idem, independente das outras
     fase = {"p": True}   # alterna a cada tique para pulsar o estágio ativo
 
     def fonte(tam: int, negrito: bool = False) -> tuple:
@@ -577,6 +605,16 @@ def abrir_janela() -> int:
         cursor="hand2", bd=0, bg=ROXO, fg=BG, padx=12, pady=6,
     )
     botao_gerar.pack(side="left", padx=(8, 0))
+
+    # "Executar fila" fica ao lado do "Gerar agora" porque são as duas metades da
+    # mesma pergunta — escrever conteúdo novo, ou renderizar o que já está escrito.
+    # Secundário na cor: o caminho comum é gerar; executar é para quando já existe
+    # pauta parada (a manual, que nenhum trigger enfileira).
+    botao_executar = tk.Button(
+        linha_gerar, text="▶ Executar fila", font=fonte(9), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=AZUL, padx=10, pady=6,
+    )
+    botao_executar.pack(side="left", padx=(6, 0))
 
     linha_auto = tk.Frame(prod, bg=CARD)
     linha_auto.pack(fill="x", padx=16, pady=(0, 12))
@@ -725,6 +763,61 @@ def abrir_janela() -> int:
                     messagebox.showerror("Atmosfera — gerar pauta", erro)
                 else:
                     messagebox.showinfo("Atmosfera — gerar pauta", frase)
+                disparar_refresh()
+
+            raiz.after(0, depois)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def acao_executar() -> None:
+        """Enfileira render para todas as pautas prontas. Um toque, com o número."""
+        # Trava própria, como o `gerar` e o `limpar`: as três são independentes, e
+        # compartilhar deixaria uma delas muda sem explicar por quê.
+        if executando["v"]:
+            return
+        e = estado_atual["e"]
+        if e is None:
+            return
+        # Não é código morto, embora o `pintar` desabilite o botão com zero pauta: a
+        # contagem na tela tem a idade do último refresh, e quem enfileirar as
+        # mesmas pautas pelo CELULAR nesse intervalo deixa este número alto e o
+        # banco vazio. Aí o clique chega com um alvo que não existe mais.
+        if not e.pautas_prontas:
+            messagebox.showinfo("Atmosfera — executar fila", frase_da_execucao(0))
+            return
+        # Um toque, não dois: diferente do limpar, isto não destrói nada — no pior
+        # caso rende trabalho ao worker, e o gate humano continua no caminho. Mas o
+        # número aparece antes, porque enfileirar 15 de uma vez é decisão diferente
+        # de enfileirar 1.
+        if not messagebox.askyesno(
+            "Atmosfera — executar fila",
+            f"Enfileirar render para {e.pautas_prontas} pauta(s) pronta(s)?\n\n"
+            "Cada uma vira um vídeo, e cada vídeo para no gate esperando sua "
+            "aprovação — nada é publicado sozinho.",
+        ):
+            return
+
+        executando["v"] = True
+        botao_executar.config(state="disabled", text="enfileirando…")
+
+        def trabalho() -> None:
+            try:
+                sb = db_mod.criar_cliente(cfg)
+                quantas = db_mod.enfileirar_prontas(sb, str(cfg.org_id))
+                frase, erro = frase_da_execucao(quantas), None
+            except Exception as ex:  # noqa: BLE001 — tipo, nunca a mensagem crua
+                frase, erro = "", f"{type(ex).__name__} ao executar a fila."
+
+            def depois() -> None:
+                executando["v"] = False
+                # O rótulo sai do mesmo lugar que o do `pintar` — texto de botão
+                # repetido à mão é o tipo de coisa que diverge na primeira mudança.
+                # O `pintar` do refresh logo abaixo corrige a contagem.
+                botao_executar.config(state="normal", text=rotulo_do_executar(0))
+                if erro:
+                    messagebox.showerror("Atmosfera — executar fila", erro)
+                else:
+                    messagebox.showinfo("Atmosfera — executar fila", frase)
                 disparar_refresh()
 
             raiz.after(0, depois)
@@ -981,6 +1074,16 @@ def abrir_janela() -> int:
         )
         _recarregar_categorias(e)
 
+        # ---- executar a fila (R23): o número no próprio botão. Sem ele, "executar
+        # fila" com zero pauta pronta parece um botão quebrado — clica e só aparece
+        # uma caixa dizendo que não há nada.
+        if not executando["v"]:
+            botao_executar.config(
+                text=rotulo_do_executar(e.pautas_prontas),
+                state="normal" if e.pautas_prontas else "disabled",
+                fg=AZUL if e.pautas_prontas else FRACO,
+            )
+
         if e.supabase:
             rep, err = e.fila.get("reprovado", 0), e.fila.get("erro", 0)
             partes = [f"Pautas prontas: {e.pautas_prontas}", f"Reprovado: {rep}"]
@@ -1050,6 +1153,7 @@ def abrir_janela() -> int:
     botao_gerar.config(command=acao_gerar)
     botao_config.config(command=acao_configurar)
     botao_limpar.config(command=acao_limpar)
+    botao_executar.config(command=acao_executar)
     canvas.bind("<Configure>", lambda _e: (estado_atual["e"] and desenhar_esteira(estado_atual["e"])))
 
     agendar()

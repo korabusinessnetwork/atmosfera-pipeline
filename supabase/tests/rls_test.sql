@@ -115,6 +115,7 @@ declare
   pauta_lf    uuid; -- pauta com a fila completa, para o limpar_fila (Rodada 22)
   vid_lf_pub  uuid; -- vídeo em erro QUE JÁ PUBLICOU (o cascade que quase passou)
   lf_org_a    int;  -- fila apagável da org A ANTES da limpeza da org C (isolamento)
+  pauta_ex    uuid; -- pauta pronta do `enfileirar_prontas` (Rodada 23)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -1231,6 +1232,126 @@ begin
   execute 'reset role';
 
   teste := '52 · painel web não alcança limpar_fila';
+  esperado := 'bloqueado';
+  obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
+  passou := bloqueou;
+  return next;
+
+  -- ================= EXECUTAR A FILA (Rodada 23) =================
+  -- A nona pergunta: "quem pode mandar renderizar TUDO que já está escrito?".
+  -- `enfileirar_prontas` é a irmã de máquina da `enfileirar_pauta` do painel web, e
+  -- a razão de existir está no primeiro caso abaixo.
+  --
+  -- Três pautas na org C: duas prontas (o alvo) e uma em rascunho (que não pode ser
+  -- tocada). Origem `manual` de propósito — é a que nenhum trigger enfileira, e por
+  -- isso a que ficava parada para sempre.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_c, '[rls-test] executar 1', '[rls-test] roteiro e1', 'pronta', 'manual'),
+         (org_c, '[rls-test] executar 2', '[rls-test] roteiro e2', 'pronta', 'manual'),
+         (org_c, '[rls-test] executar 3', '[rls-test] roteiro e3', 'rascunho', 'manual');
+
+  -- A vizinha, semeada aqui e não herdada dos casos acima: é a lição do caso 48 —
+  -- asserção que depende do que 52 casos deixaram para trás envelhece sozinha.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_a, '[rls-test] executar vizinha', '[rls-test] roteiro ev', 'pronta', 'manual');
+
+  -- O ACHADO que motiva a função nova: `enfileirar_pauta` deriva o tenant da sessão
+  -- (`current_org_id()`), e a chave `service_role` é um JWT SEM `app_metadata`. Dá
+  -- P0001 "sessão sem org_id" antes de tocar em qualquer linha — não é falta de
+  -- grant, o R17 concedeu. Simula exatamente a sessão do worker: papel service_role,
+  -- claims sem org.
+  select id into pauta_ex from public.pautas where tema = '[rls-test] executar 1';
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  execute 'set local role service_role';
+
+  bloqueou := false;
+  begin
+    perform public.enfileirar_pauta(pauta_ex);
+  exception
+    when sqlstate 'P0001' then bloqueou := true;
+  end;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  teste := '53 · enfileirar_pauta (da Sprint 6) não serve à service_role';
+  esperado := 'P0001 — sessão sem org_id';
+  obtido := case when bloqueou then 'P0001 — sessão sem org_id'
+                 else 'PASSOU — o motivo da RPC nova não existe' end;
+  passou := bloqueou;
+  return next;
+
+  -- Agora a função nova, como o painel local a chama: org por parâmetro.
+  select public.enfileirar_prontas(org_c) into n;
+
+  select count(*) into vazou
+    from public.videos v
+    join public.pautas p on p.id = v.pauta_id
+   where p.tema like '[rls-test] executar%' and v.status = 'na_fila'
+     and v.org_id = org_c and v.tentativas = 0
+     and v.locked_by is null and v.locked_at is null and v.erro_msg is null;
+
+  teste := '54 · enfileirar_prontas põe 1 vídeo na_fila por pauta pronta';
+  esperado := '2 enfileiradas · 2 vídeos limpos';
+  obtido := n::text || ' enfileiradas · ' || vazou::text || ' vídeos limpos';
+  passou := (n = 2 and vazou = 2);
+  return next;
+
+  -- A pauta tem de sair de `pronta`, senão o próximo clique a enfileira de novo.
+  -- E `rascunho` não é fila: quem ainda está sendo escrito não vira vídeo.
+  select count(*) into n
+    from public.pautas
+   where tema like '[rls-test] executar%' and status = 'em_producao';
+  select status into pa_status from public.pautas where tema = '[rls-test] executar 3';
+
+  teste := '55 · as prontas viram em_producao e a rascunho fica intocada';
+  esperado := '2 em_producao · a terceira segue rascunho';
+  obtido := n::text || ' em_producao · a terceira segue ' || coalesce(pa_status, '(null)');
+  passou := (n = 2 and pa_status = 'rascunho');
+  return next;
+
+  -- Segundo clique seguido: não sobrou pauta `pronta`, então não nasce vídeo nenhum.
+  -- É o caso que separa "idempotente" de "duplica a fila a cada toque".
+  select public.enfileirar_prontas(org_c) into n;
+
+  teste := '56 · executar de novo sem pauta pronta não cria nada';
+  esperado := '0';
+  obtido := n::text;
+  passou := (n = 0);
+  return next;
+
+  -- Isolamento por org: a pauta da vizinha tem de continuar `pronta`, e nenhum vídeo
+  -- pode ter nascido para ela. Um UPDATE sem o `where org_id = p_org` passaria nos
+  -- casos 54–56 inteiros, porque os três só olham a org que foi executada.
+  select status into pa_status
+    from public.pautas where tema = '[rls-test] executar vizinha';
+  select count(*) into vazou
+    from public.videos v
+    join public.pautas p on p.id = v.pauta_id
+   where p.tema = '[rls-test] executar vizinha';
+
+  teste := '57 · enfileirar_prontas de uma org não mexe nas pautas da vizinha';
+  esperado := 'pronta · 0 vídeos';
+  obtido := coalesce(pa_status, '(null)') || ' · ' || vazou::text || ' vídeos';
+  passou := (pa_status = 'pronta' and vazou = 0);
+  return next;
+
+  -- O painel web tem o botão dele, pauta a pauta, com o humano lendo o tema antes de
+  -- decidir. Enfileirar as quinze de uma vez pelo celular é outra operação.
+  perform set_config('request.jwt.claims', jwt_a, true);
+  execute 'set local role authenticated';
+
+  bloqueou := true;
+  begin
+    perform public.enfileirar_prontas(org_c);
+    bloqueou := false;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  execute 'reset role';
+
+  teste := '58 · painel web não alcança enfileirar_prontas';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;

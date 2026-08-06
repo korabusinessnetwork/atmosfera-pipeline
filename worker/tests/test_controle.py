@@ -249,3 +249,29 @@ def test_frase_da_limpeza_diz_os_dois_numeros():
 
 def test_frase_da_limpeza_de_fila_vazia():
     assert "já está vazia" in c.frase_da_limpeza(0, 0)
+
+
+# ---------------------------------------------------------- rotulo_do_executar
+def test_rotulo_do_executar_mostra_o_numero():
+    assert c.rotulo_do_executar(7) == "▶ Executar fila (7)"
+
+
+def test_rotulo_do_executar_sem_pauta_nao_mostra_zero():
+    # "(0)" ao lado de um botão desabilitado é ruído: o cinza já diz que não há o
+    # que executar, e o número só repetiria a mesma informação com mais tinta.
+    assert c.rotulo_do_executar(0) == "▶ Executar fila"
+
+
+# ----------------------------------------------------------- frase_da_execucao
+def test_frase_da_execucao_diz_quantas_e_o_que_vem_depois():
+    frase = c.frase_da_execucao(4)
+    assert "4" in frase
+    # As duas coisas que evitam um segundo clique: o render não é imediato, e o
+    # vídeo não vai sozinho para o ar.
+    assert "próximo ciclo" in frase
+    assert "gate" in frase
+
+
+def test_frase_da_execucao_sem_pauta_manda_gerar():
+    frase = c.frase_da_execucao(0)
+    assert "Nenhuma pauta pronta" in frase and "gere pauta" in frase

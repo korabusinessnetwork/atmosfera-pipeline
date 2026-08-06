@@ -1069,6 +1069,8 @@ if __name__ == "__main__":
 [~] 15b. Aplicar as migrations + criar as categorias no painel local (10 min) ← migrations APLICADAS 2026-08-06 (advisors limpo, rls_test 48/48 ✅); falta criar as categorias em `uv run controle.py`, ver specs/_manual.md §13
 [x] 16. Limpar a fila e refazer os vídeos (R22)           (40 min)  ← 585 testes, 1 migration (só RPC), rls_test 48→53 casos (verificação humana)
 [x] 16b. Aplicar a migration do limpar_fila               (5 min)   ← FEITO 2026-08-06; advisors limpo, rls_test 53/53 ✅
+[x] 17. Executar a fila — pautas prontas para render (R23) (40 min) ← 589 testes, 1 migration (só RPC), rls_test 53→59 casos (verificação humana)
+[ ] 17b. Aplicar a migration do enfileirar_prontas         (5 min)  ← SEU: db push/advisors/rls_test, ver specs/_manual.md §15
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1093,6 +1095,26 @@ ser falha de TikTok **depois** de o YouTube ter subido — apagá-lo destruiria 
 registro do upload e a métrica junto. Nenhuma tabela, coluna ou política nova; só a
 função, com `revoke` de `anon`/`authenticated` (limpar a fila inteira do celular é a
 operação mais destrutiva do sistema, e é a única sem volta). `specs/_manual.md` § 14.
+
+**Item 17 — o elo que faltava entre escrever e renderizar.** Pauta de origem
+`manual` **nunca era enfileirada sozinha**: o trigger `t_pautas_auto_enfileirar` só
+dispara para `ollama`/`gemini`/`cowork`, então uma pauta escrita à mão ficava parada
+para sempre, e o único caminho para tirá-la de lá era o botão do painel **web**, uma
+por uma, no celular. A Rodada 23 dá o **▶ Executar fila** no painel local: a RPC
+`enfileirar_prontas(p_org)` move todas as `pronta` da org para `em_producao` e cria um
+`na_fila` para cada, numa transação só. O gate humano segue no caminho — cada vídeo
+para em `aguardando_aprovacao`. `specs/_manual.md` § 15.
+
+**E a rodada achou um defeito latente do R17.** `enfileirar_pauta` (a RPC da Sprint 6)
+deriva o tenant de `current_org_id()`, que lê `app_metadata` do JWT — e a chave
+`service_role` é um JWT **sem** `app_metadata`. Para o worker e para o painel local
+ela é `null`, e a RPC levanta P0001 antes de tocar em linha nenhuma. Não é falta de
+`grant` (o R17 concedeu): é a função escolhendo o tenant pela **sessão**, o que só
+existe no caminho `authenticated`. Por isso a função nova recebe `p_org` por
+parâmetro, como a `limpar_fila`. Consequência fora desta rodada: o verbo
+`enfileirar_pauta` do servidor MCP (`worker/mcp_server.py`) está quebrado pelo mesmo
+motivo, e nunca apareceu porque a conversa real com um cliente MCP ficou como passo
+humano. O caso 53 do `rls_test` prova o P0001 em vez de afirmá-lo.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

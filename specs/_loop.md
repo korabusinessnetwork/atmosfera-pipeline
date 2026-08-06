@@ -9,6 +9,46 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 23 — executar a fila (pautas prontas para render) · 2026-08-06
+
+- Spec: `specs/executar-fila-pautas-prontas.md`
+- **Pedido do dono:** "cria um botão executar fila, pra executar apenas as pautas já
+  criadas". Lido como: enfileirar render para o que já está escrito, sem gerar pauta
+  nova — o par do `⚡ Gerar agora`.
+- **O buraco que ele fecha:** pauta de origem `manual` nunca era enfileirada sozinha.
+  `t_pautas_auto_enfileirar` só dispara para `ollama`/`gemini`/`cowork`, então pauta
+  escrita à mão ficava parada para sempre e só saía de lá pelo painel web, uma por
+  uma, no celular.
+- **Review:** ✅ aprovado sem ressalvas, 13/13 com evidência. Portões: **589 testes do
+  worker** (eram 585) · `painel/` intocado · `rls_test` 53 → **59** (casos 53–58).
+- **O que entrou:** migration `20260806203611_enfileirar_prontas.sql` (só a RPC
+  `enfileirar_prontas(p_org)`, `revoke` de `public`/`anon`/`authenticated`, `grant`
+  para `service_role`) · `db.enfileirar_prontas` · botão **▶ Executar fila** com a
+  contagem no próprio rótulo · `rotulo_do_executar`/`frase_da_execucao` (puras,
+  com teste).
+- **Achado que definiu o desenho:** `enfileirar_pauta` (Sprint 6) **não serve à
+  `service_role`**. Ela faz `v_org := current_org_id()`, que lê `app_metadata` do
+  JWT — e a chave `service_role` é um JWT sem `app_metadata`. Dá P0001 antes de tocar
+  em qualquer linha; não é falta de `grant` (o R17 concedeu), é a função escolhendo o
+  tenant pela **sessão**. Por isso a função nova recebe `p_org`, como a `limpar_fila`.
+  Virou o caso 53 do `rls_test`, que prova o P0001 em vez de afirmá-lo.
+- **Defeito latente registrado e FORA de escopo:** o verbo `enfileirar_pauta` do
+  servidor MCP (`worker/mcp_server.py:194`) está quebrado pelo mesmo motivo. Nunca
+  apareceu porque a conversa real com um cliente MCP ficou como passo humano no R17.
+- **Duas correções na própria auditoria:** o `WITH … SELECT … INTO` virou
+  `WITH … INSERT` + `GET DIAGNOSTICS` (a atomicidade vem do corpo da função, que já é
+  uma transação — e SQL exótico é o que não consigo executar aqui, foi assim que a
+  R21 quebrou no `db push`); e o caso 57 passou a semear a org vizinha em vez de
+  herdar o estado dos 52 casos acima, que é a lição do caso 48.
+- Commit: (abaixo) na branch `rodada-21-producao-automatica`
+- Pendente de decisão: nenhuma
+- Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
+  (alvo **59 ✅**) — item 17b, `specs/_manual.md` § 15
+- Próximo item recomendado: **14b** (re-consentir o OAuth com o escopo de Analytics)
+  — segue sendo o único passo que separa a `metricas` de encher.
+
+---
+
 ## Rodada 22 — limpar a fila e refazer os vídeos · 2026-08-06
 
 - Spec: `specs/limpar-fila-e-refazer.md`

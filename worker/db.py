@@ -236,8 +236,21 @@ def reprovar_video(
 
 
 def enfileirar_pauta(sb: Client, pauta_id: str) -> list[dict[str, Any]]:
-    """Chama a RPC `enfileirar_pauta` (pauta pronta -> em_producao + videos.na_fila)."""
+    """Chama a RPC `enfileirar_pauta` (pauta pronta -> em_producao + videos.na_fila).
+
+    ATENÇÃO (achado da R23): esta RPC deriva o tenant de `current_org_id()`, que é
+    NULL para a `service_role` — a chave é um JWT sem `app_metadata`. Chamada daqui,
+    ela levanta P0001 antes de tocar em linha nenhuma. É o caminho do painel WEB
+    (`authenticated`); para enfileirar do PC, use `enfileirar_prontas`, que recebe a
+    org por parâmetro.
+    """
     return sb.rpc("enfileirar_pauta", {"p_pauta_id": pauta_id}).execute().data or []
+
+
+def enfileirar_prontas(sb: Client, org_id: str) -> int:
+    """Enfileira render para todas as pautas `pronta` da org. Devolve quantas (R23)."""
+    resposta = sb.rpc("enfileirar_prontas", {"p_org": org_id}).execute()
+    return int(resposta.data or 0)
 
 
 def concluir_render(
