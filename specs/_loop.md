@@ -47,8 +47,9 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   § 8 do `ATMOSFERA_PIPELINE.md`.
 - Commit: `cc3011a` na branch `rodada-21-producao-automatica`
 - Pendente de decisão: nenhuma
-- Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
-  (alvo **53 ✅**) — item 16b, `specs/_manual.md` § 14
+- Passo humano: **FEITO 2026-08-06** — migration aplicada, advisors com o único WARN
+  de sempre (`auth_leaked_password_protection`), `rls_test` **53/53 ✅** contra o
+  banco real. Item 16b fechado.
 - Próximo item recomendado: **14b** (re-consentir o OAuth com o escopo de Analytics)
   — é o único passo que ainda separa a tabela `metricas` de encher, e ela é o
   professor do gerador de pauta.
