@@ -20,7 +20,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   trabalho): *refazer com as mesmas pautas* (não descartar) e *tudo que não foi
   publicado* (`na_fila`, `renderizando`, `aguardando_aprovacao`, `reprovado`, `erro`).
 - **Review:** ✅ aprovado sem ressalvas, 12/12 com evidência. Portões: **585 testes
-  do worker** (eram 580) · `painel/` intocado · `rls_test` 48 → **51** (casos 48–51).
+  do worker** (eram 580) · `painel/` intocado · `rls_test` 48 → **53** (casos 48–52).
 - **O que entrou:** migration `20260806201502_limpar_fila.sql` (só a RPC
   `public.limpar_fila(p_org)`, `revoke` de `public`/`anon`/`authenticated`, `grant`
   para `service_role`) · `db.limpar_fila` · botão **🧹 limpar fila** no cartão de
@@ -32,14 +32,23 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   YouTube já feito. Apagá-lo destruiria o registro do upload e a audiência que ele
   rendeu, que é exatamente o que o critério 2 prometia proteger. Virou
   `not exists (select 1 from publicacoes …)` + critério 2b + caso 50 do `rls_test`.
-- **Aprendido:** cascade é parte do alcance de um DELETE, e "escolhi os status
-  certos" não é evidência de que nada além deles morre — a pergunta é *quais tabelas
-  apontam para esta com cascade*, e ela se responde lendo o schema, não o WHERE.
-  Registrado no spec e no § 8 do `ATMOSFERA_PIPELINE.md`.
+- **O caso 48 falhou contra o banco real, e a RPC estava certa.** Esperava
+  `2 apagados · 1 recriado` e veio `5 · 4`: a RPC varre a **org inteira**, e a org A
+  já carregava fila semeada pelos 47 casos acima (o `renderizando` do gate, os
+  `na_fila` que os triggers das pautas ollama e gemini criam). A fixture mudou para
+  uma **org só dela** (`org_c`), e a falha virou o caso 51 que faltava: um DELETE sem
+  o `where org_id = p_org` passaria nos casos 48–50 inteiros, porque os três só olham
+  a org limpa — quem denuncia é a vizinha.
+- **Aprendido, duas coisas:** (1) cascade é parte do alcance de um DELETE, e "escolhi
+  os status certos" não é evidência de que nada além deles morre — a pergunta é
+  *quais tabelas apontam para esta com cascade*; (2) teste de operação **de escopo
+  org** não se semeia numa org compartilhada: o número esperado passa a depender de
+  tudo que foi semeado antes e envelhece a cada rodada. Registrado no spec § 8 e no
+  § 8 do `ATMOSFERA_PIPELINE.md`.
 - Commit: `cc3011a` na branch `rodada-21-producao-automatica`
 - Pendente de decisão: nenhuma
 - Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
-  (alvo **51 ✅**) — item 16b, `specs/_manual.md` § 14
+  (alvo **53 ✅**) — item 16b, `specs/_manual.md` § 14
 - Próximo item recomendado: **14b** (re-consentir o OAuth com o escopo de Analytics)
   — é o único passo que ainda separa a tabela `metricas` de encher, e ela é o
   professor do gerador de pauta.

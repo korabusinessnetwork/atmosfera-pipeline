@@ -79,6 +79,12 @@ as $$
 declare
   org_a  uuid := '11111111-1111-1111-1111-111111111111';
   org_b  uuid := '22222222-2222-2222-2222-222222222222';
+  -- Org só do `limpar_fila` (Rodada 22). A RPC varre a org INTEIRA, então testá-la
+  -- na org A mediria o resto do arquivo junto: o `renderizando` do gate e os
+  -- `na_fila` que os triggers das pautas ollama/gemini criam também são fila, e o
+  -- número esperado mudaria a cada caso novo semeado acima. Aconteceu — o caso 48
+  -- nasceu esperando 2 e o banco devolveu 5, com a RPC certa.
+  org_c  uuid := '33333333-3333-3333-3333-333333333333';
   jwt_a  text := '{"role":"authenticated","sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",'
                  '"app_metadata":{"org_id":"11111111-1111-1111-1111-111111111111"}}';
   jwt_b  text := '{"role":"authenticated","sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",'
@@ -108,6 +114,7 @@ declare
   pauta_ge    uuid; -- pauta gemini que o trigger deve enfileirar (Rodada 20)
   pauta_lf    uuid; -- pauta com a fila completa, para o limpar_fila (Rodada 22)
   vid_lf_pub  uuid; -- vídeo em erro QUE JÁ PUBLICOU (o cascade que quase passou)
+  lf_org_a    int;  -- fila apagável da org A ANTES da limpeza da org C (isolamento)
 begin
   -- ---------- semeia como dono (RLS não se aplica aqui, e tudo bem) ----------
   delete from public.pautas where tema like '[rls-test]%';   -- videos vão junto (cascade)
@@ -1123,29 +1130,39 @@ begin
   -- ela respeita a fronteira do que já saiu para o YouTube, e que ninguém com a
   -- anon key a alcança do celular.
   --
-  -- Semeia como dono uma fila completa numa pauta só: dois vídeos que a limpeza
-  -- atinge e três que ela não pode tocar.
+  -- Semeia como dono uma fila completa numa pauta só, numa org SÓ DELA: dois vídeos
+  -- que a limpeza atinge e três que ela não pode tocar. A org própria é o que torna
+  -- os números do caso 48 uma medição da RPC, e não da soma de tudo que os 47 casos
+  -- acima deixaram na org A.
   insert into public.pautas (org_id, tema, roteiro, status, origem)
-  values (org_a, '[rls-test] limpar fila', '[rls-test] roteiro lf', 'em_producao', 'manual')
+  values (org_c, '[rls-test] limpar fila', '[rls-test] roteiro lf', 'em_producao', 'manual')
   returning id into pauta_lf;
 
   insert into public.videos (org_id, pauta_id, status)
-  values (org_a, pauta_lf, 'na_fila'),
-         (org_a, pauta_lf, 'erro'),
-         (org_a, pauta_lf, 'aprovado'),
-         (org_a, pauta_lf, 'publicando'),
-         (org_a, pauta_lf, 'publicado');
+  values (org_c, pauta_lf, 'na_fila'),
+         (org_c, pauta_lf, 'erro'),
+         (org_c, pauta_lf, 'aprovado'),
+         (org_c, pauta_lf, 'publicando'),
+         (org_c, pauta_lf, 'publicado');
 
   -- O caso que status sozinho NÃO cobre: vídeo em `erro` que chegou ali por falha
   -- de publicação — subiu no YouTube e quebrou no TikTok. `publicacoes` cascateia
   -- de `videos`, então apagá-lo destruiria o registro de um upload que aconteceu.
   insert into public.videos (org_id, pauta_id, status)
-  values (org_a, pauta_lf, 'erro') returning id into vid_lf_pub;
+  values (org_c, pauta_lf, 'erro') returning id into vid_lf_pub;
   insert into public.publicacoes (org_id, video_id, plataforma, status, external_id)
-  values (org_a, vid_lf_pub, 'youtube', 'publicado', '[rls-test]-ext-lf');
+  values (org_c, vid_lf_pub, 'youtube', 'publicado', '[rls-test]-ext-lf');
+
+  -- A org A é a vizinha desta limpeza, e ela tem fila de verdade acumulada pelos
+  -- casos acima. Guardar o tamanho antes é o que transforma "confio no `where
+  -- org_id = p_org`" em medição.
+  select count(*) into lf_org_a
+    from public.videos
+   where org_id = org_a
+     and status in ('na_fila','renderizando','aguardando_aprovacao','reprovado','erro');
 
   select lf.apagados, lf.recriados into n, vazou
-    from public.limpar_fila(org_a) lf;
+    from public.limpar_fila(org_c) lf;
 
   teste := '48 · limpar_fila apaga os 2 da fila e recria 1 por pauta';
   esperado := '2 apagados · 1 recriado';
@@ -1182,6 +1199,20 @@ begin
   passou := (n = 1 and vazou = 1);
   return next;
 
+  -- Isolamento por org, e este é o caso que a própria falha do 48 pediu: um DELETE
+  -- que esquecesse o `where org_id = p_org` passaria nos casos 48–50 inteiros — eles
+  -- só olham a org limpa. Quem denuncia é a vizinha, que tem de sair do zero.
+  select count(*) into n
+    from public.videos
+   where org_id = org_a
+     and status in ('na_fila','renderizando','aguardando_aprovacao','reprovado','erro');
+
+  teste := '51 · limpar_fila de uma org não toca a fila da vizinha';
+  esperado := lf_org_a::text || ' na org A, como antes';
+  obtido := n::text || ' na org A';
+  passou := (n = lf_org_a and lf_org_a > 0);
+  return next;
+
   -- O painel web NUNCA alcança esta RPC. Diferente de aprovar/reprovar, ela não
   -- tem volta — e a anon key mora no navegador de um celular.
   perform set_config('request.jwt.claims', jwt_a, true);
@@ -1189,7 +1220,9 @@ begin
 
   bloqueou := true;
   begin
-    perform public.limpar_fila(org_a);
+    -- Aponta para a org de teste, não para a A: se o `revoke` tiver regredido, esta
+    -- linha EXECUTA de verdade, e o estrago fica onde não atrapalha o diagnóstico.
+    perform public.limpar_fila(org_c);
     bloqueou := false;
   exception
     when insufficient_privilege then null;
@@ -1197,7 +1230,7 @@ begin
 
   execute 'reset role';
 
-  teste := '51 · painel web não alcança limpar_fila';
+  teste := '52 · painel web não alcança limpar_fila';
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;

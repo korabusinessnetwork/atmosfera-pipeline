@@ -589,7 +589,7 @@ supabase db advisors --linked
 supabase db query --linked -f supabase/tests/rls_test.sql
 ```
 
-Alvos: `No issues found` e **51 ✅** (eram 48 — quatro casos novos, um deles
+Alvos: `No issues found` e **53 ✅** (eram 48 — cinco casos novos, um deles
 renumerado). Uma RPC nova (`limpar_fila`), **nenhuma tabela, coluna ou política**.
 
 ### 14.2 O que ele apaga, e o que não encosta

@@ -69,8 +69,9 @@ pauta nova.
   produção, confirmação em dois toques, execução em thread, resultado em
   `messagebox`; função pura `frase_da_limpeza(apagados, recriados)`.
 - `worker/tests/test_controle.py` — **modificado.** Casos de `frase_da_limpeza`.
-- `supabase/tests/rls_test.sql` — **modificado.** Casos 48–50: a RPC faz o que diz,
-  não toca publicado/aprovado, e `authenticated`/`anon` não a alcançam. Alvo 48 → 51.
+- `supabase/tests/rls_test.sql` — **modificado.** Casos 48–52: a RPC faz o que diz,
+  não toca publicado/aprovado, não atravessa para a org vizinha, e
+  `authenticated`/`anon` não a alcançam. Alvo 48 → 53.
 - `specs/_manual.md` § 14, `ATMOSFERA_PIPELINE.md` § 8 — **modificados.**
 
 ## 6. Critérios de aceite
@@ -121,3 +122,30 @@ pauta nova.
 Todos os critérios em **sim** com evidência; `uv run pytest` verde; casos novos do
 `rls_test.sql` escritos; sem segredo em log/tela; `painel/` intocado. `db push`,
 `advisors --linked` e `rls_test` contra o banco ficam como passo humano.
+
+## 8. Resultado da review
+
+✅ Aprovado sem ressalvas — 12/12 critérios com evidência, 585 testes do worker
+verdes, `painel/` intocado. Migration aplicada 2026-08-06, advisors com o único WARN
+de sempre (`auth_leaked_password_protection`, alheio a esta rodada).
+
+Três coisas que esta rodada ensinou e que não estavam no spec:
+
+- **Cascade faz parte do alcance de um DELETE.** Escolher os `status` certos não
+  prova que nada além deles morre: `publicacoes.video_id` tem `on delete cascade` e
+  `metricas` cascateia dele, então um vídeo em `erro` **que já subiu no YouTube**
+  levaria junto o registro do upload e a audiência que ele rendeu. A pergunta certa
+  não é "quais status apago" e sim **"quais tabelas apontam para esta com cascade"** —
+  e ela se responde lendo o schema, não o `where`. Virou o critério 2b e o caso 50.
+- **Teste de operação com escopo de org não se semeia numa org compartilhada.** O
+  caso 48 nasceu esperando `2 apagados · 1 recriado` e o banco devolveu `5 · 4`, com a
+  RPC correta: ela varre a org inteira, e a org A já carregava a fila dos 47 casos
+  anteriores. Número esperado que depende de tudo que foi semeado acima envelhece a
+  cada rodada nova. A fixture passou a viver numa `org_c` só dela.
+- **A falha revelou o caso que faltava.** Um DELETE sem o `where org_id = p_org`
+  passaria nos casos 48, 49 e 50 inteiros — os três só olham a org que foi limpa.
+  Quem denuncia um vazamento entre tenants é sempre a **vizinha**, e ela precisa de
+  uma asserção própria (caso 51: a fila da org A tem de sair do tamanho que entrou).
+
+Fora para uma próxima rodada: apagar o `.mp4` órfão do disco quando a linha some
+(hoje `output/pending/` acumula de propósito), e limpeza por seleção em vez de tudo.
