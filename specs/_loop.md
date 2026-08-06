@@ -43,12 +43,15 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   `rodada-21-producao-automatica`. Fast-forward do branch de trabalho para o tip da R23
   (`7f2ea2c`) antes de começar — sem isso a migration e o `rls_test` colidiriam na
   mesla. Só move o próprio ponteiro; o outro worktree fica intocado.
-- **Pendência do dono (não é falha):** `supabase db push` + `advisors --linked`
-  (`No issues found`) + `rls_test.sql` (**62 ✅**). O ambiente do agente não alcança o
-  Supabase.
+- **Verificado contra o banco (2026-08-06):** `supabase db push` aplicou
+  `20260806204920_enfileirar_pauta_da_org.sql`; `rls_test.sql` **62/62 ✅** (casos 59–62
+  inclusos, com o 61 provando a trava de tenant). `advisors --linked` sem issue de objeto
+  — só o WARN pré-existente `auth_leaked_password_protection`, que é toggle de Auth no
+  dashboard, alheio a esta migration. A verificação rodou do worktree principal
+  (`rodada-21-producao-automatica`), o linkado; o de trabalho não tinha `project-ref`.
 - **Fora de escopo, para frente:** transporte remoto do MCP (Vercel + OAuth + `anon`),
   e o handshake real com um cliente MCP (`.mcp.json`, stdio) — passo humano no PC.
-- **Commit:** _(preenchido no `/commit`)_
+- **Commit:** `f010a15` — `feat: enfileirar_pauta_da_org — o verbo do MCP agora serve a service_role (rodada 24)`.
 - **Próximo:** `/proximo` — raio-x do que falta.
 
 ---
