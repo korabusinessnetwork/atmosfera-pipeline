@@ -36,7 +36,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   certos" não é evidência de que nada além deles morre — a pergunta é *quais tabelas
   apontam para esta com cascade*, e ela se responde lendo o schema, não o WHERE.
   Registrado no spec e no § 8 do `ATMOSFERA_PIPELINE.md`.
-- Commit: (abaixo) na branch `rodada-21-producao-automatica`
+- Commit: `cc3011a` na branch `rodada-21-producao-automatica`
 - Pendente de decisão: nenhuma
 - Passo humano: `supabase db push` + `advisors --linked` + `rls_test.sql`
   (alvo **51 ✅**) — item 16b, `specs/_manual.md` § 14
