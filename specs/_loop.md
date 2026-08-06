@@ -9,6 +9,47 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 21 — produção automática, categorias e MPT sob o worker · 2026-08-06
+
+- Spec: `specs/producao-gerar-agora-e-agendada.md`
+- **Pedido do dono:** um botão para gerar vídeo na hora, produção automática às
+  8/14/18h, categorias (religião/motivação/lifestyle) para dirigir o tema, tudo
+  num lugar só, e **nada de terminal piscando na frente**.
+- **Correção de rota no meio da spec:** o "nosso painel" do pedido era o
+  `worker/controle.py` (Tkinter, local), não o `painel/` da Vercel. A primeira
+  versão da spec (tabela-contrato `pedidos_geracao` + RPC + RLS de escrita +
+  deploy) foi **descartada inteira**. Com o painel local, nada disso é preciso:
+  ele já tem `service_role` e chama os produtores direto.
+- **Review:** ✅ aprovado sem ressalvas, 25/25 com evidência. Portões: **580 testes
+  do worker** (eram 542) · `painel/` intocado · `rls_test` 42 → **48** (casos 42–47).
+- **O que entrou:** `worker/producao.py` (relógio no loop, slot por chave de texto,
+  catch-up, `gerar_agora`/`tick`) · `worker/mpt_supervisor.py` (MPT oculto, reergue,
+  mata só o que subiu) · cartão de produção no `controle.py` (⚡ Gerar agora, seletor
+  de categoria, diálogo de horários e categorias) · migrations
+  `20260806180557_producao_config` e `20260806180558_categorias_video`
+  (+ `pautas.categoria`, snapshot em texto) · `categoria` opcional em
+  `pauta_local`/`pauta_gemini` (sem categoria = prompt byte-a-byte o de antes).
+- **Política que o dono decidiu:** o automático usa **Gemini e pausa sem cota**
+  (o motivo aparece no painel); o manual **cai para o Ollama**, porque o dono está
+  na frente da tela. Estende `memory/auto-so-gratuito-local.md` — atualizada.
+- **Dois defeitos achados na auditoria e corrigidos:** (1) `garantir_mpt` vazava um
+  descritor de arquivo por reinício do MPT (`_fechar_log`, 2 testes); (2) o check
+  `array_length(horarios,1) between 1 and 24` **aceitava lista vazia** — para `'{}'`
+  o `array_length` é NULL e CHECK com NULL passa (`coalesce`, caso 47 do rls_test).
+- **Aprendido** (`specs/producao-gerar-agora-e-agendada.md` § 8 e `CLAUDE.md`):
+  screenshot de UI se localiza por **grep antes de projetar**; falha também tem de
+  carimbar o slot; alias de modelo (`gemini-flash-latest`), nunca versão cravada.
+- **Commit:** `108e49f` na branch `rodada-21-producao-automatica` (push feito).
+- **Pendente de decisão:** nenhuma.
+- **Passo humano (item 15b):** `supabase db push` + `advisors --linked` +
+  `rls_test.sql` (alvo 48 ✅) e criar as categorias no painel local — o ambiente do
+  agente não alcança o Supabase. Ver `specs/_manual.md` § 13.
+- **Próximo item recomendado:** `14b` — re-consentir o OAuth do YouTube com o escopo
+  `yt-analytics.readonly`, porque agora que a esteira produz sozinha, a retenção real
+  é o único professor que falta ligar.
+
+---
+
 ## Rodada 20 — pauta via Gemini para o cold-start · 2026-08-05
 
 - Spec: `specs/pauta-gemini-cold-start.md`
