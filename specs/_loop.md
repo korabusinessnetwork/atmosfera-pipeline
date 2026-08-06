@@ -25,9 +25,15 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   rolável · quatro funções puras com teste (`rotulo_da_revisao`,
   `cabecalho_da_revisao`, `texto_do_roteiro`, `procedencia_da_pauta`,
   `resumo_da_revisao`).
-- **Portões:** **605 testes do worker** (eram 589) · `rls_test` 63 → **67** (casos
-  63–66 novos, **26 e 41 invertidos**) · `painel/` intocado. `db push`/`advisors`/
-  `rls_test` contra o banco são passo humano (item 19b).
+- **Portões:** **605 testes do worker** (eram 589) · `rls_test` 63 → **67** ·
+  `painel/` intocado.
+- **Verificado contra o banco (2026-08-06):** `supabase db push` aplicou
+  `20260806212432_revisao_de_pauta.sql`; `rls_test.sql` **67/67 ✅**. Os casos **26 e
+  41 invertidos passaram no banco real** (`0 vídeo · pauta pronta`) — é a prova de que
+  o `drop trigger` pegou, e não só de que o arquivo mudou. Os 63–66 (descartar) e os
+  59–62 da R24 (aprovar) fecham as duas metades do gate. O `db push` avisou sobre o
+  Docker (`failed to cache migrations catalog`): é só o cache do catálogo local,
+  alheio à aplicação — a migration foi aplicada e o teste prova o efeito dela.
 - **A consequência que quase passou calada — e é o aprendizado da rodada:** tirar o
   trigger quebra o **backpressure** dos geradores, que contava `videos`
   (`na_fila`/`renderizando`/`aguardando_aprovacao`). Sem trigger, pauta gerada não cria

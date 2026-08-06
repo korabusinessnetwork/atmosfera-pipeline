@@ -1085,7 +1085,7 @@ if __name__ == "__main__":
 [x] 18. Enfileirar uma pauta pelo MCP — o caminho da service_role (R24) (40 min) ← 589 testes, 1 migration (só RPC), rls_test 59→62 casos
 [x] 18b. Aplicar a migration do enfileirar_pauta_da_org    (5 min)  ← FEITO 2026-08-06; advisors limpo, rls_test 62/62 ✅
 [x] 19. Revisar a pauta antes do render — o gate editorial (R25) (1h) ← 605 testes, 1 migration (drop de trigger + 1 RPC), rls_test 63→67 casos (verificação humana)
-[ ] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← SEU: db push/advisors/rls_test, ver specs/_manual.md §16
+[x] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← FEITO 2026-08-06; rls_test 67/67 ✅ (26 e 41 invertidos confirmados no banco)
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
