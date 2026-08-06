@@ -34,6 +34,11 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   59–62 da R24 (aprovar) fecham as duas metades do gate. O `db push` avisou sobre o
   Docker (`failed to cache migrations catalog`): é só o cache do catálogo local,
   alheio à aplicação — a migration foi aplicada e o teste prova o efeito dela.
+  `advisors --linked`: **nenhum issue de objeto**, só o WARN pré-existente
+  `auth_leaked_password_protection`. Esse warning é **inerte neste projeto** e vale
+  registrar para não voltar a ser investigado toda rodada: o painel entra por **magic
+  link**, então não existe senha de usuário para o HaveIBeenPwned checar. É toggle de
+  Auth no dashboard, fora do alcance de qualquer migration.
 - **A consequência que quase passou calada — e é o aprendizado da rodada:** tirar o
   trigger quebra o **backpressure** dos geradores, que contava `videos`
   (`na_fila`/`renderizando`/`aguardando_aprovacao`). Sem trigger, pauta gerada não cria
