@@ -153,6 +153,71 @@ def test_roteiro_vazio_e_flagrado_sem_estourar():
     assert pl.roteiro_fora_de_forma("") is True
 
 
+# ------------------------------------------------------------- abertura do fecho
+def test_abertura_do_fecho_normaliza():
+    assert pl.abertura_do_fecho("l1\nl2\nSame door. Still closed.") == "same"
+    assert pl.abertura_do_fecho("l1\n\"Until\" it ends") == "until"
+
+
+def test_abertura_do_fecho_sem_texto():
+    assert pl.abertura_do_fecho(None) == ""
+    assert pl.abertura_do_fecho("  \n  ") == ""
+
+
+def _com_roteiro(*fechos: str) -> list[dict]:
+    return [{"roteiro": f"h\nl2\nl3\nl4\n{fecho}"} for fecho in fechos]
+
+
+def test_conta_fechos_que_abrem_igual():
+    # O caso real medido na R26: quatro dos seis fechos abriam com "Same".
+    pautas = _com_roteiro(
+        "Same door. Still closed.",
+        "Same calendar. Still empty.",
+        "No decision. Still waiting.",
+        "Same heart. Still alone.",
+    )
+    assert pl.fechos_com_mesma_abertura(pautas) == 3
+
+
+def test_lote_variado_nao_acusa_repeticao():
+    pautas = _com_roteiro("Same door. Still closed.", "There when the battery dies")
+    assert pl.fechos_com_mesma_abertura(pautas) == 0
+
+
+def test_par_isolado_nao_e_molde():
+    # Dois abrindo igual é coincidência — os próprios exemplos-ouro fazem isso duas
+    # vezes. Flagrar o par ensinaria a ignorar o contador.
+    pautas = _com_roteiro("The alarm rings. Nothing answers.", "The silence stays")
+    assert pl.fechos_com_mesma_abertura(pautas) == 0
+
+
+def test_roteiro_truncado_nao_entra_na_contagem():
+    # Dois roteiros vazios teriam abertura "" e contariam como "mesma abertura" —
+    # o número mentiria sobre um defeito que não existe.
+    assert pl.fechos_com_mesma_abertura([{"roteiro": ""}, {"roteiro": None}]) == 0
+
+
+def test_os_18_exemplos_ouro_nao_acusam_repeticao():
+    # Régua da casa desde a R26: critério mecânico novo passa antes pelos 18.
+    assert pl.fechos_com_mesma_abertura(_exemplos_da_identidade()) == 0
+
+
+# ---------------------------------------------------------- cópia literal do prompt
+def test_pega_fecho_copiado_do_exemplo():
+    # Aconteceu de verdade na medição da R26 — o modelo devolveu o exemplo do
+    # prompt intacto. Publicar isso é publicar o nosso próprio few-shot no canal.
+    assert pl.fechos_copiados_do_prompt(_com_roteiro("Same door. Still closed.")) == 1
+
+
+def test_copia_disfarcada_de_pontuacao_e_caixa_tambem_conta():
+    assert pl.fechos_copiados_do_prompt(_com_roteiro("same door, still closed")) == 1
+
+
+def test_fecho_proprio_nao_conta_como_copia():
+    assert pl.fechos_copiados_do_prompt(_com_roteiro("Same bed. Still asleep.")) == 0
+    assert pl.fechos_copiados_do_prompt([{"roteiro": ""}]) == 0
+
+
 # ---------------------------------------------------------------- extrair
 def test_extrai_objeto_com_lista_pautas():
     texto = '{"pautas": [{"tema": "t1", "roteiro": "r1"}, {"tema": "t2", "roteiro": "r2"}]}'
@@ -282,11 +347,11 @@ def test_teto_do_fecho_cabe_nos_18_exemplos():
 
 
 def test_prompt_ensina_a_fechar_o_roteiro():
-    # O defeito da R26: o prompt descrevia o roteiro em uma frase e gastava TODO
+    # O defeito da R26: o prompt descrevia o roteiro em uma frase e gastava todo
     # o resto com o hook. As regras de fecho existiam só na identidade, na linha
     # 93 de um documento de 326 — e num modelo pequeno isso some.
     prompt = pl.montar_prompt("VOZ", 6)
-    assert pl.FECHO in prompt
+    assert pl.bloco_do_fecho() in prompt
     assert str(pl.FECHO_MAX_PALAVRAS) in prompt
     assert "CLOSES; it does not " in prompt      # fecha, não resume
     assert "IMAGE or a concrete fact" in prompt  # imagem, não lição
@@ -303,17 +368,110 @@ def test_prompt_nomeia_a_curva_linha_a_linha():
         assert papel in prompt, f"falta o papel: {papel}"
 
 
-def test_prompt_ancora_o_fecho_com_exemplo_real_da_identidade():
-    # As duas frases citadas no bloco de fecho saíram dos 18 exemplos-ouro. Se
-    # alguém reescrever a identidade e elas sumirem, o prompt passa a ensinar
-    # com exemplo que o few-shot não confirma — e este teste avisa.
-    exemplos = _exemplos_da_identidade()
-    fechos = {
+def _fechos_da_identidade() -> set[str]:
+    """Só as últimas linhas dos 18 exemplos-ouro."""
+    return {
         [ln for ln in p["roteiro"].split("\n") if ln.strip()][-1].strip()
-        for p in exemplos
+        for p in _exemplos_da_identidade()
     }
-    citados = [c for c in fechos if c and c in pl.FECHO]
+
+
+def test_prompt_ancora_o_fecho_com_exemplo_real_da_identidade():
+    # As frases citadas no bloco de fecho saíram dos 18 exemplos-ouro. Se alguém
+    # reescrever a identidade e elas sumirem, o prompt passa a ensinar com exemplo
+    # que o few-shot não confirma — e este teste avisa.
+    fechos = _fechos_da_identidade()
+    citados = [c for c in fechos if c and c in pl.bloco_do_fecho()]
     assert citados, "o bloco de fecho não cita nenhum fecho real dos exemplos"
+
+
+# ------------------------------------------------- R27: rodízio e formas por índice
+def test_fechos_ouro_saem_todos_da_identidade():
+    # A lista do módulo é cópia; a identidade é a fonte. Se divergirem, o prompt
+    # ensina com um exemplo que o few-shot logo abaixo não confirma — e o modelo
+    # recebe dois padrões conflitantes sem ninguém perceber.
+    fechos = _fechos_da_identidade()
+    for forma, par in pl.FECHOS_OURO:
+        for fecho in par:
+            assert fecho in fechos, f"'{fecho}' ({forma}) não é fecho de nenhum ouro"
+
+
+def test_fechos_ouro_nao_repetem_exemplo():
+    exemplos = [fecho for _forma, par in pl.FECHOS_OURO for fecho in par]
+    assert len(set(exemplos)) == len(exemplos)
+    formas = [forma for forma, _par in pl.FECHOS_OURO]
+    assert len(set(formas)) == len(formas)
+
+
+def test_fechos_ouro_cobrem_os_18_da_identidade():
+    # Invariante mais forte que "todo exemplo é real": a lista é uma REORGANIZAÇÃO
+    # dos 18, não uma seleção. Se a identidade ganhar um exemplo, este teste cobra
+    # que ele seja classificado numa forma em vez de ficar de fora em silêncio.
+    citados = {fecho for _forma, par in pl.FECHOS_OURO for fecho in par}
+    assert citados == _fechos_da_identidade()
+
+
+def test_ha_formas_suficientes_para_as_chamadas_do_pool():
+    # Três chamadas (18 candidatos ÷ lote de 6) × três âncoras por bloco = nove
+    # formas. Com menos, a terceira chamada repete a janela da primeira.
+    from math import ceil
+
+    chamadas = ceil(18 / pl.LOTE_GERACAO)
+    assert len(pl.FECHOS_OURO) >= chamadas * pl.ANCORAS_POR_BLOCO
+
+
+def test_cada_forma_tem_dois_exemplos():
+    # O bloco cita só o primeiro; o segundo existe para ampliar a mira do detector de
+    # cópia, já que a identidade leva os 18 exemplos ao prompt como few-shot.
+    for forma, par in pl.FECHOS_OURO:
+        assert len(par) == 2, f"a forma '{forma}' precisa de dois exemplos"
+
+
+def test_detector_de_copia_mira_os_dois_exemplos_de_cada_forma():
+    for _forma, (um, outro) in pl.FECHOS_OURO:
+        assert pl.fechos_copiados_do_prompt(_com_roteiro(um)) == 1
+        assert pl.fechos_copiados_do_prompt(_com_roteiro(outro)) == 1
+
+
+def test_bloco_do_fecho_roda_o_exemplo():
+    # A mecânica da rodada: duas chamadas seguidas não miram o mesmo alvo.
+    assert pl.bloco_do_fecho(0) != pl.bloco_do_fecho(1)
+
+
+def test_bloco_do_fecho_da_a_volta():
+    # Índice maior que a lista não estoura — `gerar_pool` pode fazer mais chamadas
+    # que o número de âncoras no dia em que PAUTA_LOCAL_CANDIDATOS subir.
+    voltas = len(pl.FECHOS_OURO)   # passo × voltas é múltiplo do tamanho
+    assert pl.bloco_do_fecho(voltas) == pl.bloco_do_fecho(0)
+    assert pl.bloco_do_fecho(voltas * 3 + 1) == pl.bloco_do_fecho(1)
+
+
+def test_janelas_consecutivas_nao_compartilham_ancora():
+    # Com passo 1, duas das três âncoras se repetiam entre chamadas e a do meio
+    # aparecia em todas — o rodízio virava enfeite. Medido: seis de dezoito fechos
+    # de um pool abriram com "A", herdado da âncora que nunca saía de cena.
+    def ancoras(rodada):
+        bloco = pl.bloco_do_fecho(rodada)
+        return {fecho for _f, par in pl.FECHOS_OURO if (fecho := par[0]) in bloco}
+
+    assert not ancoras(0) & ancoras(1)
+
+
+@pytest.mark.parametrize("rodada", range(len(pl.FECHOS_OURO)))
+def test_bloco_do_fecho_e_concreto_em_toda_rodada(rodada):
+    # O que compra o "fecho em imagem" (0/6 → 6/6 na R26) é o exemplo concreto MAIS
+    # o par Good/Bad — as duas variantes medidas sem eles zeraram o critério. Uma
+    # rodada que perdesse qualquer um dos dois seria regressão silenciosa.
+    bloco = pl.bloco_do_fecho(rodada)
+    assert bloco.count('"') >= pl.ANCORAS_POR_BLOCO * 2
+    assert "Good, and each a DIFFERENT shape:" in bloco
+    assert 'Bad: "So remember' in bloco
+    assert str(pl.FECHO_MAX_PALAVRAS) in bloco
+
+
+def test_prompt_sem_rodada_e_igual_a_rodada_zero():
+    # Critério 4: nenhum chamador existente muda de comportamento por engano.
+    assert pl.montar_prompt("VOZ", 6) == pl.montar_prompt("VOZ", 6, None, None, 0)
 
 
 def test_prompt_juiz_cita_a_regua_nomeada():
@@ -542,6 +700,19 @@ def test_gerar_pool_faz_ceil_chamadas(tmp_path):
     assert len(pool) == 3 * pl.LOTE_GERACAO
 
 
+def test_gerar_pool_roda_a_ancora_do_fecho_por_chamada(tmp_path):
+    # A mecânica da R27, verificada nos prompts REALMENTE enviados: até aqui as três
+    # chamadas recebiam texto idêntico, e o pool inteiro mirava um exemplo só.
+    sessao = SessaoRoteada(geracao=_pool_json(pl.LOTE_GERACAO))
+    pl.gerar_pool(_cfg(tmp_path, candidatos=13), "identidade", sessao)
+
+    prompts = [prompt for tipo, prompt in sessao.chamadas if tipo == "geracao"]
+    assert len(prompts) == 3
+    assert len(set(prompts)) == 3, "as chamadas mandaram o mesmo prompt"
+    for i, prompt in enumerate(prompts):
+        assert pl.bloco_do_fecho(i) in prompt
+
+
 # ---------------------------------------------------------------- gerar_pautas
 def _capturar_insercoes(monkeypatch):
     inseridas = []
@@ -622,6 +793,25 @@ def test_gerar_conta_roteiro_fora_de_forma_e_insere_assim_mesmo(tmp_path, monkey
 
     assert resumo["fora_de_forma"] == 2
     assert resumo["gerou"] == 2 and len(inseridas) == 2
+
+
+def test_gerar_conta_variedade_de_fecho_e_insere_assim_mesmo(tmp_path, monkeypatch):
+    # A reescrita devolve o mesmo fecho para todos os selecionados: abertura
+    # repetida em 2, e o fecho é cópia literal do exemplo do prompt. Os dois
+    # contadores acusam; nenhuma pauta é descartada por causa disso.
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_json(6),
+        juiz=_juiz_por_indice([3, 8, 2, 1, 9, 4]),
+        reescrita='{"hook": "H", "roteiro": "H\\nl2\\nl3\\nl4\\nSame door. Still closed."}',
+    )
+
+    # n=3 e não 2: molde é a partir de três repetições (`MOLDE_MINIMO`).
+    resumo = pl.gerar_pautas(_cfg(tmp_path, n=3), sb=object(), sessao=sessao)
+
+    assert resumo["abertura_repetida"] == 3
+    assert resumo["fecho_copiado"] == 3
+    assert resumo["gerou"] == 3 and len(inseridas) == 3
 
 
 def test_juiz_falha_degrada_para_primeiros(tmp_path, monkeypatch):

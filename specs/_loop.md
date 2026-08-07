@@ -9,6 +9,46 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 27 — variedade de fecho dentro do lote · 2026-08-06
+
+- Spec: `specs/variedade-de-fecho-no-lote.md`
+- **Item aberto pela R26**, escrito no comentário de `FECHO` e no § 10 do spec dela:
+  *"é mecânica, não mais palavras"*.
+- **O que entrou:** `FECHOS_OURO` (9 formas × 2 fechos reais = os 18 exemplos-ouro,
+  reorganizados) · `bloco_do_fecho(rodada)`, que roda a janela de âncoras · `rodada`
+  em `montar_prompt` (padrão `0` = o prompt da R26 byte a byte) · `gerar_pool`
+  passando o índice da chamada · contadores puros `abertura_do_fecho`,
+  `fechos_com_mesma_abertura` (molde = 3 repetições) e `fechos_copiados_do_prompt`,
+  nos dois produtores. Sem migration; `painel/`, `supabase/` e o loop intocados.
+- **Resultado da review:** aprovado com **duas ressalvas declaradas** — 11 de 13
+  critérios em sim, o 6 reprovado pela própria medição e removido, o 11 com regressão
+  possível de forma. Suíte `uv run pytest`: **652 passed**.
+- **Medição** (qwen2.5, 3 tiragens pareadas, 3 chamadas de 6 por braço, prompt de
+  produção): cópia literal do exemplo **11/36 → 1/36**; abertura-molde **18/36 →
+  3/36**; roteiro de 5 linhas **36/36 → 30/36** (ressalva); fecho em imagem **8/18 dos
+  dois lados** (empate, leitura à mão). Detalhe em `specs/variedade-de-fecho-no-lote.md`
+  § 10.1.
+- **Aprendido:** numerar o alvo transforma o exemplo em gabarito com endereço — um
+  modelo pequeno lê `pauta 3: forma X — like Y` como "escreva Y na pauta 3". E rodízio
+  de janela com passo 1 não é rodízio: a âncora do meio aparece em todas as chamadas.
+  Registrado em `memory/anchor-concreto-colapsa-o-lote.md` e no comentário de
+  `FECHOS_OURO`.
+- **Pendente de decisão:** o critério 6 (forma por índice) fica como reprovado por
+  medição, não como dívida — se o dono quiser insistir, é com mecânica nova, não com
+  redação.
+- **Próximo item recomendado:** **a seleção do pool olhar o roteiro, não só o hook.**
+  `escolher_melhor` e a reescrita julgam **exclusivamente o hook** desde a R7 — defeito
+  registrado na R26, repetido na R27 e ainda de pé. É o único lugar do sistema onde as
+  três coisas se encontram: o pool tem 18 e a fila leva 15, então **há folga para
+  descartar 3** sem passar fome, e a R27 acabou de entregar os sinais mecânicos que a
+  seleção não tinha (`roteiro_fora_de_forma`, `fechos_com_mesma_abertura`,
+  `fechos_copiados_do_prompt`). Fecha também o § 10.3 desta rodada — a uniformidade
+  dentro de uma chamada, que a geração não resolve, a **escolha** resolve.
+  Todos os `[ ]` restantes do § 8 são passo humano (`SEU`), então a fila de código vem
+  daqui.
+
+---
+
 ## Rodada 26 — a finalização do roteiro entra no prompt · 2026-08-06
 
 - Spec: `specs/finalizacao-do-roteiro.md`

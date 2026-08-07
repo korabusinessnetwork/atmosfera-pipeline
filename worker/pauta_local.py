@@ -114,25 +114,74 @@ FECHO_MAX_PALAVRAS = 7
 # inline) e nunca ao fecho — daí a medição da R26: 0 de 6 fechos caíram numa imagem
 # e 4 de 6 roteiros vieram com 4 linhas em vez de 5.
 #
-# Os três exemplos citados aqui saem dos próprios exemplos-ouro, de propósito:
-# repetir o padrão que a identidade já ensina custa duas linhas de prompt e é o
-# único jeito de o modelo ver o alvo sem ter de achá-lo.
+# Os exemplos citados aqui saem dos próprios exemplos-ouro, de propósito: repetir o
+# padrão que a identidade já ensina custa duas linhas de prompt e é o único jeito de
+# o modelo ver o alvo sem ter de achá-lo.
 #
-# LIMITE MEDIDO, e não é retórico: com anchor concreto, o qwen2.5 acerta a forma
-# (6/6 com 5 linhas, 6/6 fechando em imagem) e IMITA A SINTAXE DO PRIMEIRO EXEMPLO
-# no lote inteiro — quatro variantes deste bloco foram medidas e as quatro
-# colapsaram do mesmo jeito, inclusive copiando "Same door. Still closed." literal.
-# Tirar o anchor conserta a repetição e devolve o fecho abstrato, que é pior. A
-# causa é o lote inteiro nascer de UMA chamada: não se resolve com mais palavras
-# aqui, e sim com mecânica (rodar o anchor por chamada, ou gerar em mais de uma).
-# Fica para a rodada seguinte; a revisão de pauta da R25 é quem vê isso hoje.
-FECHO = (
-    "THE LAST LINE IS THE HARDEST AND THE MOST NEGLECTED. It CLOSES; it does not "
-    "summarize. Rules for it, all of them binding:\n"
-    "- It lands on an IMAGE or a concrete fact, never on a lesson or a moral. "
-    'Good, and each a DIFFERENT shape: "Same door. Still closed." / "There when '
-    'the battery dies" / "A draft envies the finished". '
-    'Bad: "So remember: discomfort is growth."\n'
+# LIMITE MEDIDO NA R26, e é o que a R27 ataca: com anchor concreto, o qwen2.5 acerta
+# a forma (6/6 com 5 linhas, 6/6 fechando em imagem) e IMITA A SINTAXE DO PRIMEIRO
+# EXEMPLO no lote inteiro — quatro variantes do bloco foram medidas e as quatro
+# colapsaram, inclusive copiando "Same door. Still closed." literal. Tirar o anchor
+# conserta a repetição e devolve o fecho abstrato, que é pior; PROIBIR a repetição
+# por escrito piorou os dois números. Então a R27 não escreve melhor: tira a
+# condição que produz a uniformidade — o anchor RODA por chamada (`bloco_do_fecho`),
+# então as três chamadas de `gerar_pool` miram alvos diferentes.
+#
+# ATRIBUIR UMA FORMA A CADA ÍNDICE DO LOTE foi tentado e REPROVADO na medição, nas
+# três versões: com um exemplo por forma, o qwen2.5 copiou o exemplo literal em 4 de
+# 6 pautas; com dois exemplos, em 6 de 6, e ainda colou exemplo no meio do roteiro;
+# só com o nome da forma, sem exemplo, o roteiro despencou para 4 linhas e o fecho
+# voltou a ser abstrato. Um modelo pequeno lê "pauta 3: forma X — like Y" como
+# "escreva Y na pauta 3". Não repita a tentativa sem uma ideia nova.
+#
+# O QUE O RODÍZIO COMPROU, medido em duas tiragens pareadas de 36 fechos por braço
+# (§ 10.1 de `specs/variedade-de-fecho-no-lote.md`): cópia literal do exemplo caiu de
+# 11/36 para 1/36 — numa tiragem o braço sem rodízio escreveu "Same door. Still
+# closed." CINCO vezes — e a abertura-molde, de 18/36 para 3/36. O que ele NÃO
+# comprou, e está declarado: "fecho em imagem" empatou (8/18 dos dois lados, leitura
+# à mão), e o roteiro de 5 linhas foi 36/36 sem contra 30/36 com — variação que os
+# dois braços mostram, com n pequeno demais para culpar o rodízio ou inocentá-lo.
+# A uniformidade DENTRO de uma chamada sobreviveu ("Same finish. Still missed./
+# behind./trapped." na mesma tiragem); é o que fica aberto.
+
+# O rodízio de âncoras: (nome da forma, DOIS fechos reais dos 18 exemplos-ouro). O nome
+# dá ao modelo um alvo que ele consegue mirar; os exemplos dão o padrão concreto que a
+# R26 provou ser o que compra o "fecho em imagem" — tirá-los devolve o fecho abstrato E
+# derruba o roteiro para 4 linhas, medido.
+#
+# **São dois por forma, e o segundo tem um trabalho só:** `bloco_do_fecho` cita apenas
+# o primeiro (três âncoras por bloco, como no prompt medido da R26), e os dois entram
+# na mira de `fechos_copiados_do_prompt`. Isso é correto porque a identidade vai
+# INTEIRA no prompt, com os 18 exemplos como few-shot — copiar qualquer um deles é
+# copiar do prompt, mesmo o que o bloco de fecho não repetiu.
+#
+# **São NOVE formas porque três chamadas × três âncoras = nove.** Com seis, a terceira
+# chamada repetia a janela da primeira e o rodízio cobria só dois terços do pool. Nove
+# × dois exemplos = os 18 fechos-ouro, todos, o que também dá o invariante mais forte
+# possível para o teste: a lista é uma reorganização da identidade, não uma seleção.
+#
+# São fechos REAIS — o teste `test_fechos_ouro_saem_todos_da_identidade` lê os 18 do
+# arquivo e cobra isso, em vez de confiar nesta lista.
+FECHOS_OURO: tuple[tuple[str, tuple[str, str]], ...] = (
+    ("two fragments", ("Same door. Still closed.", "Empty calendar. Still there.")),
+    ("a place in time", ("There when the battery dies", "Later, it's just tonight")),
+    ("an image that acts",
+     ("A draft envies the finished", "The silence that would ask something")),
+    ("a plain statement of fact", ("Not deciding was riskier", "Friction isn't doubt")),
+    ("a thing wearing a disguise", ("Safety, wearing quality's mask", "It looks like you")),
+    ("what is still true right now",
+     ("Only this one, happening now", "You're avoiding it now")),
+    ("a condition that has not changed",
+     ("Until the outline changes", "So it waits")),
+    ("a scene with no one in it",
+     ("The alarm rings. Nothing answers.", "Quiet, the whole way down")),
+    ("a position you did not choose",
+     ("Behind in a race no one announced", "Only one is real yet")),
+)
+
+# As regras que NÃO rodam. Ficam separadas dos exemplos porque são invariantes: o que
+# muda a cada chamada é só o alvo concreto, nunca o critério.
+_FECHO_REGRAS = (
     "- It does not repeat what the viewer just saw in the lines above. A summary "
     "spends the last second saying nothing new.\n"
     "- No call to action, no \"follow\", no \"watch till the end\".\n"
@@ -140,6 +189,15 @@ FECHO = (
     "than you think\" — any channel could post those, so they belong to none.\n"
     f"- AT MOST {FECHO_MAX_PALAVRAS} words. Aim for 4 or 5."
 )
+
+# Quantas âncoras aparecem em cada bloco. Três é o que estava no prompt medido da
+# R26 (que acertou 6/6 em imagem) — mexer nisso mexeria na variável que já funciona.
+ANCORAS_POR_BLOCO = 3
+
+# A partir de quantas repetições a mesma abertura de fecho conta como MOLDE. Três,
+# porque dois é o que os próprios exemplos-ouro fazem: dois abrem com "The" e dois
+# com "Only", em formas diferentes. Ver `fechos_com_mesma_abertura`.
+MOLDE_MINIMO = 3
 
 # As 8 dimensões da régua de hook (docs/hook-playbook.md; espelhadas em
 # memory/00_IDENTIDADE.md §9). Ficam INLINE no prompt do juiz de propósito: a
@@ -219,6 +277,113 @@ def roteiro_fora_de_forma(roteiro: str | None) -> bool:
     fome. Mesma disciplina do `hook_longo`, que avisa e deixa passar desde a R4.
     """
     return linhas_do_roteiro(roteiro) < LINHAS_DO_ROTEIRO
+
+
+def bloco_do_fecho(rodada: int = 0) -> str:
+    """As regras de fecho com o conjunto de âncoras da `rodada`.
+
+    O rodízio é a mecânica da R27: `gerar_pool` faz `ceil(18/6)` chamadas e, até
+    aqui, as três recebiam o prompt IDÊNTICO — então o pool inteiro mirava o mesmo
+    exemplo e saía com a mesma sintaxe. Rodar o alvo custa zero.
+
+    **Ele age ENTRE chamadas, e não dentro de uma.** Seis pautas de uma chamada só
+    continuam nascendo do mesmo alvo; o que a rodada compra é o pool de 18 deixar de
+    ser monolítico. Dentro da chamada, a tentativa de atribuir forma por índice foi
+    medida e reprovada nas três versões — ver o comentário de `FECHOS_OURO`.
+
+    `rodada` é PARÂMETRO, nunca relógio nem `random`: prompt precisa ser função pura
+    das entradas, senão os testes que o comparam viram loteria (a mesma disciplina do
+    `vencedores`/`categoria` das R13/R21). Dá a volta por módulo, então índice grande
+    não estoura.
+    """
+    # O passo é o TAMANHO da janela, não 1: com passo 1 e três âncoras, chamadas
+    # consecutivas compartilham duas das três, e a âncora do meio aparece em TODAS —
+    # medido, e foi assim que seis dos dezoito fechos de um pool saíram abrindo com
+    # "A". Janelas disjuntas é o mínimo para o rodízio significar alguma coisa.
+    inicio = (rodada * ANCORAS_POR_BLOCO) % len(FECHOS_OURO)
+    escolhidos = [
+        FECHOS_OURO[(inicio + i) % len(FECHOS_OURO)] for i in range(ANCORAS_POR_BLOCO)
+    ]
+    exemplos = " / ".join(f'"{par[0]}" ({forma})' for forma, par in escolhidos)
+    return (
+        "THE LAST LINE IS THE HARDEST AND THE MOST NEGLECTED. It CLOSES; it does not "
+        "summarize. Rules for it, all of them binding:\n"
+        "- It lands on an IMAGE or a concrete fact, never on a lesson or a moral. "
+        f"Good, and each a DIFFERENT shape: {exemplos}. "
+        'Bad: "So remember: discomfort is growth."\n'
+        + _FECHO_REGRAS
+    )
+
+
+def abertura_do_fecho(roteiro: str | None) -> str:
+    """A primeira palavra da última linha, minúscula e sem pontuação.
+
+    É a chave do contador de repetição. Devolve string vazia para roteiro vazio, e
+    `fechos_com_mesma_abertura` a ignora — senão dois roteiros truncados contariam
+    como "mesma abertura" e o número mentiria sobre um defeito que não existe.
+    """
+    linhas = [ln for ln in (roteiro or "").split("\n") if ln.strip()]
+    if not linhas:
+        return ""
+    palavras = linhas[-1].strip().split()
+    if not palavras:
+        return ""
+    return palavras[0].strip(".,;:!?\"'—–-").lower()
+
+
+def fechos_com_mesma_abertura(pautas: list[dict[str, Any]]) -> int:
+    """Quantas pautas do lote abrem o fecho com uma palavra que virou MOLDE.
+
+    Medida deliberadamente pobre, e o nome diz exatamente o que ela é: conta palavra,
+    não "detecta sintaxe". No lote colapsado que a R26 mediu, quatro em seis abriam
+    com "Same" — é esse o sintoma que se quer ver subir ou descer entre rodadas.
+
+    **Molde é três, não dois, e o número saiu dos 18 exemplos-ouro.** Contando pares,
+    a função flagrava quatro deles: "The alarm rings. Nothing answers." com "The
+    silence that would ask something", e os dois "Only …". São fechos de formas
+    diferentes que coincidem no artigo — coincidência, não molde. E a régua da casa
+    desde a R26 é dura: critério que reprova um ouro está errado por definição, então
+    quem cedeu foi o critério. A partir de três a coincidência não se sustenta, e é
+    exatamente onde o lote colapsado cai.
+
+    Um detector semântico de "mesma forma" seria melhor e não é decidível — inventá-lo
+    seria pior que medir pouco, que é o que o § 3 da R26 já decidiu para "fechou numa
+    imagem".
+    """
+    aberturas = [a for a in (abertura_do_fecho(p.get("roteiro")) for p in pautas) if a]
+    return sum(
+        aberturas.count(abertura)
+        for abertura in set(aberturas)
+        if aberturas.count(abertura) >= MOLDE_MINIMO
+    )
+
+
+def fechos_copiados_do_prompt(pautas: list[dict[str, Any]]) -> int:
+    """Quantos fechos são cópia LITERAL de um exemplo que o prompt cita.
+
+    Este não é proxy, é exato — e é o mais grave dos dois: um fecho copiado publica o
+    nosso próprio few-shot no canal. Aconteceu de verdade na medição da R26, com
+    "Same door. Still closed.". Compara sem caixa e sem pontuação, porque
+    "Same door, still closed" é a mesma cópia com outro disfarce.
+
+    **É limite inferior:** mira os 12 fechos de `FECHOS_OURO`, e a identidade leva 18
+    ao prompt. Copiar um dos outros 6 passa despercebido. Ampliar exigiria manter os
+    18 à mão aqui — duplicata que envelhece — ou ler o arquivo dentro de uma função
+    que precisa ser pura. O número, então, nunca superestima: se ele acusa, é cópia.
+    """
+    alvos = {_achatar(fecho) for _forma, par in FECHOS_OURO for fecho in par}
+    copiados = 0
+    for pauta in pautas:
+        linhas = [ln for ln in (pauta.get("roteiro") or "").split("\n") if ln.strip()]
+        if linhas and _achatar(linhas[-1]) in alvos:
+            copiados += 1
+    return copiados
+
+
+def _achatar(texto: str) -> str:
+    """Minúsculas, sem pontuação e com espaço normalizado — para comparar fecho."""
+    limpo = "".join(c for c in texto.lower() if c.isalnum() or c.isspace())
+    return " ".join(limpo.split())
 
 
 def extrair_pautas(texto: str) -> list[dict[str, Any]]:
@@ -488,6 +653,7 @@ def montar_prompt(
     n: int,
     vencedores: list[dict[str, Any]] | None = None,
     categoria: str | None = None,
+    rodada: int = 0,
 ) -> str:
     """Monta o prompt do gerador, com a identidade da marca embutida.
 
@@ -507,6 +673,11 @@ def montar_prompt(
     roteiro cabia numa frase ("5 sequential lines, the first is the hook") e todo o
     resto do prompt falava do hook — medido contra o qwen2.5, isso dava 4 linhas em
     4 de 6 casos e nenhum fecho em imagem. Ver `specs/finalizacao-do-roteiro.md`.
+
+    **A Rodada 27 acrescentou `rodada`**, que escolhe o conjunto de âncoras do fecho.
+    Omitido é `0`, e `0` é o que os chamadores de antes recebiam — nenhum muda de
+    comportamento por engano. Quem varia é `gerar_pool`, que passa o índice da chamada;
+    ver `specs/variedade-de-fecho-no-lote.md`.
     """
     bloco = montar_bloco_vencedores(vencedores or []) + montar_bloco_categoria(categoria)
     return (
@@ -542,7 +713,7 @@ def montar_prompt(
         "    line 4 = the consequence, what it costs over time\n"
         "    line 5 = the close (see CLOSING below)\n"
         "  One idea per line. A line with two ideas becomes an unreadable caption.\n"
-        f"\n=== CLOSING ===\n{FECHO}\n=== END OF CLOSING ===\n\n"
+        f"\n=== CLOSING ===\n{bloco_do_fecho(rodada)}\n=== END OF CLOSING ===\n\n"
         "- titulo: YouTube title, up to 60 characters.\n"
         "- descricao: 2 lines, do not repeat the roteiro.\n\n"
         "The identity above has a 'Reference examples' section with pautas in "
@@ -700,8 +871,11 @@ def gerar_pool(
     alvo = cfg.pauta_local_candidatos
     pool: list[dict[str, Any]] = []
     invalidas = 0
-    for _ in range(ceil(alvo / LOTE_GERACAO)):
-        prompt = montar_prompt(identidade, LOTE_GERACAO, vencedores, categoria)
+    # `rodada` é o índice da chamada (R27): cada lote mira um conjunto de âncoras
+    # diferente. Sem isso as três chamadas recebiam o prompt idêntico e o pool inteiro
+    # saía com um fecho só — na medição, dez dos dezoito eram cópia literal do exemplo.
+    for rodada in range(ceil(alvo / LOTE_GERACAO)):
+        prompt = montar_prompt(identidade, LOTE_GERACAO, vencedores, categoria, rodada)
         texto = chamar_ollama(cfg.ollama_url, cfg.ollama_model, prompt, sessao)
         validas, descartou = separar_validas(extrair_pautas(texto))
         pool.extend(validas)
@@ -849,6 +1023,21 @@ def gerar_pautas(
             extra={"quantos": curtos, "de": len(finais)},
         )
 
+    # Contadores de variedade (R27). O primeiro é proxy e superestima; o segundo é
+    # exato e é o grave — fecho copiado publica o nosso próprio few-shot no canal.
+    repetidos = fechos_com_mesma_abertura(finais)
+    if repetidos:
+        log.warning(
+            "fechos abrindo com a mesma palavra — o lote saiu uniforme",
+            extra={"quantos": repetidos, "de": len(finais)},
+        )
+    copiados = fechos_copiados_do_prompt(finais)
+    if copiados:
+        log.warning(
+            "fechos copiados literalmente do exemplo do prompt",
+            extra={"quantos": copiados, "de": len(finais)},
+        )
+
     for pauta in finais:
         db.inserir_pauta(sb, org, categoria=categoria, **pauta)
 
@@ -864,6 +1053,8 @@ def gerar_pautas(
             "categoria": categoria,
             "fila_viva": viva,
             "fora_de_forma": curtos,
+            "abertura_repetida": repetidos,
+            "fecho_copiado": copiados,
         },
     )
     return {
@@ -875,6 +1066,8 @@ def gerar_pautas(
         "categoria": categoria,
         "fila_viva": viva,
         "fora_de_forma": curtos,
+        "abertura_repetida": repetidos,
+        "fecho_copiado": copiados,
     }
 
 
@@ -924,10 +1117,20 @@ def main() -> int:
             f" {curtos} com menos de {LINHAS_DO_ROTEIRO} linhas — confira o fecho."
             if curtos else ""
         )
+        # Variedade (R27): a repetição é o defeito que a revisão de pauta enxerga
+        # melhor que qualquer log, então ela vai para a tela de quem vai revisar.
+        variedade = "".join(
+            parte for parte in (
+                f" {resumo.get('abertura_repetida', 0)} fechos abrem com a mesma palavra."
+                if resumo.get("abertura_repetida") else "",
+                f" {resumo.get('fecho_copiado', 0)} copiam o exemplo do prompt — descarte."
+                if resumo.get("fecho_copiado") else "",
+            )
+        )
         print(
             f"gerou {resumo['gerou']} pautas prontas de um pool de {resumo.get('pool', '?')} "
             f"candidatos, {ranking}, {few_shot} "
-            f"(descartou {resumo['descartou']} inválidas do modelo).{forma} "
+            f"(descartou {resumo['descartou']} inválidas do modelo).{forma}{variedade} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0

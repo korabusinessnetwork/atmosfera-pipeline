@@ -227,6 +227,22 @@ def gerar_pautas(
             extra={"quantos": curtos, "de": len(validas)},
         )
 
+    # Mesmos contadores de variedade do `pauta_local` (R27). Aqui eles valem dobrado
+    # como MEDIÇÃO: todo o diagnóstico do colapso foi feito no qwen2.5, e ninguém sabe
+    # se o Gemini tem o mesmo defeito. Com o número no resumo, descobre-se olhando.
+    repetidos = pl.fechos_com_mesma_abertura(validas)
+    if repetidos:
+        log.warning(
+            "fechos abrindo com a mesma palavra — o lote saiu uniforme",
+            extra={"quantos": repetidos, "de": len(validas)},
+        )
+    copiados = pl.fechos_copiados_do_prompt(validas)
+    if copiados:
+        log.warning(
+            "fechos copiados literalmente do exemplo do prompt",
+            extra={"quantos": copiados, "de": len(validas)},
+        )
+
     for pauta in validas:
         db.inserir_pauta(sb, org, origem="gemini", categoria=categoria, **pauta)
 
@@ -239,6 +255,8 @@ def gerar_pautas(
             "categoria": categoria,
             "fila_viva": viva,
             "fora_de_forma": curtos,
+            "abertura_repetida": repetidos,
+            "fecho_copiado": copiados,
         },
     )
     return {
@@ -248,6 +266,8 @@ def gerar_pautas(
         "categoria": categoria,
         "fila_viva": viva,
         "fora_de_forma": curtos,
+        "abertura_repetida": repetidos,
+        "fecho_copiado": copiados,
     }
 
 
@@ -307,9 +327,19 @@ def main() -> int:
             f" {curtos} com menos de {pl.LINHAS_DO_ROTEIRO} linhas — confira o fecho."
             if curtos else ""
         )
+        # Variedade (R27): a repetição é o defeito que a revisão de pauta enxerga
+        # melhor que qualquer log, então ela vai para a tela de quem vai revisar.
+        variedade = "".join(
+            parte for parte in (
+                f" {resumo.get('abertura_repetida', 0)} fechos abrem com a mesma palavra."
+                if resumo.get("abertura_repetida") else "",
+                f" {resumo.get('fecho_copiado', 0)} copiam o exemplo do prompt — descarte."
+                if resumo.get("fecho_copiado") else "",
+            )
+        )
         print(
             f"gerou {resumo['gerou']} pautas prontas via Gemini ({cfg.gemini_model}), "
-            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo).{forma} "
+            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo).{forma}{variedade} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0

@@ -1087,6 +1087,7 @@ if __name__ == "__main__":
 [x] 19. Revisar a pauta antes do render — o gate editorial (R25) (1h) ← 605 testes, 1 migration (drop de trigger + 1 RPC), rls_test 63→67 casos (verificação humana)
 [x] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← FEITO 2026-08-06; rls_test 67/67 ✅ (26 e 41 invertidos confirmados no banco)
 [x] 20. A finalização do roteiro entra no prompt (R26)     (40 min) ← 620 testes, sem migration; medido antes/depois no qwen2.5
+[x] 21. Variedade de fecho dentro do lote (R27)            (1h)     ← 652 testes, sem migration; 3 tiragens pareadas de 36 fechos por braço
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1189,6 +1190,47 @@ Enquanto isso quem vê a repetição é a revisão de pauta do item 19.
 publica. Com 4 em 6 fora de forma, descartar mataria a fila de fome. Vira contador
 logado, no molde do `hook_longo` desde a R4 — e o contador aparece no resumo e na
 linha que a CLI imprime, porque quem roda o gerador é quem vai revisar.
+
+**Item 21 — a rodada seguinte que o item 20 anunciou, e ela é mecânica.** O defeito
+aberto era o lote inteiro sair com a mesma sintaxe de fecho, e a R26 já tinha provado
+que redação não conserta: quatro variantes do bloco, as quatro colapsando. A R27 então
+não escreve melhor — **remove a condição que produz a uniformidade**. As três chamadas
+de `gerar_pool` recebiam o prompt **idêntico**; agora `montar_prompt` aceita `rodada`
+(parâmetro, nunca relógio nem `random`, senão o prompt deixa de ser testável) e
+`bloco_do_fecho` cita um conjunto de âncoras diferente em cada uma. Mais dois
+contadores mecânicos e honestos nos **dois** produtores — abertura repetida e cópia
+literal do exemplo — no log, no resumo e na linha da CLI.
+
+**O número que decide, medido em duas tiragens pareadas de 36 fechos por braço:**
+cópia literal do exemplo caiu de **11/36 para 1/36**. É o defeito mais grave dos dois,
+porque fecho copiado publica o nosso próprio few-shot no canal — e numa das tiragens o
+braço sem rodízio escreveu *"Same door. Still closed."* **cinco vezes**. A
+abertura-molde caiu de 18/36 para 3/36.
+
+**Duas ressalvas declaradas, porque o resto da medição não foi vitória.** "Fecho em
+imagem" **empatou** (8/18 dos dois lados, leitura à mão) — e isso corrige para baixo o
+título da R26: lá o 6/6 saiu de **uma** chamada de seis, e com 18 por braço a taxa fica
+perto da metade. O roteiro de 5 linhas foi **36/36 sem rodízio contra 30/36 com**;
+como o braço sem rodízio também deu 12/18 numa das tiragens, a variação aparece nos
+dois lados e o n é pequeno demais para culpar o rodízio — o que se afirma é o que está
+medido, e o que está medido é que a forma não melhorou.
+
+**O passo do rodízio é o tamanho da janela, não 1 — e foi uma medição que ensinou
+isso.** Com passo 1 e três âncoras, chamadas consecutivas compartilham duas das três e
+a âncora do meio aparece em **todas**: o pool voltou a mirar um alvo comum e seis dos
+dezoito fechos saíram abrindo igual. Janelas disjuntas exigem 3 chamadas × 3 âncoras =
+**9 formas**, e 9 × 2 exemplos são exatamente os 18 fechos-ouro — a lista virou uma
+reorganização da identidade, não uma seleção, o que dá o invariante mais forte
+possível para o teste.
+
+**Atribuir uma forma a cada índice do lote foi construído e REPROVADO.** Era critério
+de aceite escrito, foi implementado e medido em três versões: com um exemplo por forma,
+o modelo copiou o exemplo literal em 4 de 6 pautas; com dois, em 6 de 6; só com o nome
+da forma, o roteiro despencou para 4 linhas. **Um modelo pequeno lê `pauta 3: forma X —
+like Y` como "escreva Y na pauta 3"** — numerar o alvo transforma o exemplo em gabarito
+com endereço. Sete tentativas de consertar isto com palavras (quatro na R26, três aqui)
+e nenhuma funcionou; o que fica aberto é a uniformidade **dentro** de uma chamada, e o
+caminho restante é `LOTE_GERACAO = 1` ou seleção com penalidade de repetição.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

@@ -216,6 +216,24 @@ def test_gerar_pautas_conta_roteiro_fora_de_forma(tmp_path, monkeypatch):
     assert resumo["gerou"] == 2   # conta, não descarta
 
 
+def test_gerar_pautas_conta_variedade_de_fecho(tmp_path, monkeypatch):
+    # Todo o diagnóstico do colapso foi feito no qwen2.5; ninguém sabe se o Gemini
+    # tem o mesmo defeito. O contador existe aqui para descobrir com número.
+    _capturar_insercoes(monkeypatch)
+    fecho = "Same door. Still closed."
+    itens = ", ".join(
+        f'{{"tema": "t{i}", "hook": "h{i}", "roteiro": "h{i}\\nl2\\nl3\\nl4\\n{fecho}"}}'
+        for i in range(3)   # três, que é o mínimo para virar molde
+    )
+    sessao = SessaoGeminiFake(texto=f'{{"pautas": [{itens}]}}')
+
+    resumo = pg.gerar_pautas(_cfg(tmp_path, n=3), sb=object(), sessao=sessao)
+
+    assert resumo["abertura_repetida"] == 3
+    assert resumo["fecho_copiado"] == 3
+    assert resumo["gerou"] == 3   # conta, não descarta
+
+
 def test_gerar_pautas_nao_conta_roteiro_em_forma(tmp_path, monkeypatch):
     _capturar_insercoes(monkeypatch)
     roteiro = "l1\\nl2\\nl3\\nl4\\nl5"
