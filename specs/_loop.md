@@ -33,6 +33,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   de janela com passo 1 não é rodízio: a âncora do meio aparece em todas as chamadas.
   Registrado em `memory/anchor-concreto-colapsa-o-lote.md` e no comentário de
   `FECHOS_OURO`.
+- **Commit:** `156521f` na branch `rodada-21-producao-automatica`.
 - **Pendente de decisão:** o critério 6 (forma por índice) fica como reprovado por
   medição, não como dívida — se o dono quiser insistir, é com mecânica nova, não com
   redação.
