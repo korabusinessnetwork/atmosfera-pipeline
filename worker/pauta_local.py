@@ -221,6 +221,34 @@ RUBRICA_HOOK = (
 # afunda — um candidato sem nota nunca vence um pontuado de verdade.
 NOTA_FALHA = -1.0
 
+# ---------------------------------------------------------------- deméritos (R28)
+#
+# O juiz pontua o HOOK e mais nada (`montar_prompt_juiz` manda `hook or roteiro`), e
+# até a R27 `selecionar_top` ordenava só por essa nota — então um fecho copiado do
+# nosso próprio few-shot não perdia vaga nenhuma, mesmo com o pool tendo 18 para uma
+# fila de 15. Os deméritos gastam essa folga de 3 com critério.
+#
+# **A escala saiu da régua do próprio juiz, não de gosto.** O comando dele diz que uma
+# pauta usável tira ~7 e que 8+ é o que se publicaria: a faixa que decide de verdade
+# tem cerca de TRÊS pontos de largura. É contra esses 3 que cada peso abaixo se lê.
+#
+# Por que demérito e não veto: vetar encolheria o lote abaixo de 15 num dia ruim, e a
+# regra da casa desde a R4 (`hook_longo`) é que sinal mecânico CONTA, não descarta.
+# Ordenar é o degrau seguinte mais fraco, e é onde isto para.
+
+# Maior que a faixa útil inteira: nenhum hook é bom o bastante para carregar um fecho
+# que é cópia literal do nosso few-shot. Publicá-lo põe o exemplo do prompt no canal.
+DEMERITO_FECHO_COPIADO = 4.0
+
+# Dois terços da faixa. A R26 mediu e decidiu que roteiro curto é FRACO, não quebrado
+# — renderiza e publica. Demove de verdade sem transformar "fraco" em "vetado".
+DEMERITO_ROTEIRO_CURTO = 2.0
+
+# Metade da faixa, o mais fraco dos três de propósito: repetir a primeira palavra do
+# fecho é PROXY (o § 4 da R27 registrou que ele superestima). Perde para um hook
+# claramente melhor, ganha do empate.
+DEMERITO_ABERTURA_REPETIDA = 1.5
+
 
 class OllamaIndisponivel(RuntimeError):
     """Não deu para falar com o Ollama. Transporte, não conteúdo."""
@@ -358,26 +386,35 @@ def fechos_com_mesma_abertura(pautas: list[dict[str, Any]]) -> int:
     )
 
 
-def fechos_copiados_do_prompt(pautas: list[dict[str, Any]]) -> int:
-    """Quantos fechos são cópia LITERAL de um exemplo que o prompt cita.
+def fecho_copiado_do_prompt(pauta: dict[str, Any]) -> bool:
+    """O fecho desta pauta é cópia LITERAL de um exemplo que o prompt cita?
 
-    Este não é proxy, é exato — e é o mais grave dos dois: um fecho copiado publica o
-    nosso próprio few-shot no canal. Aconteceu de verdade na medição da R26, com
-    "Same door. Still closed.". Compara sem caixa e sem pontuação, porque
-    "Same door, still closed" é a mesma cópia com outro disfarce.
+    Não é proxy, é exato — e é o defeito mais grave que este módulo sabe ver: um
+    fecho copiado publica o nosso próprio few-shot no canal. Aconteceu de verdade na
+    medição da R26, com "Same door. Still closed.". Compara sem caixa e sem
+    pontuação, porque "Same door, still closed" é a mesma cópia com outro disfarce.
 
-    **É limite inferior:** mira os 12 fechos de `FECHOS_OURO`, e a identidade leva 18
-    ao prompt. Copiar um dos outros 6 passa despercebido. Ampliar exigiria manter os
-    18 à mão aqui — duplicata que envelhece — ou ler o arquivo dentro de uma função
-    que precisa ser pura. O número, então, nunca superestima: se ele acusa, é cópia.
+    Mira os 18 fechos de `FECHOS_OURO`, que desde a R27 **são** os 18 exemplos-ouro
+    da identidade — a lista é uma reorganização dela, não uma seleção
+    (`test_fechos_ouro_cobrem_os_18_da_identidade`). Como a identidade vai inteira no
+    prompt, copiar qualquer um deles é copiar do prompt, mesmo os que o bloco de
+    fecho não repetiu.
+
+    Separada de `fechos_copiados_do_prompt` porque a R28 precisa dela **por pauta**:
+    o contador reporta o lote, o demérito decide uma vaga.
     """
-    alvos = {_achatar(fecho) for _forma, par in FECHOS_OURO for fecho in par}
-    copiados = 0
-    for pauta in pautas:
-        linhas = [ln for ln in (pauta.get("roteiro") or "").split("\n") if ln.strip()]
-        if linhas and _achatar(linhas[-1]) in alvos:
-            copiados += 1
-    return copiados
+    linhas = [ln for ln in (pauta.get("roteiro") or "").split("\n") if ln.strip()]
+    return bool(linhas) and _achatar(linhas[-1]) in _fechos_do_prompt()
+
+
+def _fechos_do_prompt() -> frozenset[str]:
+    """Os fechos que o prompt cita, achatados para comparação."""
+    return frozenset(_achatar(fecho) for _forma, par in FECHOS_OURO for fecho in par)
+
+
+def fechos_copiados_do_prompt(pautas: list[dict[str, Any]]) -> int:
+    """Quantos fechos do lote são cópia literal — o contador que vai ao log e à CLI."""
+    return sum(1 for pauta in pautas if fecho_copiado_do_prompt(pauta))
 
 
 def _achatar(texto: str) -> str:
@@ -528,17 +565,78 @@ def extrair_notas(texto: str, quantos: int) -> list[float]:
     return notas
 
 
+def demeritos_da_pauta(pauta: dict[str, Any]) -> float:
+    """Os deméritos INTRÍNSECOS de uma pauta — os que não dependem do lote. Pura.
+
+    Zero para pauta sã. Os dois somam quando os dois valem: um roteiro de 4 linhas
+    que ainda por cima fecha copiado é pior que qualquer um dos dois sozinho, e não
+    há razão para o pior dos dois "absorver" o outro.
+    """
+    demerito = 0.0
+    if fecho_copiado_do_prompt(pauta):
+        demerito += DEMERITO_FECHO_COPIADO
+    if roteiro_fora_de_forma(pauta.get("roteiro")):
+        demerito += DEMERITO_ROTEIRO_CURTO
+    return demerito
+
+
 def selecionar_top(
     candidatos: list[dict[str, Any]], notas: list[float], n: int
 ) -> list[dict[str, Any]]:
-    """Os `n` melhores candidatos por nota, maior primeiro. Pura.
+    """Os `n` melhores por `nota − demérito`, numa passada gulosa. Pura.
 
-    Ordena por índice (não por tupla) de propósito: `sorted(zip(notas, dicts))`
-    quebraria com `TypeError` quando duas notas empatam, porque aí o Python tenta
-    comparar os dicts. `sorted` é estável, então empate mantém a ordem de geração.
+    Até a R27 isto era um `sorted` por nota, e a nota é do HOOK — então defeito de
+    roteiro não custava vaga nenhuma, com o pool tendo 18 para uma fila de 15. A R28
+    gasta essa folga: ver o bloco de constantes `DEMERITO_*`.
+
+    **Por que gulosa, e não subtrair antes de ordenar.** A repetição de abertura só
+    existe em relação a quem JÁ entrou. Penalizando todo mundo de uma vez, quatro
+    pautas de mesma abertura sobem ou afundam juntas — a ordem entre elas não muda, e
+    o que se quer é o oposto: ficar com a melhor e demover as cópias dela. Aqui a
+    primeira do grupo entra sem demérito (não repete nada ainda) e da segunda em
+    diante o demérito aparece.
+
+    **Um demérito nunca encolhe o lote:** ele só reordena. Com o pool inteiro
+    defeituoso, todos levam o mesmo desconto e a ordem volta a ser a da nota — que é
+    o certo, porque a folga de 3 só serve quando há 3 melhores para pôr no lugar.
+
+    Empate (mesma nota, mesmo demérito) mantém a ordem de geração, como o `sorted`
+    estável de antes: `max` devolve o primeiro máximo que encontra, e a varredura é
+    em ordem de índice. Por isso este código escolhe por índice e nunca compara
+    dicts — `sorted(zip(notas, dicts))` estouraria com `TypeError` no empate.
     """
-    indices = sorted(range(len(candidatos)), key=lambda i: notas[i], reverse=True)
-    return [candidatos[i] for i in indices[:n]]
+    intrinsecos = [demeritos_da_pauta(c) for c in candidatos]
+    restantes = list(range(len(candidatos)))
+    escolhidos: list[int] = []
+    aberturas_usadas: list[str] = []
+
+    while restantes and len(escolhidos) < n:
+        melhor = max(
+            restantes,
+            key=lambda i: notas[i]
+            - intrinsecos[i]
+            - _demerito_de_repeticao(candidatos[i], aberturas_usadas),
+        )
+        escolhidos.append(melhor)
+        restantes.remove(melhor)
+        abertura = abertura_do_fecho(candidatos[melhor].get("roteiro"))
+        if abertura:
+            aberturas_usadas.append(abertura)
+
+    return [candidatos[i] for i in escolhidos]
+
+
+def _demerito_de_repeticao(pauta: dict[str, Any], aberturas_usadas: list[str]) -> float:
+    """O demérito de repetir a abertura de fecho de uma já selecionada.
+
+    Abertura vazia (roteiro vazio ou truncado) **não** conta: senão dois roteiros
+    quebrados se penalizariam mutuamente por um defeito que é outro — o
+    `DEMERITO_ROTEIRO_CURTO` é quem responde por eles.
+    """
+    abertura = abertura_do_fecho(pauta.get("roteiro"))
+    if not abertura or abertura not in aberturas_usadas:
+        return 0.0
+    return DEMERITO_ABERTURA_REPETIDA
 
 
 def extrair_objeto(texto: str) -> dict[str, Any]:
@@ -995,14 +1093,31 @@ def gerar_pautas(
     n = cfg.pauta_local_n
     try:
         notas = pontuar(cfg, identidade, pool, sessao)
-        selecionadas = selecionar_top(pool, notas, n)
         ranqueou = True
     except (OllamaIndisponivel, RespostaInvalida) as erro:
-        # O juiz é o polish, não a espinha: sem ranking, os N primeiros valem mais
+        # O juiz é o polish, não a espinha: sem ranking, um run degradado vale mais
         # que um run perdido. É o mesmo espírito do "juiz é filtro grosso".
-        log.warning("juiz falhou — inserindo sem ranquear", extra={"erro": str(erro)[:200]})
-        selecionadas = pool[:n]
+        #
+        # Mas "sem ranking" deixou de ser "sem critério" na R28: em vez de `pool[:n]`
+        # (ordem de geração, zero julgamento), a seleção roda igual com todas as notas
+        # empatadas. Aí só os deméritos mecânicos falam — e sem modelo nenhum a
+        # escolha ainda evita fecho copiado e abertura repetida.
+        log.warning("juiz falhou — selecionando só pelo mecânico", extra={"erro": str(erro)[:200]})
+        notas = [0.0] * len(pool)
         ranqueou = False
+    selecionadas = selecionar_top(pool, notas, n)
+
+    # Quantas entraram COM demérito. É o número que diz se a folga de 3 entre o pool
+    # e a fila deu conta: zero significa que o pool tinha 15 pautas sãs; alto significa
+    # que a geração está produzindo defeito mais rápido do que a seleção consegue
+    # descartar, e aí o lugar de mexer é o prompt, não aqui.
+    demovidas = sum(1 for p in selecionadas if demeritos_da_pauta(p))
+    if demovidas:
+        log.warning(
+            "pautas com defeito de roteiro entraram assim mesmo — o pool não tinha "
+            "substituta sã",
+            extra={"quantos": demovidas, "de": len(selecionadas), "pool": len(pool)},
+        )
 
     if cfg.pauta_local_refinar:
         finais = [reescrever(cfg, identidade, p, sessao) for p in selecionadas]
@@ -1055,6 +1170,7 @@ def gerar_pautas(
             "fora_de_forma": curtos,
             "abertura_repetida": repetidos,
             "fecho_copiado": copiados,
+            "demovidas": demovidas,
         },
     )
     return {
@@ -1068,6 +1184,7 @@ def gerar_pautas(
         "fora_de_forma": curtos,
         "abertura_repetida": repetidos,
         "fecho_copiado": copiados,
+        "demovidas": demovidas,
     }
 
 
@@ -1104,7 +1221,10 @@ def main() -> int:
             "— nada gerado, e está certo: pauta em cima de fila cheia só afunda."
         )
     else:
-        ranking = "ranqueadas pelo juiz" if resumo.get("ranqueou") else "sem ranking (juiz falhou)"
+        ranking = (
+            "ranqueadas pelo juiz" if resumo.get("ranqueou")
+            else "sem o juiz (falhou) — escolhidas só pelo mecânico"
+        )
         venc = resumo.get("vencedores", 0)
         few_shot = (
             f"com {venc} vencedores reais no few-shot" if venc
@@ -1125,6 +1245,12 @@ def main() -> int:
                 if resumo.get("abertura_repetida") else "",
                 f" {resumo.get('fecho_copiado', 0)} copiam o exemplo do prompt — descarte."
                 if resumo.get("fecho_copiado") else "",
+                # R28: se alguma entrou COM demérito, o pool não tinha substituta sã —
+                # o que se conserta aí é a geração, não a escolha. Dizer isso na tela
+                # evita procurar bug na seleção quando a culpa é do prompt.
+                f" {resumo.get('demovidas', 0)} entraram com defeito de roteiro "
+                "(o pool não tinha substituta sã)."
+                if resumo.get("demovidas") else "",
             )
         )
         print(

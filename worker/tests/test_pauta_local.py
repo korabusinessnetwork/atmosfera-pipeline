@@ -600,6 +600,108 @@ def test_seleciona_top_maior_que_pool_devolve_tudo():
     assert len(pl.selecionar_top(cand, [1.0, 2.0], 5)) == 2
 
 
+def test_seleciona_top_zero_devolve_vazio():
+    assert pl.selecionar_top([{"hook": "a"}], [5.0], 0) == []
+
+
+# ------------------------------------------------------- deméritos da seleção (R28)
+def _roteiro(fecho: str, linhas: int = pl.LINHAS_DO_ROTEIRO) -> str:
+    """Um roteiro em forma, terminando no `fecho` pedido."""
+    return "\n".join([f"linha {i}" for i in range(1, linhas)] + [fecho])
+
+
+def _pauta(hook: str, fecho: str, linhas: int = pl.LINHAS_DO_ROTEIRO) -> dict:
+    return {"hook": hook, "roteiro": _roteiro(fecho, linhas)}
+
+
+def test_pauta_sa_nao_tem_demerito():
+    assert pl.demeritos_da_pauta(_pauta("a", "Quiet ending here")) == 0.0
+
+
+def test_demeritos_intrinsecos_somam():
+    # Roteiro curto E fecho copiado é pior que qualquer um sozinho — um não absorve
+    # o outro.
+    ruim = _pauta("a", "Same door. Still closed.", linhas=4)
+    assert pl.demeritos_da_pauta(ruim) == pytest.approx(
+        pl.DEMERITO_FECHO_COPIADO + pl.DEMERITO_ROTEIRO_CURTO
+    )
+
+
+def test_fecho_copiado_pesa_mais_que_a_faixa_util_do_juiz():
+    # A régua do juiz diz "usável ~7, publicável 8+": a faixa que decide tem ~3
+    # pontos. O demérito de cópia é deliberadamente maior que ela inteira.
+    assert pl.DEMERITO_FECHO_COPIADO > 3.0
+    assert pl.DEMERITO_ROTEIRO_CURTO < pl.DEMERITO_FECHO_COPIADO
+    assert pl.DEMERITO_ABERTURA_REPETIDA < pl.DEMERITO_ROTEIRO_CURTO
+
+
+def test_fecho_copiado_perde_para_hook_pior():
+    copiada = _pauta("hook excelente", "Same door. Still closed.")
+    limpa = _pauta("hook mediano", "Quiet ending here")
+    top = pl.selecionar_top([copiada, limpa], [9.0, 6.0], 1)
+    assert top[0]["hook"] == "hook mediano"
+
+
+def test_roteiro_curto_demove_mas_nao_veta():
+    # Pool inteiro fora de forma: todos levam o mesmo desconto, a ordem volta a ser
+    # a da nota e o lote NÃO encolhe.
+    pool = [_pauta(f"h{i}", f"fecho {i}", linhas=3) for i in range(5)]
+    top = pl.selecionar_top(pool, [1.0, 5.0, 2.0, 4.0, 3.0], 3)
+    assert len(top) == 3
+    assert [p["hook"] for p in top] == ["h1", "h3", "h4"]
+
+
+def test_repeticao_e_medida_contra_as_ja_selecionadas():
+    # Três com a mesma abertura de fecho: a melhor entra sem demérito (ainda não
+    # repete nada), as outras duas caem atrás de uma limpa de nota menor.
+    pool = [
+        _pauta("molde-alto", "Same finish. Still missed."),
+        _pauta("molde-medio", "Same finish. Still behind."),
+        _pauta("molde-baixo", "Same finish. Still trapped."),
+        _pauta("limpa", "Quiet, the whole way there"),
+    ]
+    top = pl.selecionar_top(pool, [9.0, 8.5, 8.0, 7.5], 2)
+    assert [p["hook"] for p in top] == ["molde-alto", "limpa"]
+
+
+def test_abertura_vazia_nao_conta_como_repeticao():
+    # Dois roteiros vazios não podem se penalizar mutuamente por um defeito que é
+    # outro: quem responde por eles é o DEMERITO_ROTEIRO_CURTO, uma vez cada.
+    #
+    # As notas separam os dois comportamentos: a 2ª vazia vale 10 - 2 = 8 e vence a
+    # sã de nota 7. Se a abertura vazia contasse como repetida, ela cairia para 6,5
+    # e a sã entraria no lugar — é esse cenário que este teste exclui.
+    pool = [
+        {"hook": "vazia-a", "roteiro": ""},
+        {"hook": "vazia-b", "roteiro": ""},
+        _pauta("sa", "Quiet ending here"),
+    ]
+    top = pl.selecionar_top(pool, [10.0, 10.0, 7.0], 2)
+    assert [p["hook"] for p in top] == ["vazia-a", "vazia-b"]
+
+
+def test_nota_falha_afunda_mesmo_com_demeritos_em_jogo():
+    # NOTA_FALHA (-1) somada a demérito só afunda mais — nunca vira exceção. Com as
+    # duas sãs, a pontuada ganha; com a pontuada carregando a cópia, ela ainda ganha
+    # se a nota cobrir o demérito (5 - 4 = 1 > -1).
+    sem_nota = _pauta("juiz engasgou", "Quiet ending here")
+    copiada = _pauta("pontuada", "Same door. Still closed.")
+    top = pl.selecionar_top([sem_nota, copiada], [pl.NOTA_FALHA, 5.0], 1)
+    assert top[0]["hook"] == "pontuada"
+
+    sa = _pauta("pontuada sã", "Another quiet ending")
+    top = pl.selecionar_top([sem_nota, sa], [pl.NOTA_FALHA, 0.0], 1)
+    assert top[0]["hook"] == "pontuada sã"
+
+
+def test_fecho_copiado_custa_quase_o_mesmo_que_nao_ter_sido_julgado():
+    # Calibração que caiu de uma medição acidental e vale fixar: uma pauta MEDIANA
+    # (3, abaixo do "usável ~7" do juiz) com fecho copiado empata com uma pauta que o
+    # juiz não conseguiu pontuar. Ou seja: copiar o few-shot custa aproximadamente
+    # toda a credibilidade de um julgamento. Se algum peso mudar, isto avisa.
+    assert 3.0 - pl.DEMERITO_FECHO_COPIADO == pytest.approx(pl.NOTA_FALHA)
+
+
 # ------------------------------------------------------------- aplicar_reescrita
 def test_reescrita_funde_hook_mais_forte():
     orig = {"tema": "t", "roteiro": "velho", "hook": "fraco", "titulo": "x"}
@@ -825,8 +927,81 @@ def test_juiz_falha_degrada_para_primeiros(tmp_path, monkeypatch):
     resumo = pl.gerar_pautas(_cfg(tmp_path, n=2), sb=object(), sessao=sessao)
 
     assert resumo["ranqueou"] is False and resumo["gerou"] == 2
-    # sem ranking, os 2 PRIMEIROS do pool (t0, t1), não os melhores.
+    # Sem ranking, todo o pool empata em nota; como neste fixture todos carregam
+    # exatamente os mesmos deméritos, a ordem de geração sobrevive (t0, t1).
     assert [p["tema"] for p in inseridas] == ["t0", "t1"]
+
+
+def _pool_com(*roteiros):
+    """Pool com roteiros escolhidos a dedo — para exercitar deméritos diferentes."""
+    itens = ",".join(
+        f'{{"tema": "t{i}", "roteiro": "{r}", "hook": "h{i}"}}'
+        for i, r in enumerate(roteiros)
+    )
+    return f'{{"pautas": [{itens}]}}'
+
+
+_COPIADO = "l1\\nl2\\nl3\\nl4\\nSame door. Still closed."
+_SA_A = "l1\\nl2\\nl3\\nl4\\nQuiet ending here"
+_SA_B = "l1\\nl2\\nl3\\nl4\\nAnother way out"
+
+
+def test_juiz_falha_e_o_mecanico_ainda_evita_fecho_copiado(tmp_path, monkeypatch):
+    # O ganho que a R28 traz onde antes não havia critério nenhum: com o juiz fora,
+    # a seleção era `pool[:n]` — ordem de geração — e a pauta de fecho copiado
+    # entrava por estar na frente. Agora o demérito a empurra para trás sozinho.
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_com(_COPIADO, _SA_A, _SA_B),
+        juiz="isto não é json de nota",
+        reescrita="",
+    )
+
+    resumo = pl.gerar_pautas(
+        _cfg(tmp_path, n=2, candidatos=3, refinar=False), sb=object(), sessao=sessao
+    )
+
+    assert resumo["ranqueou"] is False and resumo["gerou"] == 2
+    assert [p["tema"] for p in inseridas] == ["t1", "t2"]
+    assert resumo["fecho_copiado"] == 0 and resumo["demovidas"] == 0
+
+
+def test_demovidas_conta_quando_o_pool_nao_tem_substituta_sa(tmp_path, monkeypatch):
+    # Sem folga (n = tamanho do pool), a defeituosa entra assim mesmo — demérito
+    # ORDENA, nunca veta — e o contador diz que foi isso que aconteceu.
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_com(_COPIADO, _SA_A, _SA_B),
+        juiz=_juiz_por_indice([9, 1, 2]),   # a copiada é a de melhor hook
+        reescrita="",
+    )
+
+    resumo = pl.gerar_pautas(
+        _cfg(tmp_path, n=3, candidatos=3, refinar=False), sb=object(), sessao=sessao
+    )
+
+    assert resumo["gerou"] == 3 and len(inseridas) == 3
+    # 9 - 4 = 5 ainda vence 2 e 1, então a copiada entra — mas por último, e contada.
+    assert [p["tema"] for p in inseridas] == ["t0", "t2", "t1"]
+    assert resumo["demovidas"] == 1
+
+
+def test_a_folga_do_pool_e_gasta_com_a_defeituosa(tmp_path, monkeypatch):
+    # Com folga de 1 (pool 3, fila 2), a copiada é justamente quem fica de fora,
+    # mesmo tendo o melhor hook do lote.
+    inseridas = _capturar_insercoes(monkeypatch)
+    sessao = SessaoRoteada(
+        geracao=_pool_com(_COPIADO, _SA_A, _SA_B),
+        juiz=_juiz_por_indice([9, 6, 7]),
+        reescrita="",
+    )
+
+    resumo = pl.gerar_pautas(
+        _cfg(tmp_path, n=2, candidatos=3, refinar=False), sb=object(), sessao=sessao
+    )
+
+    assert [p["tema"] for p in inseridas] == ["t2", "t1"]
+    assert resumo["demovidas"] == 0 and resumo["fecho_copiado"] == 0
 
 
 def test_reescrita_falha_mantem_original(tmp_path, monkeypatch):

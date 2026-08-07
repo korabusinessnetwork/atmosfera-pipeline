@@ -9,6 +9,42 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 28 — a seleção do pool olha o roteiro · 2026-08-07
+
+- Spec: `specs/selecao-olha-o-roteiro.md`
+- **Item aberto pela R27** (§ 10.3): *"uma seleção que penalize abertura repetida na
+  hora de escolher as 15 do pool de 18"*.
+- **O que entrou:** constantes `DEMERITO_FECHO_COPIADO` (4,0),
+  `DEMERITO_ROTEIRO_CURTO` (2,0) e `DEMERITO_ABERTURA_REPETIDA` (1,5), derivadas da
+  faixa útil da régua do juiz · `demeritos_da_pauta` (puro) ·
+  `fecho_copiado_do_prompt` extraído por pauta, com o contador de lote reusando-o ·
+  `selecionar_top` reescrito como **passada gulosa** (a repetição é medida contra as
+  já selecionadas, não contra o pool) · o fallback do juiz deixou de ser `pool[:n]` e
+  passou a rodar a mesma seleção com notas empatadas · contador `demovidas` no log, no
+  resumo e na CLI. Sem migration; `painel/`, `supabase/`, `pauta_gemini.py` e o loop
+  intocados.
+- **Resultado da review:** **aprovado sem ressalvas** — 13 de 13 critérios em sim.
+  Suíte `uv run pytest`: **665 passed** (eram 652). Os três testes antigos de
+  `selecionar_top` passam **sem alteração**, que é a prova do critério 4.
+- **Medição** (pool de 18 gerado e pontuado uma vez, as duas seleções puras sobre ele):
+  o pool trazia 5 fechos copiados; a seleção antiga deixava **3** entrarem, a nova
+  **2**, e o molde caiu de **3 para 0**. Com folga de 3, deixar 2 entrarem é o ótimo.
+- **Aprendido:** o juiz **quase não discrimina** — 16 dos 18 candidatos tiraram
+  exatamente 2,0, contra a faixa de 6–9 que a própria rubrica promete. Ordenar por essa
+  nota era, na prática, ordem de geração. Registrado em
+  `memory/juiz-lote-degrada-em-modelo-pequeno.md`, que tinha essa pergunta em aberto
+  desde a R8 e agora tem a resposta com número.
+- **Commit:** a carimbar abaixo.
+- **Pendente de decisão:** nenhuma.
+- **Próximo item recomendado:** **o juiz usar a escala que a própria régua promete.** É
+  o achado do § 10.2 desta rodada e virou o maior gargalo da seleção: são 18 chamadas
+  ao Ollama por run para produzir uma nota quase constante, e todo peso desta rodada
+  foi calibrado contra uma faixa que o modelo não usa. Consertar o juiz é o que faz a
+  metade *editorial* da escolha voltar a existir — a metade mecânica acabou de ser
+  construída.
+
+---
+
 ## Rodada 27 — variedade de fecho dentro do lote · 2026-08-06
 
 - Spec: `specs/variedade-de-fecho-no-lote.md`

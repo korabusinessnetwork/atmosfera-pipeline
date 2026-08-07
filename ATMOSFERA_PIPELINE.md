@@ -1088,6 +1088,7 @@ if __name__ == "__main__":
 [x] 19b. Aplicar a migration da revisão de pauta           (5 min)  ← FEITO 2026-08-06; rls_test 67/67 ✅ (26 e 41 invertidos confirmados no banco)
 [x] 20. A finalização do roteiro entra no prompt (R26)     (40 min) ← 620 testes, sem migration; medido antes/depois no qwen2.5
 [x] 21. Variedade de fecho dentro do lote (R27)            (1h)     ← 652 testes, sem migration; 3 tiragens pareadas de 36 fechos por braço
+[x] 22. A seleção do pool olha o roteiro (R28)             (1h)     ← 665 testes, sem migration; medição pareada com uma passada de modelo
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1231,6 +1232,45 @@ like Y` como "escreva Y na pauta 3"** — numerar o alvo transforma o exemplo em
 com endereço. Sete tentativas de consertar isto com palavras (quatro na R26, três aqui)
 e nenhuma funcionou; o que fica aberto é a uniformidade **dentro** de uma chamada, e o
 caminho restante é `LOTE_GERACAO = 1` ou seleção com penalidade de repetição.
+
+**Item 22 — a escolha passa a olhar o roteiro, e a folga de 3 vira critério.** Três
+linhas contavam a história: `montar_prompt_juiz` manda ao juiz `hook or roteiro` (na
+prática, só o hook), `selecionar_top` ordenava por essa nota e mais nada, e o fallback
+era `pool[:n]` — ordem de geração. Então um fecho **copiado literalmente** do nosso
+próprio few-shot não perdia vaga nenhuma, mesmo com o pool tendo 18 para uma fila de
+15. A R28 não inventa detector: liga o que a R27 já media (`roteiro_fora_de_forma`,
+`abertura_do_fecho`, `fecho_copiado_do_prompt`) ao que já escolhe.
+
+**A escolha virou gulosa, e isso não é enfeite.** A repetição de abertura só existe em
+relação a quem **já** entrou; penalizando o pool todo de uma vez, quatro pautas de mesma
+abertura sobem ou afundam juntas e a ordem entre elas não muda. Gulosa, a melhor do
+grupo entra sem demérito e as cópias dela é que são demovidas — que é o que se queria.
+
+**Os pesos saem da régua do juiz, não de gosto:** o comando dele diz "usável ~7,
+publicável 8+", ou seja a faixa que decide tem ~3 pontos. Fecho copiado pesa **4,0**
+(maior que a faixa inteira — nenhum hook redime publicar o nosso few-shot no canal),
+roteiro curto **2,0** (a R26 mediu que curto é *fraco, não quebrado*) e abertura
+repetida **1,5** (é proxy, e o § 4 da R27 já dizia que superestima). Demérito **ordena,
+nunca veta** — vetar encolheria o lote abaixo de 15 num dia ruim, e a regra da casa
+desde a R4 é que sinal mecânico conta, não descarta.
+
+**Medido com uma passada só de modelo**, pool de 18 pontuado uma vez e as duas seleções
+calculadas sobre ele: o pool trazia **5 fechos copiados**, e a seleção antiga deixava 3
+entrarem contra **2** da nova, com o molde caindo de 3 para 0. O 2 não é fracasso — é o
+ótimo: com folga de 3, pelo menos 2 das 5 tinham de entrar, e a R28 gastou a folga
+inteira no alvo certo. Num ponto ela **aceitou de propósito** uma abertura repetida
+(−1,5) para recusar uma cópia literal (−4,0); a ordem de gravidade funcionando num run
+real.
+
+**O achado que não estava no spec, e é o maior:** **16 dos 18 candidatos receberam
+exatamente 2,0** do juiz. Com a nota quase constante, ordenar por ela é um `sorted`
+estável sobre valores iguais — isto é, a ordem de geração. O "best-of-N" seguia sendo
+"first-N" mesmo depois de a R9 consertar a contagem de notas, não por bug, por
+indiferença do juiz; quem passou a decidir de fato foi o critério mecânico. Isso
+reforça o resultado e **enfraquece a generalização**: os pesos foram calibrados contra
+a faixa que a rubrica promete (6–9) e o juiz entrega 1–3, então mudam se ele um dia
+usar a escala. Consertar o juiz é rodada própria, com medição própria — a mesma
+disciplina que manteve "o juiz pontuar o roteiro" fora desta.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)
