@@ -34,7 +34,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   nota era, na prática, ordem de geração. Registrado em
   `memory/juiz-lote-degrada-em-modelo-pequeno.md`, que tinha essa pergunta em aberto
   desde a R8 e agora tem a resposta com número.
-- **Commit:** a carimbar abaixo.
+- **Commit:** `9b60915` na branch `rodada-21-producao-automatica`.
 - **Pendente de decisão:** nenhuma.
 - **Próximo item recomendado:** **o juiz usar a escala que a própria régua promete.** É
   o achado do § 10.2 desta rodada e virou o maior gargalo da seleção: são 18 chamadas
