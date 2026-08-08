@@ -466,9 +466,11 @@ def videos_da_limpeza(fila: dict[str, int]) -> int:
 def frase_da_limpeza(apagados: int, recriados: int) -> str:
     """O desfecho da limpeza, em uma frase. Pura.
 
-    Diz os DOIS números porque eles não são iguais e a diferença é informação: uma
-    pauta que acumulou duas tentativas some duas vezes e volta uma só. Ver só
-    "apaguei 6" faria parecer que a fila esvaziou.
+    Diz os DOIS números porque eles não são iguais e a diferença é informação, por
+    duas razões distintas: uma pauta que acumulou duas tentativas some duas vezes e
+    volta uma só; e, desde a R29, pauta descartada/consumida/pronta some e NÃO volta
+    — só `em_producao` ganha corpo novo. Ver só "apaguei 6" faria parecer que a fila
+    esvaziou; ver só o par explica por que ela encolheu de verdade.
     """
     if not apagados:
         return "Nada para limpar — a fila já está vazia."

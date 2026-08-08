@@ -921,7 +921,7 @@ def definir_categoria_padrao(sb: Client, org_id: str, categoria_id: str) -> None
 
 
 def limpar_fila(sb: Client, org_id: str) -> tuple[int, int]:
-    """Apaga os vídeos não publicados e recria um `na_fila` por pauta atingida.
+    """Apaga os vídeos não publicados e recria um `na_fila` por pauta EM PRODUÇÃO.
 
     Devolve `(apagados, recriados)`. A RPC é uma só porque as duas metades têm de
     ser atômicas: apagar sem recriar deixaria pautas em `em_producao` sem vídeo
@@ -929,6 +929,11 @@ def limpar_fila(sb: Client, org_id: str) -> tuple[int, int]:
 
     `aprovado`, `publicando` e `publicado` ficam de fora (a lista mora na RPC, não
     aqui — a guarda é do banco, como em toda transição deste projeto).
+
+    Só `em_producao` ganha vídeo novo (R29). Descartada, consumida e pronta perdem o
+    vídeo velho e não recebem outro: recriar ali ressuscitava pauta do lixo,
+    republicava o que já subiu e desfazia reprovação humana. É por isso que
+    `recriados` costuma vir menor que `apagados`.
     """
     resposta = sb.rpc("limpar_fila", {"p_org": org_id}).execute()
     linha = (resposta.data or [{}])[0]

@@ -76,6 +76,16 @@
 -- claim. Daí a família `_da_org`/`_prontas`, com o tenant por PARÂMETRO — e daí a
 -- trava `and org_id = p_org` nos casos 61 e 65, que a versão `authenticated` não
 -- precisa porque a RLS a aplica sozinha.
+-- Os 67–69 fecham o limpar-a-fila (Rodada 29), e nasceram de um bug do uso real: a
+-- limpeza trazia pauta DESCARTADA de volta para a fila. A oitava pergunta ganhou uma
+-- segunda metade — não só "quem pode apagar?", mas "quem MERECE um corpo novo?". A
+-- R22 recriava um vídeo por pauta atingida sem olhar o estado dela, e os casos 48–52
+-- não pegaram porque a pauta deles é `em_producao`, o único estado em que recriar é
+-- certo. Aqui se semeia o resto: descartada (o bug), consumida (o caro — republicar
+-- o que já subiu é conteúdo duplicado, e o castigo do YouTube é o canal) e pronta
+-- (que só tem vídeo apagável depois de uma reprovação, e recriar desfaria sozinho a
+-- recusa de uma pessoa). O caso 69 carrega o CONTROLE junto, porque sem ele os três
+-- passariam com a recriação quebrada por inteiro — que seria outro bug, igualmente mudo.
 -- ============================================================
 
 create schema if not exists tests;
@@ -125,6 +135,9 @@ declare
   pauta_lf    uuid; -- pauta com a fila completa, para o limpar_fila (Rodada 22)
   vid_lf_pub  uuid; -- vídeo em erro QUE JÁ PUBLICOU (o cascade que quase passou)
   lf_org_a    int;  -- fila apagável da org A ANTES da limpeza da org C (isolamento)
+  pauta_dc    uuid; -- pauta descartada com vídeo reprovado pendurado (Rodada 29)
+  pauta_cs    uuid; -- pauta consumida com vídeo em erro, sem publicação
+  pauta_pr    uuid; -- pauta pronta que o gate reprovou
   pauta_ex    uuid; -- pauta pronta do `enfileirar_prontas` (Rodada 23)
   pauta_r24   uuid; -- pauta pronta do `enfileirar_pauta_da_org` (Rodada 24)
 begin
@@ -1556,6 +1569,75 @@ begin
   esperado := 'bloqueado';
   obtido := case when bloqueou then 'bloqueado' else 'EXECUTOU — FURO GRAVE' end;
   passou := bloqueou;
+  return next;
+
+  -- ====== LIMPAR_FILA NÃO DÁ CORPO NOVO A PAUTA MORTA (Rodada 29) ======
+  -- Bug do uso real: "limpar fila traz as pautas descartadas de volta do lixo". A
+  -- metade que RECRIA da R22 olhava só `returning v.pauta_id` e não perguntava em
+  -- que estado a pauta está, então toda pauta que perdeu um vídeo ganhava um novo.
+  --
+  -- Os casos 48–52 não pegaram isso porque a pauta deles é `em_producao` — o único
+  -- estado em que recriar é certo. O que faltava era semear os OUTROS estados e
+  -- provar que a limpeza não os acorda. Roda como dono (papel resetado no 66), que
+  -- é a condição real: quem chama a RPC é o painel local com a service_role.
+  --
+  -- As três pautas nascem com origem 'manual' de propósito: `t_pautas_auto_enfileirar`
+  -- dispara em `pronta` de produtor de MÁQUINA, e a pauta `pronta` do caso 69 criaria
+  -- um vídeo sozinha, misturando o efeito do trigger com o efeito da RPC.
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_c, '[rls-test] lf descartada', '[rls-test] roteiro dc', 'descartada', 'manual')
+  returning id into pauta_dc;
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_c, '[rls-test] lf consumida', '[rls-test] roteiro cs', 'consumida', 'manual')
+  returning id into pauta_cs;
+  insert into public.pautas (org_id, tema, roteiro, status, origem)
+  values (org_c, '[rls-test] lf pronta', '[rls-test] roteiro pr', 'pronta', 'manual')
+  returning id into pauta_pr;
+
+  -- O rastro que o caminho real deixa: a descartada e a pronta guardam o vídeo que
+  -- o gate REPROVOU; a consumida guarda um `erro` de primeira tentativa, SEM
+  -- publicação — então o `not exists` da R22 não o protege e ele entra na varredura.
+  insert into public.videos (org_id, pauta_id, status)
+  values (org_c, pauta_dc, 'reprovado'),
+         (org_c, pauta_cs, 'erro'),
+         (org_c, pauta_pr, 'reprovado');
+
+  perform public.limpar_fila(org_c);
+
+  select count(*) into n from public.videos where pauta_id = pauta_dc;
+  select status into pa_status from public.pautas where id = pauta_dc;
+
+  teste := '67 · limpar_fila não dá vídeo novo a pauta descartada';
+  esperado := '0 vídeos · segue descartada';
+  obtido := n::text || ' vídeos · ' || coalesce(pa_status, '(null)');
+  passou := (n = 0 and pa_status = 'descartada');
+  return next;
+
+  -- O mais caro dos três: `consumida` já foi publicada. Um vídeo novo aqui refaz o
+  -- MESMO roteiro e o põe na fila para subir de novo — conteúdo duplicado no canal,
+  -- que na política do YouTube custa o canal, não o vídeo (§ 7 do doc mestre).
+  select count(*) into n from public.videos where pauta_id = pauta_cs;
+
+  teste := '68 · limpar_fila não republica pauta consumida';
+  esperado := '0 vídeos';
+  obtido := n::text || ' vídeos';
+  passou := (n = 0);
+  return next;
+
+  -- `pronta` com vídeo apagável só existe depois de uma REPROVAÇÃO. Recriar
+  -- desfaria sozinho o que uma pessoa acabou de recusar, contra a regra que a R4
+  -- deixou escrita: "voltar à fila é decisão humana". E ela não fica órfã — pauta
+  -- pronta é o que a tela /pautas lista, com o botão de enfileirar do lado.
+  -- Junto, o CONTROLE: sem ele estes três casos passariam com a recriação quebrada
+  -- por inteiro, que seria outro bug e igualmente mudo.
+  select count(*) into n from public.videos where pauta_id = pauta_pr;
+  select count(*) into vazou
+    from public.videos where pauta_id = pauta_lf and status = 'na_fila';
+
+  teste := '69 · pronta não se reenfileira sozinha, em_producao ainda ganha corpo';
+  esperado := '0 na pronta · 1 na_fila na em_producao';
+  obtido := n::text || ' na pronta · ' || vazou::text || ' na_fila na em_producao';
+  passou := (n = 0 and vazou = 1);
   return next;
 
   -- ---------- limpeza ----------
