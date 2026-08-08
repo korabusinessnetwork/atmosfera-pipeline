@@ -9,6 +9,37 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 30 — ancorar a régua do juiz · 2026-08-08 · **HIPÓTESE REPROVADA**
+
+- Spec: `specs/juiz-usa-a-escala.md`
+- **Numeração:** especificada como 29, virou 30 — outra sessão trabalhando no **mesmo
+  diretório** commitou a sua própria rodada 29 (`fe7d2f0`, `limpar_fila`) enquanto esta
+  rodava. Ver a nota no topo do spec e o § 10.4.
+- **A hipótese:** o `RUBRICA_HOOK` inline copiou só a 1ª linha de cada dimensão da § 9 da
+  identidade e descartou as âncoras `3:`/`8:`; devolvê-las devia fazer o juiz usar a
+  escala que a régua promete. Construída, testada (666 verdes) e medida.
+- **Resultado da review: aprovado sem ressalvas** — a decisão foi tomada **pelo número**,
+  que é o que o critério 9 do spec pede. Critérios 3–9 em sim; 1 e 2 foram construídos e
+  **retirados pelo critério 6**, que manda reverter se a medição não sustentar.
+- **A medição (2 tiragens × 2 braços, 104 pontuações, gabarito = 18 ouros da identidade
+  contra 8 anti-padrões do `hook-playbook`):** separação **+2,58/+2,67 sem** âncoras
+  contra **+1,01/+0,83 com**; sobreposição **8 de 8 nas duas** tiragens ancoradas;
+  espalhamento dos ouros de 7 valores (2–8) para 4 (2–6). A tiragem 2 é pareada — os dois
+  braços na mesma execução. O único viés do gabarito corria **a favor** do braço ancorado
+  e ele perdeu assim mesmo.
+- **Código entregue: nenhum.** `uv run pytest` → **665 passed**, o mesmo do HEAD.
+- **Aprendido:** `memory/anchor-concreto-colapsa-o-lote.md` (o colapso por exemplo
+  concreto vale também para quem **julga**, e no juiz não há compensação) e
+  `memory/juiz-lote-degrada-em-modelo-pequeno.md` (a leitura da R28 corrigida: o juiz
+  separa; quem está empatado é o **pool**).
+- **Commit:** `be7b4c4` na branch `rodada-21-producao-automatica`.
+- **Pendente de decisão:** nenhuma.
+- **Próximo item recomendado:** **o pool pontuar como anti-padrão** (§ 10.3 do spec) — a
+  medição mostrou que os candidatos do gerador local caem na mesma faixa dos anti-padrões
+  documentados, e isso aponta para o gerador, não para o juiz.
+
+---
+
 ## Rodada 28 — a seleção do pool olha o roteiro · 2026-08-07
 
 - Spec: `specs/selecao-olha-o-roteiro.md`
