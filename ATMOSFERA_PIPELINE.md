@@ -1089,6 +1089,7 @@ if __name__ == "__main__":
 [x] 20. A finalização do roteiro entra no prompt (R26)     (40 min) ← 620 testes, sem migration; medido antes/depois no qwen2.5
 [x] 21. Variedade de fecho dentro do lote (R27)            (1h)     ← 652 testes, sem migration; 3 tiragens pareadas de 36 fechos por braço
 [x] 22. A seleção do pool olha o roteiro (R28)             (1h)     ← 665 testes, sem migration; medição pareada com uma passada de modelo
+[x] 23. Ancorar a régua do juiz (R30) — HIPÓTESE REPROVADA (1h)    ← 665 testes, ZERO mudança de código; 2 tiragens × 2 braços, 104 pontuações
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1271,6 +1272,35 @@ reforça o resultado e **enfraquece a generalização**: os pesos foram calibrad
 a faixa que a rubrica promete (6–9) e o juiz entrega 1–3, então mudam se ele um dia
 usar a escala. Consertar o juiz é rodada própria, com medição própria — a mesma
 disciplina que manteve "o juiz pontuar o roteiro" fora desta.
+
+**Item 23 — a rodada seguinte fez essa medição própria, e ela REPROVOU a hipótese e
+corrigiu o parágrafo acima.** A causa parecia óbvia e estava no diff entre dois
+arquivos: a § 9 de `memory/00_IDENTIDADE.md` descreve cada uma das 8 dimensões **com
+uma âncora em cada ponta** (`3: "Growth requires discomfort." · 8: "Same door. Still
+closed."`), e o `RUBRICA_HOOK` inline copiara **só a primeira linha** de cada — o juiz
+sabia o que julgar e não com que régua. Devolver as âncoras foi construído, testado e
+medido. **Piorou tudo:** contra um gabarito tirado dos próprios documentos (os 18
+hooks-ouro da identidade contra os 8 anti-padrões literais do `hook-playbook`), a
+separação caiu de **+2,6 para +0,9**, a sobreposição foi a **8 de 8 nas duas tiragens**
+e o teto dos ouros desabou (9,0 → 7,0). O código voltou ao que era; a rodada entrega a
+medição. Detalhe em `specs/juiz-usa-a-escala.md` § 10.
+
+**A causa da reprovação é a lição que o projeto já tinha, aplicada a quem julga.**
+Âncora é **exemplo concreto**, e a R26/R27 já mediram que num modelo pequeno exemplo
+concreto vira **gabarito**, não referência. Do lado do juiz o efeito é o mesmo e sem
+compensação: com 16 strings concretas na frente, ele para de avaliar o candidato e passa
+a compará-lo com os exemplos; nada é igual a uma âncora de 8, então tudo desaba para
+perto da de baixo. **Calibrar por âncora está descartado para modelo pequeno, com
+número** — o caminho que sobra é menos texto concreto no comando, não mais.
+
+**E o parágrafo do item 22 acima está corrigido em um ponto.** "O juiz é indiferente"
+saiu de **uma** observação e não sobrevive ao gabarito: nos 18 ouros ele usa de 2 a 9,
+com 5 a 7 valores distintos, e separa ouro de anti-padrão por ~+2,6 de forma
+reprodutível. O que a R28 mediu era verdade sobre **o pool**, não sobre a régua — os
+candidatos do gerador local pontuam na mesma faixa dos anti-padrões documentados. A
+conclusão operacional da R28 continua de pé (com o pool empatado, quem decide é o
+critério mecânico); o que muda é a explicação, e ela vira **alarme de qualidade do
+gerador**, que é achado maior do que o que a rodada foi buscar.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)
