@@ -236,7 +236,7 @@ def test_gerar_pautas_conta_variedade_de_fecho(tmp_path, monkeypatch):
 
 def test_gerar_pautas_nao_conta_roteiro_em_forma(tmp_path, monkeypatch):
     _capturar_insercoes(monkeypatch)
-    roteiro = "l1\\nl2\\nl3\\nl4\\nl5"
+    roteiro = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nl8"   # 8 linhas = em forma (alvo 22–26s)
     texto = f'{{"pautas": [{{"tema": "t0", "hook": "h0", "roteiro": "{roteiro}"}}]}}'
     sessao = SessaoGeminiFake(texto=texto)
 

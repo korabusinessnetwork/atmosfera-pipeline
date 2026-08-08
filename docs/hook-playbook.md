@@ -70,7 +70,7 @@ Ten archetypes cover this niche without repeating a mechanism. Combine two in on
 
 ## 3. Reference Pautas (18 Complete Examples)
 
-Each roteiro below targets roughly 20–29 spoken words across 5 lines. That assumes a deliberate, dramatic narration pace (~110–140 wpm — slower than a typical energetic Shorts read) plus the silence beats between lines the format calls for. The fixed constraints are the line count (5) and the 8–12s total; word count is the variable to flex if the actual TTS voice or render pacing runs faster or slower than that assumption. Each pauta below runs a different taxonomy mechanism and a different underlying theme — none should read as a reordering of another.
+Each roteiro below targets roughly 36–48 spoken words across 8 lines. That assumes a deliberate, dramatic narration pace (~110–140 wpm — slower than a typical energetic Shorts read) plus the silence beats between lines the format calls for. The fixed constraints are the line count (8) and the 22–26s total; word count is the variable to flex if the actual TTS voice or render pacing runs faster or slower than that assumption. The line count doubled from 5 to 8 in the round that raised the target duration — total video length is exactly the narration length, so more beats is the only lever that lengthens the video, and each added beat stays one short line, never a longer one. Each pauta below runs a different taxonomy mechanism and a different underlying theme — none should read as a reordering of another.
 
 ```json
 {
@@ -78,126 +78,126 @@ Each roteiro below targets roughly 20–29 spoken words across 5 lines. That ass
     {
       "tema": "Procrastination as fear of being watched, not laziness",
       "hook": "It's not laziness, it's fear of being watched",
-      "roteiro": "It's not laziness, it's fear of being watched\nSo you wait\nThe moment never comes\nWaiting becomes who you are\nSame door. Still closed.",
+      "roteiro": "It's not laziness, it's fear of being watched\nSo you wait for no one to see\nThe moment never comes\nYou call it timing\nIt was always the fear\nWaiting becomes who you are\nAnother day folds shut\nSame door. Still closed.",
       "titulo": "The Real Reason You Keep Waiting",
       "descricao": "Not motivation. Not laziness.\nSomething quieter, and harder to admit."
     },
     {
       "tema": "Small avoidances compound into a smaller self",
       "hook": "Every small thing you avoid shrinks you a little",
-      "roteiro": "Every small thing you avoid shrinks you a little\nNot all at once\nA missed call. Closed tab.\nNever looks like damage\nUntil the outline changes",
+      "roteiro": "Every small thing you avoid shrinks you a little\nNot all at once\nA missed call. A closed tab.\nAn email left unread\nNone of it looks like damage\nYou barely notice the trade\nThen you catch your reflection\nUntil the outline changes",
       "titulo": "The Cost of the Small Things You Skip",
       "descricao": "It never looks like damage.\nIt just adds up quietly."
     },
     {
       "tema": "Scrolling as anesthesia for an unnamed feeling",
       "hook": "You're not relaxing, you're avoiding a feeling",
-      "roteiro": "You're not relaxing, you're avoiding a feeling\nThe phone isn't rest\nA way to avoid it\nIt waits outside the screen\nThere when the battery dies",
+      "roteiro": "You're not relaxing, you're avoiding a feeling\nThe phone isn't rest\nIt's a place to not be\nThe feeling doesn't leave\nIt waits outside the screen\nYou scroll to keep it there\nThen the light goes dark\nThere when the battery dies",
       "titulo": "What Scrolling Is Actually For",
       "descricao": "The phone was never about the phone.\nIt was about not sitting still."
     },
     {
       "tema": "Comfort zone as slow decay, not safety",
       "hook": "Comfort isn't safety, it's a slower kind of losing",
-      "roteiro": "Comfort isn't safety, it's a slower kind of losing\nNothing hurts. Nothing changes.\nYou call it stability\nIt's decay with better lighting\nQuiet, the whole way down",
+      "roteiro": "Comfort isn't safety, it's a slower kind of losing\nNothing hurts\nNothing changes\nYou call it stability\nThe walls stay exactly where they are\nIt's decay with better lighting\nNo alarm ever rings\nQuiet, the whole way down",
       "titulo": "The Danger No One Warns You About",
       "descricao": "It doesn't feel like danger.\nThat's what makes it dangerous."
     },
     {
       "tema": "Burnout relabeled as meaninglessness, not overwork",
       "hook": "It's not burnout, it's doing something that means nothing",
-      "roteiro": "It's not burnout, it's doing something that means nothing\nThe hours aren't the problem\nThe reason is missing\nYou call it tired\nThe alarm rings. Nothing answers.",
+      "roteiro": "It's not burnout, it's doing something that means nothing\nThe hours aren't the problem\nSleep doesn't fix it\nThe reason is missing\nYou keep looking for rest\nRest was never the gap\nYou call it tired\nThe alarm rings. Nothing answers.",
       "titulo": "The Exhaustion That Isn't About Hours",
       "descricao": "The hours were never the problem.\nThe meaning was missing, not the energy."
     },
     {
       "tema": "Silent confession: the fantasy of walking away from everything built",
       "hook": "You've imagined leaving everything you built, more than once",
-      "roteiro": "You've imagined leaving everything you built, more than once\nNot because you hate it\nSome days it's just a costume\nYou never say it\nSo it waits",
+      "roteiro": "You've imagined leaving everything you built, more than once\nNot because you hate it\nSome days it's just a costume\nYou picture the door\nThen you put the costume back on\nYou never say it out loud\nSaying it would make it real\nSo it waits",
       "titulo": "The Thought You Don't Say Out Loud",
       "descricao": "Everyone who's built something has had it.\nAlmost no one admits it."
     },
     {
       "tema": "Time compression: tonight becomes the reason for future regret",
       "hook": "In five years, tonight is the reason or the excuse",
-      "roteiro": "In five years, tonight is the reason or the excuse\nNot the year\nJust tonight\nOne decision, repeated\nLater, it's just tonight",
+      "roteiro": "In five years, tonight is the reason or the excuse\nNot the year\nJust tonight\nThe same small choice\nMade again in the dark\nOne decision, repeated\nIt never feels like the one that counts\nLater, it's just tonight",
       "titulo": "What Tonight Will Turn Into",
       "descricao": "Small nights don't feel like much.\nThey're the only thing that adds up."
     },
     {
       "tema": "Identity fork: the one who starts now vs. the one waiting for Monday",
       "hook": "There's a version of you that doesn't wait for Monday",
-      "roteiro": "There's a version of you that doesn't wait for Monday\nIt starts tonight, unprepared\nThe other keeps preparing\nPreparing is hiding\nOnly one is real yet",
+      "roteiro": "There's a version of you that doesn't wait for Monday\nIt starts tonight, unprepared\nThe other keeps preparing\nBuys the planner. Reads the guide.\nPreparing is hiding\nMonday keeps not coming\nOne of them acts\nOnly one is real yet",
       "titulo": "The Version of You Still Waiting",
       "descricao": "One starts messy.\nThe other just starts later, forever."
     },
     {
       "tema": "False cause: not lack of time, an undecided decision",
       "hook": "It was never time, it was a decision you avoided",
-      "roteiro": "It was never time, it was a decision you avoided\nYou had the hours\nYou hadn't decided\nDeciding felt risky\nNot deciding was riskier",
+      "roteiro": "It was never time, it was a decision you avoided\nYou had the hours\nYou filled them with almost\nYou hadn't decided\nDeciding meant it could fail\nSo you left it open\nOpen felt safer than wrong\nNot deciding was riskier",
       "titulo": "The Real Reason It's Still Not Done",
       "descricao": "Time was never the missing piece.\nThe decision was."
     },
     {
       "tema": "Silence as diagnosis: the unanswered message you sent",
       "hook": "The message you never answered says something about you",
-      "roteiro": "The message you never answered says something about you\nNot about them\nYou knew what it opens\nSo you let it sit\nYou're avoiding it now",
+      "roteiro": "The message you never answered says something about you\nNot about them\nYou read it twice\nYou knew what it opens\nSo you let it sit\nA day. Then a week.\nSilence became the reply\nYou're avoiding it now",
       "titulo": "What Your Unanswered Messages Mean",
       "descricao": "It's rarely about being busy.\nIt's about what a reply would open."
     },
     {
       "tema": "Perfectionism as a way to delay finding your actual limit",
       "hook": "Perfectionism isn't high standards, it's staying unfinished",
-      "roteiro": "Perfectionism isn't high standards, it's staying unfinished\nUnfinished can't be judged\nUnfinished can't fail\nSo you keep polishing\nSafety, wearing quality's mask",
+      "roteiro": "Perfectionism isn't high standards, it's staying unfinished\nUnfinished can't be judged\nUnfinished can't fail\nSo you keep polishing\nOne more pass. One more week.\nDone would mean a verdict\nYou'd rather not know\nSafety, wearing quality's mask",
       "titulo": "What Perfectionism Is Actually Doing",
       "descricao": "It's not about the details.\nIt's about never finding out."
     },
     {
       "tema": "Busyness as avoidance of one honest conversation with yourself",
       "hook": "Busy is just a socially acceptable way to avoid yourself",
-      "roteiro": "Busy is just a socially acceptable way to avoid yourself\nNo one questions it\nIt looks like ambition\nIt's a hiding place\nEmpty calendar. Still there.",
+      "roteiro": "Busy is just a socially acceptable way to avoid yourself\nNo one questions it\nIt looks like ambition\nYou fill every hour on purpose\nSo there's no gap to sit in\nIt's a hiding place\nThen the week finally ends\nEmpty calendar. Still there.",
       "titulo": "What Busy Is Actually Hiding",
       "descricao": "Nobody interrupts someone who looks productive.\nThat's exactly why it works."
     },
     {
       "tema": "The compounding cost of one habitual glance at someone else's life",
       "hook": "One glance at someone else's life costs more than you think",
-      "roteiro": "One glance at someone else's life costs more than you think\nNot just once\nIt's the tenth today\nEach one taxes you\nBehind in a race no one announced",
+      "roteiro": "One glance at someone else's life costs more than you think\nNot just once\nIt's the tenth today\nEach one taxes you\nA little less yours after\nYou didn't sign up for it\nStill you keep score\nBehind in a race no one announced",
       "titulo": "The Hidden Cost of Comparing Yourself",
       "descricao": "It's not the big moments that drain you.\nIt's the small, repeated ones."
     },
     {
       "tema": "Needing approval as a cage built one small yes at a time",
       "hook": "Every yes you didn't mean built the cage you're in",
-      "roteiro": "Every yes you didn't mean built the cage you're in\nOne at a time\nSmall enough to ignore\nNow the walls have shape\nIt looks like you",
+      "roteiro": "Every yes you didn't mean built the cage you're in\nOne at a time\nSmall enough to ignore\nEach one bought a little peace\nEach one cost a little room\nNow the walls have shape\nYou built it to be liked\nIt looks like you",
       "titulo": "How the Cage Gets Built",
       "descricao": "Nobody builds it all at once.\nIt's assembled from small agreements."
     },
     {
       "tema": "Lack of motivation relabeled: the decision is made, follow-through is stalling",
       "hook": "You already decided, you're just stalling the follow-through",
-      "roteiro": "You already decided, you're just stalling the follow-through\nThe decision happened days ago\nWhat's left isn't choice\nIt's just friction\nFriction isn't doubt",
+      "roteiro": "You already decided, you're just stalling the follow-through\nThe decision happened days ago\nYou keep re-deciding it\nWhat's left isn't choice\nIt's just friction\nYou dress it up as thinking\nThinking ended already\nFriction isn't doubt",
       "titulo": "The Decision You've Already Made",
       "descricao": "Motivation isn't what's missing.\nThe decision already happened."
     },
     {
       "tema": "Time compression: years spent waiting for a start date that never comes",
       "hook": "You've been waiting for a start date that isn't coming",
-      "roteiro": "You've been waiting for a start date that isn't coming\nMonday passed a hundred times\nJanuary passed too\nNo perfect one was coming\nOnly this one, happening now",
+      "roteiro": "You've been waiting for a start date that isn't coming\nMonday passed a hundred times\nJanuary passed too\nEach one looked almost right\nNone of them were the sign\nNo perfect one was coming\nThe waiting was the plan\nOnly this one, happening now",
       "titulo": "The Start Date You're Still Waiting On",
       "descricao": "It was never going to announce itself.\nIt just had to be chosen."
     },
     {
       "tema": "Silent confession: resentment toward people who look like they have it together",
       "hook": "You've resented people who look like they have it together",
-      "roteiro": "You've resented people who look like they have it together\nNot because they're better\nBecause they look decided\nYou feel like a draft\nA draft envies the finished",
+      "roteiro": "You've resented people who look like they have it together\nNot because they're better\nBecause they look decided\nThey seem to know the ending\nYou're still editing the start\nYou feel like a draft\nUnsure it will ever ship\nA draft envies the finished",
       "titulo": "What That Resentment Is Really About",
       "descricao": "It's rarely about them.\nIt's about feeling unfinished next to them."
     },
     {
       "tema": "Constant background noise as avoidance of one specific silence",
       "hook": "The noise isn't entertainment, it's a wall around one silence",
-      "roteiro": "The noise isn't entertainment, it's a wall around one silence\nMusic, notifications, something on\nNot about enjoying it\nKeeping one silence away\nThe silence that would ask something",
+      "roteiro": "The noise isn't entertainment, it's a wall around one silence\nMusic, notifications, something on\nNever nothing\nNot about enjoying it\nAbout not being alone with it\nKeeping one silence away\nYou almost hear it in the gaps\nThe silence that would ask something",
       "titulo": "The Real Job of All That Noise",
       "descricao": "It's not about missing out.\nIt's about not being asked something."
     }

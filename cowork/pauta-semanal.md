@@ -85,8 +85,11 @@ delas não deveria existir. Para cada pauta:
               sozinha nos primeiros 1,5s, lida sem imagem e sem contexto.
               Máximo 88 caracteres — acima disso o render CORTA com
               reticências, sem erro e sem aviso. Mire em 40–60.
-- roteiro   → 5 linhas sequenciais, 8 a 12 segundos no total. A primeira
-              linha é o hook. Obrigatório: o banco recusa `pronta` sem ele.
+- roteiro   → 8 linhas sequenciais, 22 a 26 segundos no total. A primeira
+              linha é o hook; mantenha cada linha curta (uma ideia), mais
+              linhas nunca linhas mais longas. A duração do vídeo é o tamanho
+              da narração, então o roteiro é o que alonga o vídeo.
+              Obrigatório: o banco recusa `pronta` sem ele.
 - titulo    → YouTube, até 60 caracteres (acima disso o celular corta).
 - descricao → 2 linhas. Não repetir o roteiro.
 

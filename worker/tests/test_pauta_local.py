@@ -130,21 +130,27 @@ def test_linhas_do_roteiro_sem_texto_nao_estoura():
 
 
 # -------------------------------------------------------- roteiro_fora_de_forma
-def test_roteiro_de_cinco_linhas_esta_em_forma():
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne") is False
+def test_roteiro_de_oito_linhas_esta_em_forma():
+    # O alvo virou 8 linhas quando a duração subiu para 22–26s (era 5/12–18s): a
+    # duração do vídeo é o tamanho da narração, então mais linhas é o único jeito.
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng\nh") is False
 
 
-def test_roteiro_de_quatro_linhas_e_flagrado():
-    # O defeito medido na R26: 4 de 6 gerações vieram com 4 linhas. Falta uma
-    # batida do meio, e o fecho aterrissa antes de a consequência acontecer.
+def test_roteiro_curto_demais_e_flagrado():
+    # O defeito medido na R26: gerações vinham com menos linhas que o alvo. Falta
+    # batida do meio, e o fecho aterrissa antes de a consequência acontecer. Com o
+    # alvo em 8, qualquer roteiro abaixo disso (inclusive as 5 linhas do padrão
+    # antigo) fica curto — a curva de 22–26s não fecha.
     assert pl.roteiro_fora_de_forma("a\nb\nc\nd") is True
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne") is True
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng") is True
     assert pl.roteiro_fora_de_forma("só o hook") is True
 
 
 def test_roteiro_mais_longo_nao_e_flagrado():
-    # Nenhum dos 18 ouros nem das 6 amostras passou de 5 linhas. Flagrar seria
-    # inventar um problema que ninguém tem, e flag falso ensina a ignorar o aviso.
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf") is False
+    # Nenhum dos 18 ouros passa de 8 linhas. Flagrar o mais longo seria inventar um
+    # problema que ninguém tem, e flag falso ensina a ignorar o aviso.
+    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng\nh\ni") is False
 
 
 def test_roteiro_vazio_e_flagrado_sem_estourar():
@@ -314,9 +320,10 @@ def _exemplos_da_identidade() -> list[dict]:
 
 def test_identidade_tem_18_exemplos_bem_formados():
     # Guarda o few-shot contra uma edição futura que quebre em silêncio: um
-    # exemplo com hook > 88 ou roteiro ≠ 5 linhas ENSINA o modelo a errar (o
-    # render corta o hook longo sem avisar), e JSON torto quebra o parser do
-    # gerador na primeira execução real.
+    # exemplo com hook > 88 ou roteiro ≠ 8 linhas ENSINA o modelo a errar (o
+    # render corta o hook longo sem avisar, e a duração-alvo de 22–26s vem do
+    # comprimento do roteiro — exemplo curto encurta o vídeo), e JSON torto
+    # quebra o parser do gerador na primeira execução real.
     pautas = _exemplos_da_identidade()
     assert len(pautas) == 18
     for i, p in enumerate(pautas):
@@ -324,7 +331,7 @@ def test_identidade_tem_18_exemplos_bem_formados():
             assert p.get(campo), f"exemplo {i} sem {campo}"
         assert len(p["hook"]) <= pl.HOOK_MAX, f"exemplo {i}: hook > {pl.HOOK_MAX}"
         linhas = p["roteiro"].split("\n")
-        assert len(linhas) == 5, f"exemplo {i}: roteiro com {len(linhas)} linhas"
+        assert len(linhas) == 8, f"exemplo {i}: roteiro com {len(linhas)} linhas"
         assert linhas[0].strip() == p["hook"].strip(), f"exemplo {i}: 1ª linha ≠ hook"
 
 
@@ -358,13 +365,16 @@ def test_prompt_ensina_a_fechar_o_roteiro():
 
 
 def test_prompt_nomeia_a_curva_linha_a_linha():
-    # "5 lines" sozinho produziu 4 linhas em 4 de 6 gerações medidas. Dar função
-    # a cada linha é o que torna a contagem verificável pelo próprio modelo.
+    # "N lines" sozinho produziu menos linhas que o alvo em gerações medidas. Dar
+    # função a cada linha é o que torna a contagem verificável pelo próprio modelo.
+    # Com o alvo em 8 (22–26s), a curva ganhou três batidas do meio antes do fecho.
     prompt = pl.montar_prompt("VOZ", 6)
     assert f"EXACTLY {pl.LINHAS_DO_ROTEIRO} lines" in prompt
     for papel in ("line 1 = the hook", "line 2 = the discomfort",
                   "line 3 = the turn", "line 4 = the consequence",
-                  "line 5 = the close"):
+                  "line 5 = press the same truth further",
+                  "line 6 = a second consequence",
+                  "line 7 = the tension", "line 8 = the close"):
         assert papel in prompt, f"falta o papel: {papel}"
 
 
@@ -941,9 +951,11 @@ def _pool_com(*roteiros):
     return f'{{"pautas": [{itens}]}}'
 
 
-_COPIADO = "l1\\nl2\\nl3\\nl4\\nSame door. Still closed."
-_SA_A = "l1\\nl2\\nl3\\nl4\\nQuiet ending here"
-_SA_B = "l1\\nl2\\nl3\\nl4\\nAnother way out"
+# Oito linhas (o alvo desde que a duração subiu para 22–26s), para o único demérito
+# em jogo aqui ser o fecho — não o roteiro curto.
+_COPIADO = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nSame door. Still closed."
+_SA_A = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nQuiet ending here"
+_SA_B = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nAnother way out"
 
 
 def test_juiz_falha_e_o_mecanico_ainda_evita_fecho_copiado(tmp_path, monkeypatch):

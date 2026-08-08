@@ -92,11 +92,12 @@ TIMEOUT_OLLAMA_SEG = 300
 # de timeout, não gosto — pedir 18 numa chamada só estouraria os 300s.
 LOTE_GERACAO = 6
 
-# Roteiro em forma: cinco linhas não vazias. Não é gosto — os 18 exemplos-ouro da
-# identidade têm 5, todos, sem exceção, e o teste
+# Roteiro em forma: oito linhas não vazias. Não é gosto — a duração do vídeo é o
+# tamanho da narração, e o alvo de 22–26s (era 12–18s) veio de dobrar o roteiro; os
+# 18 exemplos-ouro da identidade têm 8, todos, sem exceção, e o teste
 # `test_nenhum_exemplo_ouro_e_flagrado_como_fora_de_forma` cobra isso do arquivo em
 # vez de confiar nesta linha.
-LINHAS_DO_ROTEIRO = 5
+LINHAS_DO_ROTEIRO = 8
 
 # Teto de palavras do fecho, LIDO dos exemplos-ouro (3 a 7 palavras; a moda é 4–5).
 # Vai para o prompt como número, não como "seja breve": 18/18 o satisfazem, então é
@@ -802,15 +803,19 @@ def montar_prompt(
         "- hook: the first line of the roteiro, read with no image and no "
         f"context. MAXIMUM {HOOK_MAX} characters (past that the video cuts with "
         "an ellipsis). Aim for 40 to 60.\n"
-        f"- roteiro: EXACTLY {LINHAS_DO_ROTEIRO} lines, 8 to 12 seconds total. "
-        "REQUIRED and cannot be empty. Not 4, not 6 — five, and each one has a "
-        "job:\n"
+        f"- roteiro: EXACTLY {LINHAS_DO_ROTEIRO} lines, 22 to 26 seconds total. "
+        "REQUIRED and cannot be empty. Not 6, not 10 — eight, each one short "
+        "(one idea) and each with a job:\n"
         "    line 1 = the hook (same text as the hook field)\n"
         "    line 2 = the discomfort, stated plainly\n"
         "    line 3 = the turn — what is actually going on\n"
         "    line 4 = the consequence, what it costs over time\n"
-        "    line 5 = the close (see CLOSING below)\n"
-        "  One idea per line. A line with two ideas becomes an unreadable caption.\n"
+        "    line 5 = press the same truth further\n"
+        "    line 6 = a second consequence, widening\n"
+        "    line 7 = the tension at its tightest, just before the close\n"
+        "    line 8 = the close (see CLOSING below)\n"
+        "  One idea per line. Add length with more beats, never longer lines — "
+        "a line with two ideas becomes an unreadable caption.\n"
         f"\n=== CLOSING ===\n{bloco_do_fecho(rodada)}\n=== END OF CLOSING ===\n\n"
         "- titulo: YouTube title, up to 60 characters.\n"
         "- descricao: 2 lines, do not repeat the roteiro.\n\n"
