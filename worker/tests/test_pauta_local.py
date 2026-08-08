@@ -17,6 +17,7 @@ import pytest
 import requests
 
 import db
+import duracao
 import pauta_local as pl
 
 # A identidade e o produtor vivem lado a lado: worker/tests → ../../memory.
@@ -130,27 +131,40 @@ def test_linhas_do_roteiro_sem_texto_nao_estoura():
 
 
 # -------------------------------------------------------- roteiro_fora_de_forma
-def test_roteiro_de_oito_linhas_esta_em_forma():
-    # O alvo virou 8 linhas quando a duração subiu para 22–26s (era 5/12–18s): a
-    # duração do vídeo é o tamanho da narração, então mais linhas é o único jeito.
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng\nh") is False
+def _linhas(n: int) -> str:
+    return "\n".join(f"linha {i}" for i in range(n))
 
 
-def test_roteiro_curto_demais_e_flagrado():
+def test_roteiro_no_alvo_esta_em_forma():
+    # O alvo virou 16 linhas na R31, quando o mínimo de duração subiu para 30s. A
+    # linha continua sendo a CURVA (a cadência de ~2s por batida); quem responde por
+    # segundo passou a ser a contagem de palavras.
+    assert pl.roteiro_fora_de_forma(_linhas(pl.LINHAS_DO_ROTEIRO)) is False
+
+
+def test_roteiro_com_menos_linhas_e_flagrado():
     # O defeito medido na R26: gerações vinham com menos linhas que o alvo. Falta
-    # batida do meio, e o fecho aterrissa antes de a consequência acontecer. Com o
-    # alvo em 8, qualquer roteiro abaixo disso (inclusive as 5 linhas do padrão
-    # antigo) fica curto — a curva de 22–26s não fecha.
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd") is True
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne") is True
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng") is True
+    # batida do meio, e o fecho aterrissa antes de a consequência acontecer.
+    assert pl.roteiro_fora_de_forma(_linhas(pl.LINHAS_DO_ROTEIRO - 1)) is True
+    assert pl.roteiro_fora_de_forma(_linhas(8)) is True   # o alvo anterior
+    assert pl.roteiro_fora_de_forma(_linhas(5)) is True   # o alvo de antes dele
     assert pl.roteiro_fora_de_forma("só o hook") is True
 
 
 def test_roteiro_mais_longo_nao_e_flagrado():
-    # Nenhum dos 18 ouros passa de 8 linhas. Flagrar o mais longo seria inventar um
+    # Nenhum dos 18 ouros passa do alvo. Flagrar o mais longo seria inventar um
     # problema que ninguém tem, e flag falso ensina a ignorar o aviso.
-    assert pl.roteiro_fora_de_forma("a\nb\nc\nd\ne\nf\ng\nh\ni") is False
+    assert pl.roteiro_fora_de_forma(_linhas(pl.LINHAS_DO_ROTEIRO + 1)) is False
+
+
+def test_forma_e_duracao_sao_perguntas_DIFERENTES():
+    # O erro que custou duas rodadas, agora com teste: contar linha NÃO mede
+    # duração. Dezesseis linhas de duas palavras têm a forma perfeita e rendem um
+    # vídeo de 11 segundos — que é justamente o que o dono relatou. Se algum dia
+    # alguém reunificar os dois critérios, este caso cai.
+    magro = _linhas(pl.LINHAS_DO_ROTEIRO)
+    assert pl.roteiro_fora_de_forma(magro) is False
+    assert duracao.roteiro_curto_demais(magro) is True
 
 
 def test_roteiro_vazio_e_flagrado_sem_estourar():
@@ -320,8 +334,8 @@ def _exemplos_da_identidade() -> list[dict]:
 
 def test_identidade_tem_18_exemplos_bem_formados():
     # Guarda o few-shot contra uma edição futura que quebre em silêncio: um
-    # exemplo com hook > 88 ou roteiro ≠ 8 linhas ENSINA o modelo a errar (o
-    # render corta o hook longo sem avisar, e a duração-alvo de 22–26s vem do
+    # exemplo com hook > 88 ou roteiro fora do alvo de linhas ENSINA o modelo a
+    # errar (o render corta o hook longo sem avisar, e a duração do vídeo é o
     # comprimento do roteiro — exemplo curto encurta o vídeo), e JSON torto
     # quebra o parser do gerador na primeira execução real.
     pautas = _exemplos_da_identidade()
@@ -331,7 +345,9 @@ def test_identidade_tem_18_exemplos_bem_formados():
             assert p.get(campo), f"exemplo {i} sem {campo}"
         assert len(p["hook"]) <= pl.HOOK_MAX, f"exemplo {i}: hook > {pl.HOOK_MAX}"
         linhas = p["roteiro"].split("\n")
-        assert len(linhas) == 8, f"exemplo {i}: roteiro com {len(linhas)} linhas"
+        assert len(linhas) == pl.LINHAS_DO_ROTEIRO, (
+            f"exemplo {i}: roteiro com {len(linhas)} linhas"
+        )
         assert linhas[0].strip() == p["hook"].strip(), f"exemplo {i}: 1ª linha ≠ hook"
 
 
@@ -364,17 +380,32 @@ def test_prompt_ensina_a_fechar_o_roteiro():
     assert "IMAGE or a concrete fact" in prompt  # imagem, não lição
 
 
-def test_prompt_nomeia_a_curva_linha_a_linha():
+def test_prompt_manda_contar_PALAVRAS_e_diz_a_consequencia():
+    # O coração da R31. As duas rodadas anteriores puseram o alvo em linhas e
+    # erraram; aqui o prompt carrega o número que de fato governa a duração, a taxa
+    # que o converte em segundos e o que acontece com quem ficar abaixo. Sem a
+    # consequência escrita, o limite vira sugestão — a mesma lição que a identidade
+    # já registra sobre o teto do hook.
+    prompt = pl.montar_prompt("VOZ", 6)
+    assert f"{duracao.PALAVRAS_ALVO_MIN} to {duracao.PALAVRAS_ALVO_MAX} words" in prompt
+    assert str(duracao.palavras_minimas()) in prompt
+    assert "REJECTED" in prompt
+    assert "WORD COUNT IS THE HARD RULE" in prompt
+
+
+def test_prompt_nomeia_a_curva_em_movimentos():
     # "N lines" sozinho produziu menos linhas que o alvo em gerações medidas. Dar
-    # função a cada linha é o que torna a contagem verificável pelo próprio modelo.
-    # Com o alvo em 8 (22–26s), a curva ganhou três batidas do meio antes do fecho.
+    # função a cada batida é o que torna a contagem verificável pelo próprio modelo.
+    # Com o alvo em 16 (R31), a curva vira MOVIMENTOS: nomear dezesseis papéis um a
+    # um encheria o comando de texto concreto, e a R30 mediu que texto concreto
+    # demais num modelo pequeno vira gabarito em vez de instrução.
     prompt = pl.montar_prompt("VOZ", 6)
     assert f"EXACTLY {pl.LINHAS_DO_ROTEIRO} lines" in prompt
-    for papel in ("line 1 = the hook", "line 2 = the discomfort",
-                  "line 3 = the turn", "line 4 = the consequence",
-                  "line 5 = press the same truth further",
-                  "line 6 = a second consequence",
-                  "line 7 = the tension", "line 8 = the close"):
+    for papel in ("line 1 = the hook", "lines 2-4 = the discomfort",
+                  "lines 5-7 = the turn", "lines 8-10 = the consequence",
+                  "lines 11-13 = press the same truth further",
+                  "lines 14-15 = the tension",
+                  f"line {pl.LINHAS_DO_ROTEIRO} = the close"):
         assert papel in prompt, f"falta o papel: {papel}"
 
 
@@ -615,9 +646,16 @@ def test_seleciona_top_zero_devolve_vazio():
 
 
 # ------------------------------------------------------- deméritos da seleção (R28)
+# Uma linha de enchimento com palavras suficientes para o roteiro no alvo passar do
+# mínimo de duração. NÃO é detalhe de fixture: com linhas de duas palavras, um
+# roteiro de 16 linhas renderia 11s e carregaria o DEMERITO_DURACAO_CURTA — todo
+# caso desta seção mediria o demérito errado, calado.
+_ENCHIMENTO = "uma linha de roteiro com seis"
+
+
 def _roteiro(fecho: str, linhas: int = pl.LINHAS_DO_ROTEIRO) -> str:
-    """Um roteiro em forma, terminando no `fecho` pedido."""
-    return "\n".join([f"linha {i}" for i in range(1, linhas)] + [fecho])
+    """Um roteiro em forma e com duração suficiente, terminando no `fecho` pedido."""
+    return "\n".join([f"{_ENCHIMENTO} {i}" for i in range(1, linhas)] + [fecho])
 
 
 def _pauta(hook: str, fecho: str, linhas: int = pl.LINHAS_DO_ROTEIRO) -> dict:
@@ -630,11 +668,43 @@ def test_pauta_sa_nao_tem_demerito():
 
 def test_demeritos_intrinsecos_somam():
     # Roteiro curto E fecho copiado é pior que qualquer um sozinho — um não absorve
-    # o outro.
+    # o outro. Com 4 linhas de enchimento o roteiro erra a forma E a duração, então
+    # os três deméritos intrínsecos somam.
     ruim = _pauta("a", "Same door. Still closed.", linhas=4)
     assert pl.demeritos_da_pauta(ruim) == pytest.approx(
-        pl.DEMERITO_FECHO_COPIADO + pl.DEMERITO_ROTEIRO_CURTO
+        pl.DEMERITO_FECHO_COPIADO
+        + pl.DEMERITO_ROTEIRO_CURTO
+        + pl.DEMERITO_DURACAO_CURTA
     )
+
+
+def test_forma_certa_e_duracao_curta_pesa_so_o_da_duracao():
+    # A separação da R31, medida no demérito: dezesseis linhas magras têm a curva
+    # certa e o vídeo curto. Só o demérito de duração entra.
+    magra = {"hook": "a", "roteiro": "\n".join(["duas palavras"] * pl.LINHAS_DO_ROTEIRO)}
+    assert pl.roteiro_fora_de_forma(magra["roteiro"]) is False
+    assert pl.demeritos_da_pauta(magra) == pytest.approx(pl.DEMERITO_DURACAO_CURTA)
+
+
+def test_duracao_curta_demove_mas_nao_veta():
+    # Mesma regra da casa desde a R4: sinal mecânico ORDENA, não descarta. Com o
+    # pool inteiro curto todos levam o mesmo desconto, a ordem volta a ser a da nota
+    # e o lote sai do tamanho pedido — vetar mataria a fila de fome num dia ruim.
+    magro = "\n".join(["duas palavras"] * pl.LINHAS_DO_ROTEIRO)
+    pool = [{"hook": f"h{i}", "roteiro": magro} for i in range(5)]
+    top = pl.selecionar_top(pool, [1.0, 5.0, 2.0, 4.0, 3.0], 3)
+    assert len(top) == 3
+    assert [p["hook"] for p in top] == ["h1", "h3", "h4"]
+
+
+def test_duracao_curta_pesa_tanto_quanto_o_fecho_copiado():
+    # Os dois são "esta pauta não pode virar vídeo como está", por motivos
+    # diferentes: um publica o nosso few-shot, o outro garante um render jogado
+    # fora. Nenhum hook redime nenhum dos dois, então os dois passam da faixa útil
+    # do juiz (~3 pontos).
+    assert pl.DEMERITO_DURACAO_CURTA > 3.0
+    assert pl.DEMERITO_DURACAO_CURTA == pl.DEMERITO_FECHO_COPIADO
+    assert pl.DEMERITO_ROTEIRO_CURTO < pl.DEMERITO_DURACAO_CURTA
 
 
 def test_fecho_copiado_pesa_mais_que_a_faixa_util_do_juiz():
@@ -676,17 +746,18 @@ def test_repeticao_e_medida_contra_as_ja_selecionadas():
 
 def test_abertura_vazia_nao_conta_como_repeticao():
     # Dois roteiros vazios não podem se penalizar mutuamente por um defeito que é
-    # outro: quem responde por eles é o DEMERITO_ROTEIRO_CURTO, uma vez cada.
+    # outro: quem responde por eles são os deméritos intrínsecos (forma + duração,
+    # 2 + 4), uma vez cada.
     #
-    # As notas separam os dois comportamentos: a 2ª vazia vale 10 - 2 = 8 e vence a
-    # sã de nota 7. Se a abertura vazia contasse como repetida, ela cairia para 6,5
+    # As notas separam os dois comportamentos: a 2ª vazia vale 10 - 6 = 4 e vence a
+    # sã de nota 3. Se a abertura vazia contasse como repetida, ela cairia para 2,5
     # e a sã entraria no lugar — é esse cenário que este teste exclui.
     pool = [
         {"hook": "vazia-a", "roteiro": ""},
         {"hook": "vazia-b", "roteiro": ""},
         _pauta("sa", "Quiet ending here"),
     ]
-    top = pl.selecionar_top(pool, [10.0, 10.0, 7.0], 2)
+    top = pl.selecionar_top(pool, [10.0, 10.0, 3.0], 2)
     assert [p["hook"] for p in top] == ["vazia-a", "vazia-b"]
 
 
@@ -907,6 +978,28 @@ def test_gerar_conta_roteiro_fora_de_forma_e_insere_assim_mesmo(tmp_path, monkey
     assert resumo["gerou"] == 2 and len(inseridas) == 2
 
 
+def test_gerar_conta_roteiro_curto_demais_e_insere_assim_mesmo(tmp_path, monkeypatch):
+    # Contador, não portão — a regra da casa desde a R4. O que a pauta curta perde é
+    # ordem (o DEMERITO_DURACAO_CURTA); o que ela não perde é existir, porque com o
+    # pool inteiro curto vetar deixaria a fila vazia. Quem decide é o dono, na
+    # revisão, com o número de palavras na tela.
+    _capturar_insercoes(monkeypatch)
+    magro = "\\n".join(["duas palavras"] * pl.LINHAS_DO_ROTEIRO)
+    sessao = SessaoRoteada(
+        geracao=_pool_com(magro, magro),
+        juiz=_juiz_por_indice([7, 7]),
+        reescrita="",
+    )
+
+    resumo = pl.gerar_pautas(
+        _cfg(tmp_path, n=2, candidatos=2, refinar=False), sb=object(), sessao=sessao
+    )
+
+    assert resumo["curto_demais"] == 2
+    assert resumo["fora_de_forma"] == 0   # a forma está certa; a duração não
+    assert resumo["gerou"] == 2
+
+
 def test_gerar_conta_variedade_de_fecho_e_insere_assim_mesmo(tmp_path, monkeypatch):
     # A reescrita devolve o mesmo fecho para todos os selecionados: abertura
     # repetida em 2, e o fecho é cópia literal do exemplo do prompt. Os dois
@@ -951,11 +1044,12 @@ def _pool_com(*roteiros):
     return f'{{"pautas": [{itens}]}}'
 
 
-# Oito linhas (o alvo desde que a duração subiu para 22–26s), para o único demérito
-# em jogo aqui ser o fecho — não o roteiro curto.
-_COPIADO = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nSame door. Still closed."
-_SA_A = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nQuiet ending here"
-_SA_B = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nAnother way out"
+# Roteiros no alvo de forma E de duração, para o único demérito em jogo aqui ser o
+# fecho. O `\\n` é escapado porque estas strings entram num JSON de mentira.
+_MEIO = "\\n".join(f"uma linha de roteiro com seis {i}" for i in range(1, pl.LINHAS_DO_ROTEIRO))
+_COPIADO = f"{_MEIO}\\nSame door. Still closed."
+_SA_A = f"{_MEIO}\\nQuiet ending here"
+_SA_B = f"{_MEIO}\\nAnother way out"
 
 
 def test_juiz_falha_e_o_mecanico_ainda_evita_fecho_copiado(tmp_path, monkeypatch):

@@ -316,21 +316,41 @@ def test_texto_do_roteiro_aceita_pauta_sem_a_chave():
 
 
 # --------------------------------------------------------- procedencia_da_pauta
+_ROTEIRO_LONGO = "\n".join(["uma linha de roteiro com seis palavras"] * 16)
+
+
 def test_procedencia_da_pauta_junta_origem_e_categoria():
     # Saber quem escreveu muda o rigor de quem lê: hook de modelo pequeno é mais
     # fraco que o do Gemini.
-    assert c.procedencia_da_pauta(
-        {"origem": "gemini", "categoria": "disciplina"}
-    ) == "gemini · disciplina"
+    linha = c.procedencia_da_pauta(
+        {"origem": "gemini", "categoria": "disciplina", "roteiro": _ROTEIRO_LONGO}
+    )
+    assert linha.startswith("gemini · disciplina · ")
 
 
 def test_procedencia_da_pauta_sem_categoria_nao_deixa_separador_solto():
-    assert c.procedencia_da_pauta({"origem": "ollama", "categoria": None}) == "ollama"
-    assert c.procedencia_da_pauta({"origem": "ollama"}) == "ollama"
+    for pauta in ({"origem": "ollama", "categoria": None}, {"origem": "ollama"}):
+        assert c.procedencia_da_pauta(pauta).startswith("ollama · ")
+        assert " ·  · " not in c.procedencia_da_pauta(pauta)
 
 
 def test_procedencia_da_pauta_sem_origem_nao_quebra():
-    assert c.procedencia_da_pauta({}) == "?"
+    assert c.procedencia_da_pauta({}).startswith("?")
+
+
+def test_procedencia_mostra_a_duracao_estimada(tmp_path):
+    # A R31 põe o número na tela do gate do TEXTO porque é o único ponto onde um
+    # roteiro curto custa zero para consertar. Depois daqui ele vira 2,5 min de MPT
+    # e um vídeo que o worker reprova sozinho.
+    linha = c.procedencia_da_pauta({"origem": "ollama", "roteiro": _ROTEIRO_LONGO})
+    assert "112 palavras" in linha   # 16 linhas × 7 palavras
+    assert "⚠" not in linha
+
+
+def test_procedencia_avisa_quando_o_roteiro_nao_da_o_minimo():
+    curta = c.procedencia_da_pauta({"origem": "ollama", "roteiro": "duas palavras"})
+    assert "⚠" in curta
+    assert "30s" in curta
 
 
 # --------------------------------------------------------- resumo_da_revisao

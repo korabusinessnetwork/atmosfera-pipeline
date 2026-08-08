@@ -236,13 +236,35 @@ def test_gerar_pautas_conta_variedade_de_fecho(tmp_path, monkeypatch):
 
 def test_gerar_pautas_nao_conta_roteiro_em_forma(tmp_path, monkeypatch):
     _capturar_insercoes(monkeypatch)
-    roteiro = "l1\\nl2\\nl3\\nl4\\nl5\\nl6\\nl7\\nl8"   # 8 linhas = em forma (alvo 22–26s)
+    # No alvo nas DUAS contas: 16 linhas (forma) e palavras suficientes (duração).
+    roteiro = "\\n".join(
+        f"uma linha de roteiro com seis {i}" for i in range(pl.LINHAS_DO_ROTEIRO)
+    )
     texto = f'{{"pautas": [{{"tema": "t0", "hook": "h0", "roteiro": "{roteiro}"}}]}}'
     sessao = SessaoGeminiFake(texto=texto)
 
     resumo = pg.gerar_pautas(_cfg(tmp_path, n=1), sb=object(), sessao=sessao)
 
     assert resumo["fora_de_forma"] == 0 and resumo["gerou"] == 1
+    assert resumo["curto_demais"] == 0
+
+
+def test_gerar_pautas_conta_roteiro_curto_demais_e_insere_assim_mesmo(
+    tmp_path, monkeypatch
+):
+    # O Gemini não tem juiz nem deméritos: aqui o contador é a ÚNICA defesa antes
+    # do gate do texto. Ele conta e insere — descartar mataria a fila de fome, e a
+    # decisão é do dono, na revisão.
+    _capturar_insercoes(monkeypatch)
+    magro = "\\n".join(["duas palavras"] * pl.LINHAS_DO_ROTEIRO)
+    texto = f'{{"pautas": [{{"tema": "t0", "hook": "h0", "roteiro": "{magro}"}}]}}'
+    sessao = SessaoGeminiFake(texto=texto)
+
+    resumo = pg.gerar_pautas(_cfg(tmp_path, n=1), sb=object(), sessao=sessao)
+
+    assert resumo["curto_demais"] == 1
+    assert resumo["fora_de_forma"] == 0   # a forma está certa; a duração não
+    assert resumo["gerou"] == 1
 
 
 def test_gerar_pautas_com_categoria_dirige_o_prompt_e_carimba(tmp_path, monkeypatch):

@@ -743,3 +743,60 @@ quando você quer só tocar a fila —, mas o caminho normal desta rodada é o �
 no banco, desatrelada: religar é recriar um trigger de cinco linhas
 (`after insert on public.pautas when (new.status = 'pronta' and new.origem in (...))`).
 O comentário da função no banco guarda a receita.
+
+---
+
+## 17. Duração mínima de 30s (Rodada 31)
+
+O alvo do roteiro subiu para **16 linhas e 90–105 palavras** (~35s), e o worker passou
+a **reprovar sozinho** todo vídeo que sair abaixo de 30s. Não há migration nesta
+rodada — nada a aplicar no banco. O que existe é uma limpeza, e ela é sua.
+
+### 17.1 Por que a fila atual precisa ser esvaziada
+
+Toda pauta que já está no banco foi escrita sob o prompt antigo e tem ~42 palavras.
+Se você aprová-la na revisão, ela renderiza ~16s e o worker a reprova em seguida:
+2,5 min de MPT, um encode e um upload de preview jogados fora, por pauta. O sistema
+não fica quebrado — fica girando à toa.
+
+### 17.2 O passo a passo, em `uv run controle.py`
+
+1. **🧹 limpar fila** — apaga os vídeos não publicados e recria um `na_fila` por
+   pauta atingida. (Ela não encosta em aprovado/publicando/publicado nem em vídeo que
+   já tocou plataforma — ver § 14.)
+2. **📝 Revisar pautas** — a linha de procedência de cada pauta agora mostra a duração
+   estimada: `ollama · disciplina · ≈16s · 42 palavras ⚠ abaixo de 30s`. **Descarte
+   todas as que trouxerem o ⚠.** São as antigas.
+3. **Gerar agora** — o lote novo nasce no alvo novo. Confira a linha que a CLI (ou a
+   janela) imprime no fim: se ela disser *"N têm menos de 84 palavras"*, o modelo não
+   está obedecendo ao alvo e o lugar de mexer é o prompt, não a fila.
+
+### 17.3 O que olhar na primeira geração de verdade
+
+O contador `curto_demais` é a única coisa que responde se o qwen2.5 obedece a "90 a
+105 palavras" — isso não foi testável no ambiente do agente. Ele aparece em três
+lugares: no log do worker, no resumo da geração e na linha que a CLI imprime.
+
+- **Zero ou perto de zero:** o alvo pegou.
+- **Metade do lote ou mais:** o modelo está entregando curto. O ajuste é subir
+  `PALAVRAS_ALVO_MIN`/`MAX` em `worker/duracao.py` (pedir mais do que se quer é o
+  jeito conhecido de compensar um modelo que entrega abaixo), **não** baixar o mínimo.
+
+### 17.4 Se um vídeo aparecer reprovado sem você ter reprovado
+
+É esperado, e o motivo está em `videos.erro_msg`, visível no painel:
+`[duração] 16.2s — abaixo do mínimo de 30s. A duração é o tamanho da narração: o
+roteiro precisa de pelo menos 84 palavras.`
+
+A pauta volta para `pronta` e reaparece na revisão. **Ela não vira vídeo de novo
+sozinha** — só se você aprovar. Se o roteiro continuar curto, o caminho é descartar,
+ou editá-lo no painel web (`/pautas`, § da Rodada 15) até a contagem passar de 84.
+
+### 17.5 Recalibrar a taxa quando houver vídeo novo publicado
+
+`worker/duracao.py` estima a duração a 2,8 palavras/s, número **inferido** de duas
+medições, não cronometrado. Com uma dúzia de vídeos novos no banco dá para medir de
+verdade: `duracao_seg` está em `videos` e o roteiro na pauta, então
+`duracao_seg ÷ palavras(roteiro)` é a taxa real. Se ela cair longe de 2,8, mude
+`PALAVRAS_POR_SEG` — é o único número a mexer, e todo o resto (mínimo de palavras,
+alvo do prompt, aviso da revisão) se ajusta sozinho.

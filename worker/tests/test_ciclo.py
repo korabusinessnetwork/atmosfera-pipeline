@@ -81,6 +81,8 @@ class _Rpc:
         banco.rpcs.append((nome, argumentos))
 
     def execute(self):
+        if self._nome in self._banco.rpc_explode:
+            raise RuntimeError(f"rpc {self._nome} fora do ar")
         return _Resposta(self._banco.retorno_rpc.get(self._nome))
 
 
@@ -106,7 +108,14 @@ class _Storage:
 
 
 class SupabaseFake:
-    def __init__(self, *, fila=None, pauta=None, storage_explode: bool = False):
+    def __init__(
+        self,
+        *,
+        fila=None,
+        pauta=None,
+        storage_explode: bool = False,
+        rpc_explode: set[str] | None = None,
+    ):
         self.retorno_rpc = {
             "claim_proximo_video": [fila] if fila else [],
             "destravar_orfaos": 0,
@@ -117,6 +126,7 @@ class SupabaseFake:
         self.rpcs: list[tuple[str, dict]] = []
         self.uploads: list[tuple[str, str, bytes, dict]] = []
         self.storage_explode = storage_explode
+        self.rpc_explode = rpc_explode or set()
         self.storage = _Storage(self)
 
     def rpc(self, nome, argumentos):
@@ -126,6 +136,9 @@ class SupabaseFake:
         return _Consulta(self, nome)
 
     # -- leitura para as asserções --
+    def chamou_rpc(self, nome: str) -> list[dict]:
+        return [args for chamado, args in self.rpcs if chamado == nome]
+
     def ultimo_update(self, tabela="videos") -> dict:
         for nome, _id, valores in reversed(self.updates):
             if nome == tabela:
@@ -193,6 +206,19 @@ def render_dublado(monkeypatch):
     monkeypatch.setattr(mpt, "gerar", gerar)
 
 
+# Quanto o `aplicar_identidade` dublado devolve. Mutável para o caso que precisa
+# de um vídeo curto sem reescrever a fixture inteira.
+_DURACAO_DUBLADA = {"seg": 35.0}
+
+
+@pytest.fixture(autouse=True)
+def duracao_dublada():
+    """Devolve a duração do dublê ao padrão longo depois de cada caso."""
+    _DURACAO_DUBLADA["seg"] = 35.0
+    yield _DURACAO_DUBLADA
+    _DURACAO_DUBLADA["seg"] = 35.0
+
+
 @pytest.fixture(autouse=True)
 def ffmpeg_dublado(monkeypatch):
     """Substitui só o que chama o ffmpeg — `subir` continua real.
@@ -206,6 +232,10 @@ def ffmpeg_dublado(monkeypatch):
     """
 
     def aplicar(bruto, pauta, video, output_dir, **_kwargs):
+        # `duracao_seg` acima do mínimo de propósito: desde a R31 um vídeo curto é
+        # reprovado sozinho, e um dublê de 17s faria TODO caso desta suíte medir o
+        # auto-reprovador em vez do que o nome do teste diz. Os casos que querem o
+        # curto o pedem explicitamente, com `duracao_dublada`.
         final = caminho_saida(output_dir, video["id"], pauta.get("tema", ""))
         thumb = caminho_thumb(output_dir, video["id"], pauta.get("tema", ""))
         final.parent.mkdir(parents=True, exist_ok=True)
@@ -214,7 +244,7 @@ def ffmpeg_dublado(monkeypatch):
         return postprocess.Preview(
             arquivo=final,
             thumb=thumb,
-            duracao_seg=17.0,
+            duracao_seg=_DURACAO_DUBLADA["seg"],
             preview_path=postprocess.caminho_storage(video["org_id"], video["id"], ".mp4"),
             thumb_path=postprocess.caminho_storage(video["org_id"], video["id"], ".jpg"),
         )
@@ -273,7 +303,7 @@ def test_preview_sobe_na_pasta_da_org(cfg, video, pauta):
     valores = sb.ultimo_update()
     assert valores["preview_url"] == f"{ORG}/{video['id']}.mp4"
     assert valores["thumb_url"] == f"{ORG}/{video['id']}.jpg"
-    assert valores["duracao_seg"] == 17.0
+    assert valores["duracao_seg"] == _DURACAO_DUBLADA["seg"]
 
 
 def test_preview_url_nao_e_url_assinada(cfg, video, pauta):
@@ -358,3 +388,74 @@ def test_claim_se_identifica(cfg, video, pauta):
     nome, argumentos = sb.rpcs[0]
     assert nome == "claim_proximo_video"
     assert argumentos["p_worker"]
+
+
+# ------------------------------------------- duração mínima do vídeo (R31)
+def test_video_curto_e_reprovado_sozinho(cfg, video, pauta, duracao_dublada):
+    # Decisão do dono: vídeo com menos de 30s não vai ao gate. A reprovação passa
+    # pela MESMA RPC do gate humano e do QC (R16) — nunca um update cru de status —,
+    # para a máquina de estados e a devolução da pauta para `pronta` viverem num
+    # lugar só.
+    duracao_dublada["seg"] = 16.0
+    sb = SupabaseFake(fila=video, pauta=pauta)
+
+    assert main.ciclo(sb, cfg, LOG) is True
+
+    chamadas = sb.chamou_rpc("reprovar_video")
+    assert len(chamadas) == 1
+    assert chamadas[0]["p_video_id"] == video["id"]
+    assert "16.0s" in chamadas[0]["p_motivo"]
+    assert "30s" in chamadas[0]["p_motivo"]
+
+
+def test_video_no_tamanho_nao_e_reprovado(cfg, video, pauta, duracao_dublada):
+    # O caminho feliz não pode passar perto do reprovador: um limiar invertido
+    # esvaziaria a fila inteira sem erro nenhum aparecer.
+    duracao_dublada["seg"] = 35.0
+    sb = SupabaseFake(fila=video, pauta=pauta)
+
+    main.ciclo(sb, cfg, LOG)
+
+    assert sb.chamou_rpc("reprovar_video") == []
+    assert sb.ultimo_update()["status"] == "aguardando_aprovacao"
+
+
+def test_video_exatamente_no_minimo_passa(cfg, video, pauta, duracao_dublada):
+    # A fronteira é "abaixo de", não "até": 30,0s cumpre o mínimo de 30s.
+    duracao_dublada["seg"] = 30.0
+    sb = SupabaseFake(fila=video, pauta=pauta)
+
+    main.ciclo(sb, cfg, LOG)
+
+    assert sb.chamou_rpc("reprovar_video") == []
+
+
+def test_reprovacao_que_falha_deixa_o_video_no_gate_humano(
+    cfg, video, pauta, duracao_dublada
+):
+    # O render deu certo e o arquivo está no disco. Se a RPC do QC cair, o pior
+    # desfecho aceitável é o vídeo curto aparecer no gate humano — com a duração no
+    # card — e NUNCA o ciclo estourar: virar exceção aqui queimaria uma das três
+    # tentativas do `claim_proximo_video` por causa do controle de qualidade.
+    duracao_dublada["seg"] = 12.0
+    sb = SupabaseFake(fila=video, pauta=pauta, rpc_explode={"reprovar_video"})
+
+    assert main.ciclo(sb, cfg, LOG) is True
+
+    assert sb.ultimo_update()["status"] == "aguardando_aprovacao"
+
+
+def test_reprovacao_acontece_depois_de_concluir_o_render(
+    cfg, video, pauta, duracao_dublada
+):
+    # A ordem é causal, não estilo: a RPC só aceita reprovar de
+    # `aguardando_aprovacao`, então o vídeo precisa chegar lá ANTES. Invertida, a
+    # reprovação falharia com P0002 e o vídeo curto iria ao gate assim mesmo.
+    duracao_dublada["seg"] = 16.0
+    sb = SupabaseFake(fila=video, pauta=pauta)
+
+    main.ciclo(sb, cfg, LOG)
+
+    concluiu = [i for i, (_t, _id, v) in enumerate(sb.updates)
+                if v.get("status") == "aguardando_aprovacao"]
+    assert concluiu, "o render precisa concluir antes de qualquer reprovação"

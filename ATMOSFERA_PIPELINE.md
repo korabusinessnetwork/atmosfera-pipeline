@@ -1090,6 +1090,8 @@ if __name__ == "__main__":
 [x] 21. Variedade de fecho dentro do lote (R27)            (1h)     ← 652 testes, sem migration; 3 tiragens pareadas de 36 fechos por braço
 [x] 22. A seleção do pool olha o roteiro (R28)             (1h)     ← 665 testes, sem migration; medição pareada com uma passada de modelo
 [x] 23. Ancorar a régua do juiz (R30) — HIPÓTESE REPROVADA (1h)    ← 665 testes, ZERO mudança de código; 2 tiragens × 2 braços, 104 pontuações
+[x] 24. Duração mínima de 30s (R31)                        (1h30)  ← 691 testes, sem migration; alvo em PALAVRAS, exemplos-ouro estendidos, auto-reprovação
+[ ] 24b. Limpar a fila e as pautas do alvo antigo           (10 min) ← SEU: controle.py → 🧹 limpar fila + descartar as pautas com ⚠, ver specs/_manual.md §17
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1301,6 +1303,45 @@ candidatos do gerador local pontuam na mesma faixa dos anti-padrões documentado
 conclusão operacional da R28 continua de pé (com o pool empatado, quem decide é o
 critério mecânico); o que muda é a explicação, e ela vira **alarme de qualidade do
 gerador**, que é achado maior do que o que a rodada foi buscar.
+
+**Item 24 — a duração vira contrato, e a unidade muda.** Pedido do dono: *"os vídeos
+têm que ter no mínimo 30s, hoje saem em média de 16s"*. É a **terceira** vez que o
+projeto mexe no alvo de duração, e as duas anteriores erraram do mesmo jeito — não a
+conta, a **variável**: cravaram o alvo em número de LINHAS. A Sprint 2/3 pediu 5 linhas
+e mediu 10,43s; o commit `aeddabe` pediu 8 linhas prometendo "22 a 26s" e o dono mediu
+~16s. A voz não fala linhas, fala palavras, e contar linha só funciona enquanto as
+linhas têm todas o mesmo tamanho: dezesseis linhas de duas palavras têm a forma
+perfeita e rendem 11 segundos.
+
+A R31 troca a unidade. Nasce `worker/duracao.py` — puro, um lugar só para os quatro
+consumidores (gerador local, Gemini, painel local e o loop) — calibrado a **2,8
+palavras/s**, a ponta **rápida** do intervalo que os dois pontos medidos permitem
+(2,5–2,8). Pessimista de propósito: falar rápido exige mais palavras para os mesmos
+30s, então a estimativa erra para o lado barato e passar no critério é garantia, não
+aposta. O prompt passa a pedir **16 linhas E 90 a 105 palavras**, com a consequência
+escrita ("under 84 words … is REJECTED") — limite sem consequência escrita vira
+sugestão. E os **18 exemplos-ouro foram estendidos de 8 para 16 linhas** (89–102
+palavras), mantendo hook e fecho intactos para não derrubar o rodízio de âncoras da
+R27: num modelo pequeno o exemplo é o gabarito, e um few-shot que não alcança o alvo
+ensina a não alcançá-lo — foi exatamente assim que o alvo anterior falhou.
+
+**A rodada tem dois freios novos, um antes e um depois do render.** Antes: o
+`DEMERITO_DURACAO_CURTA` (4,0 — empatado com o fecho copiado, maior que a faixa útil
+inteira do juiz) demove na seleção, e a revisão de pauta mostra `≈34s · 95 palavras`
+com `⚠` quando não dá o mínimo, porque **ali é o único lugar onde um roteiro curto
+custa zero para consertar**. Depois: o worker **reprova sozinho** o vídeo abaixo de
+30s, pela mesma RPC do gate humano e do QC da R16 — nunca um `update` cru. Isso **não**
+cria laço automático, e é o que o torna seguro: a pauta volta para `pronta` e só vira
+vídeo de novo se uma pessoa a aprovar.
+
+**Sem migration, e verificado, não presumido:** `reprovar_video` já tinha `execute`
+para a `service_role` desde a R16 e `duracao_seg` está em `videos` desde o dia 1 —
+`rls_test.sql` segue nos mesmos 67 casos. **O que NÃO está provado:** nenhum vídeo
+novo foi renderizado (o ambiente do agente não alcança Ollama, MPT nem Supabase), e a
+taxa de 2,8 palavras/s é **inferida** dos exemplos-ouro das duas épocas, não
+cronometrada. O § 2 do spec diz como trocá-la por medição real assim que houver uma
+dúzia de vídeos novos — `duracao_seg ÷ palavras(roteiro)`, um número só a mexer.
+Detalhe em `specs/duracao-minima-de-30s.md` e `specs/_manual.md` § 17.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

@@ -27,6 +27,7 @@ import threading
 import time
 
 import db
+import duracao
 import log as logmod
 import mpt
 import mpt_supervisor
@@ -119,6 +120,56 @@ def processar(sb, cfg: Config, video: dict, log: logging.Logger) -> None:
             "arquivo": str(preview.arquivo),
             "duracao_seg": round(preview.duracao_seg, 2),
             "com_preview": preview_url is not None,
+        },
+    )
+
+    _reprovar_se_curto(sb, video_id, preview.duracao_seg, log)
+
+
+def _reprovar_se_curto(sb, video_id: str, duracao_seg: float, log: logging.Logger) -> None:
+    """Reprova sozinho o vídeo que saiu abaixo do mínimo de duração (R31).
+
+    Decisão do dono: vídeo com menos de 30s não vai ao gate. É a mesma porta do QC
+    da R16 — `reprovar_video`, nunca um `update` cru —, então a máquina de estados
+    continua num lugar só e a pauta volta para `pronta` pela invariante da RPC.
+
+    **Isto NÃO cria laço automático**, e é o que o torna seguro: a pauta volta para
+    `pronta` e só vira vídeo de novo se uma pessoa a aprovar na revisão do painel
+    local. Um humano fica no caminho de cada re-render, com o roteiro na frente e o
+    número de palavras na tela — que é onde o defeito se conserta de graça.
+
+    **Roda DEPOIS do `concluir_render`, não no lugar dele**, por duas razões. A RPC
+    só aceita reprovar de `aguardando_aprovacao`, então o vídeo precisa chegar lá
+    primeiro; e se a reprovação falhar, o que sobra é um vídeo curto no gate humano
+    — visível, com a duração no card —, e não um registro em estado inventado.
+
+    Falha aqui **nunca** derruba o ciclo: o render deu certo, o arquivo está no
+    disco, e transformar um erro de rede numa exceção de render queimaria uma das
+    três tentativas do `claim_proximo_video` por causa do controle de qualidade.
+    """
+    if not duracao.curto_demais(duracao_seg):
+        return
+
+    motivo = (
+        f"[duração] {duracao_seg:.1f}s — abaixo do mínimo de "
+        f"{duracao.DURACAO_MINIMA_SEG:.0f}s. A duração é o tamanho da narração: o "
+        f"roteiro precisa de pelo menos {duracao.palavras_minimas()} palavras."
+    )
+    try:
+        db.reprovar_qc(sb, video_id, motivo)
+    except Exception:  # noqa: BLE001 — QC não pode derrubar um render que deu certo
+        log.exception(
+            "nao consegui reprovar o video curto — ele segue no gate humano",
+            extra={"video_id": video_id, "duracao_seg": round(duracao_seg, 2)},
+        )
+        return
+
+    log.warning(
+        "video reprovado por duracao",
+        extra={
+            "video_id": video_id,
+            "duracao_seg": round(duracao_seg, 2),
+            "minimo_seg": duracao.DURACAO_MINIMA_SEG,
         },
     )
 

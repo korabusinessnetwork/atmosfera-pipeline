@@ -54,6 +54,7 @@ from typing import Any
 import requests
 
 import db
+import duracao
 import pauta_local as pl
 from config import Config, ConfigInvalida, carregar
 
@@ -227,6 +228,18 @@ def gerar_pautas(
             extra={"quantos": curtos, "de": len(validas)},
         )
 
+    # O contador de duração da R31, pelo mesmo motivo do de forma: os dois produtores
+    # compartilham `montar_prompt`, então a regra de palavras vale para os dois. Aqui
+    # ele importa MAIS que no local — sem juiz e sem deméritos, nada reordena o lote
+    # do Gemini, então este número é a única defesa antes do gate do texto.
+    curtos_demais = sum(1 for p in validas if duracao.roteiro_curto_demais(p["roteiro"]))
+    if curtos_demais:
+        log.warning(
+            f"roteiros com menos de {duracao.palavras_minimas()} palavras — o vídeo "
+            f"sai abaixo de {duracao.DURACAO_MINIMA_SEG:.0f}s e será reprovado",
+            extra={"quantos": curtos_demais, "de": len(validas)},
+        )
+
     # Mesmos contadores de variedade do `pauta_local` (R27). Aqui eles valem dobrado
     # como MEDIÇÃO: todo o diagnóstico do colapso foi feito no qwen2.5, e ninguém sabe
     # se o Gemini tem o mesmo defeito. Com o número no resumo, descobre-se olhando.
@@ -255,6 +268,7 @@ def gerar_pautas(
             "categoria": categoria,
             "fila_viva": viva,
             "fora_de_forma": curtos,
+            "curto_demais": curtos_demais,
             "abertura_repetida": repetidos,
             "fecho_copiado": copiados,
         },
@@ -266,6 +280,7 @@ def gerar_pautas(
         "categoria": categoria,
         "fila_viva": viva,
         "fora_de_forma": curtos,
+        "curto_demais": curtos_demais,
         "abertura_repetida": repetidos,
         "fecho_copiado": copiados,
     }
@@ -327,6 +342,13 @@ def main() -> int:
             f" {curtos} com menos de {pl.LINHAS_DO_ROTEIRO} linhas — confira o fecho."
             if curtos else ""
         )
+        curtos_demais = resumo.get("curto_demais", 0)
+        curta = (
+            f" {curtos_demais} têm menos de {duracao.palavras_minimas()} palavras: "
+            f"o vídeo sai abaixo de {duracao.DURACAO_MINIMA_SEG:.0f}s e o worker vai "
+            "reprovar — descarte ou alongue na revisão."
+            if curtos_demais else ""
+        )
         # Variedade (R27): a repetição é o defeito que a revisão de pauta enxerga
         # melhor que qualquer log, então ela vai para a tela de quem vai revisar.
         variedade = "".join(
@@ -339,7 +361,7 @@ def main() -> int:
         )
         print(
             f"gerou {resumo['gerou']} pautas prontas via Gemini ({cfg.gemini_model}), "
-            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo).{forma}{variedade} "
+            f"{few_shot} (descartou {resumo['descartou']} inválidas do modelo).{curta}{forma}{variedade} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0

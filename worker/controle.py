@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+import duracao
+
 log = logging.getLogger("worker.controle")
 
 TAREFA = "Atmosfera Worker"
@@ -531,14 +533,26 @@ def texto_do_roteiro(pauta: dict[str, Any]) -> str:
 
 
 def procedencia_da_pauta(pauta: dict[str, Any]) -> str:
-    """Quem escreveu e sob que categoria, em uma linha. Pura.
+    """Quem escreveu, sob que categoria e que tamanho de vídeo dá. Pura.
 
     A origem importa na decisão: hook de modelo pequeno (`ollama`) é mais fraco que
     o do Gemini, e saber qual está lendo muda o rigor de quem aprova.
+
+    **A duração estimada entrou na R31 e é a informação mais acionável da linha.**
+    Este é o único ponto do sistema onde um roteiro curto custa zero para consertar:
+    depois daqui ele vira 2,5 min de MPT, um encode e um upload — e desde a R31 o
+    worker reprova sozinho o que sair abaixo do mínimo, então aprovar um roteiro
+    curto aqui é mandar trabalho direto para o lixo. O número sai de `duracao`, o
+    mesmo módulo que o gerador e o worker usam; três telas com contas próprias
+    divergiriam na primeira mudança de alvo.
     """
     origem = (pauta.get("origem") or "?").strip()
     categoria = (pauta.get("categoria") or "").strip()
-    return f"{origem} · {categoria}" if categoria else origem
+    partes = [origem]
+    if categoria:
+        partes.append(categoria)
+    partes.append(duracao.frase(pauta.get("roteiro")))
+    return " · ".join(partes)
 
 
 def resumo_da_revisao(aprovadas: int, descartadas: int) -> str:

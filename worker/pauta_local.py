@@ -73,6 +73,7 @@ from typing import Any, Protocol
 import requests
 
 import db
+import duracao
 from config import Config, ConfigInvalida, carregar
 
 log = logging.getLogger("worker.pauta_local")
@@ -84,20 +85,31 @@ HOOK_MAX = 88
 
 # Geração local de 15 pautas leva minutos num modelo pequeno. Timeout generoso;
 # não vira variável porque não é número que alguém ajusta de madrugada.
-TIMEOUT_OLLAMA_SEG = 300
+#
+# **Dobrou na R31, e é consequência aritmética do roteiro dobrar.** Era 300s para um
+# lote de 6 roteiros de 8 linhas (~40s/pauta → ~250s, com folga de 50s). O roteiro de
+# 16 linhas é ~2,3× o texto de saída por pauta, e tempo de inferência é linear no
+# token gerado: o mesmo lote passaria de 300s e TODA geração morreria em timeout —
+# uma falha total, não uma degradação. Subir o teto é preferível a encolher o lote
+# porque `LOTE_GERACAO` governa quantas chamadas o pool faz, e três chamadas × três
+# âncoras são exatamente as nove formas do rodízio da R27 (ver `FECHOS_OURO`); com
+# lotes de 4 seriam cinco chamadas e duas repetiriam a janela da primeira.
+TIMEOUT_OLLAMA_SEG = 600
 
 # Quantos candidatos por chamada de geração. O pool (PAUTA_LOCAL_CANDIDATOS) é
-# gerado em lotes deste tamanho: 6 é o número medido seguro no timeout de 300s
-# (~40s/pauta com os exemplos no prompt → ~250s). Não vira env porque é aritmética
-# de timeout, não gosto — pedir 18 numa chamada só estouraria os 300s.
+# gerado em lotes deste tamanho: 6 mantém as três chamadas que o rodízio de âncoras
+# da R27 pressupõe, e cabe no timeout acima. Não vira env porque é aritmética de
+# timeout e de rodízio, não gosto — pedir 18 numa chamada só estouraria os 600s.
 LOTE_GERACAO = 6
 
-# Roteiro em forma: oito linhas não vazias. Não é gosto — a duração do vídeo é o
-# tamanho da narração, e o alvo de 22–26s (era 12–18s) veio de dobrar o roteiro; os
-# 18 exemplos-ouro da identidade têm 8, todos, sem exceção, e o teste
+# Roteiro em forma: dezesseis linhas não vazias. É a CURVA da identidade — a
+# cadência de ~2s por batida que faz o vídeo parecer o vídeo deste canal —, e não
+# mais a variável que responde por duração: quem responde por duração é a contagem
+# de PALAVRAS, no `duracao.py`, e a razão de a separação existir está escrita lá.
+# Os 18 exemplos-ouro da identidade têm 16 linhas, todos, sem exceção, e o teste
 # `test_nenhum_exemplo_ouro_e_flagrado_como_fora_de_forma` cobra isso do arquivo em
 # vez de confiar nesta linha.
-LINHAS_DO_ROTEIRO = 8
+LINHAS_DO_ROTEIRO = duracao.LINHAS_ALVO
 
 # Teto de palavras do fecho, LIDO dos exemplos-ouro (3 a 7 palavras; a moda é 4–5).
 # Vai para o prompt como número, não como "seja breve": 18/18 o satisfazem, então é
@@ -250,6 +262,18 @@ DEMERITO_ROTEIRO_CURTO = 2.0
 # claramente melhor, ganha do empate.
 DEMERITO_ABERTURA_REPETIDA = 1.5
 
+# Maior que a faixa útil inteira, empatado com o fecho copiado — e por um motivo
+# diferente do dele. Fecho copiado é vergonha editorial; roteiro curto demais é
+# trabalho GARANTIDO perdido: desde a R31 o `main.py` reprova sozinho o vídeo que
+# sai abaixo de 30s, então uma pauta que a aritmética já sabe que vai render 25s
+# custa 2,5 min de MPT, um encode, um upload de preview e uma vaga da fila para
+# terminar reprovada. Nenhum hook é bom o bastante para pagar isso.
+#
+# Continua DEMÉRITO, não veto, pela regra da casa desde a R4: com o pool inteiro
+# curto, todos levam o mesmo desconto, a ordem volta a ser a da nota e o lote sai do
+# mesmo tamanho. Ordenar é o degrau mais forte que não arrisca matar a fila de fome.
+DEMERITO_DURACAO_CURTA = 4.0
+
 
 class OllamaIndisponivel(RuntimeError):
     """Não deu para falar com o Ollama. Transporte, não conteúdo."""
@@ -289,16 +313,23 @@ def linhas_do_roteiro(roteiro: str | None) -> int:
 
 
 def roteiro_fora_de_forma(roteiro: str | None) -> bool:
-    """Roteiro com menos de cinco linhas — a curva não cabe, e o fecho chega cedo.
+    """Roteiro com menos linhas que o alvo — a curva não cabe, e o fecho chega cedo.
 
-    A identidade manda cinco: hook → desconforto → virada → consequência → fecho. Com
-    quatro, alguma batida do meio some e o fecho aterrissa antes de a consequência ter
-    acontecido — que é uma das formas de "finalização ruim" que o dono relatou. Os 18
-    exemplos-ouro têm cinco linhas, os 18.
+    A identidade manda dezesseis batidas: hook → desconforto → virada → consequência
+    → aprofundamento → alargamento → tensão → fecho. Faltando linha, alguma batida do
+    meio some e o fecho aterrissa antes de a consequência ter acontecido — que é uma
+    das formas de "finalização ruim" que o dono relatou. Os 18 exemplos-ouro têm
+    dezesseis linhas, os 18.
 
-    **NÃO flagra roteiro com mais de cinco.** Nenhum dos 18 ouros nem nenhuma das 6
-    amostras medidas passou de cinco; flagrar seria inventar um problema que ninguém
-    tem, e todo flag falso ensina a ignorar o contador.
+    **Mede FORMA, não duração, e desde a R31 são duas perguntas separadas.** Um
+    roteiro pode ter as 16 linhas e ainda ser curto demais para 30s (linhas de três
+    palavras), e pode ter 14 linhas gordas e passar dos 30s. Confundir as duas foi
+    exatamente o erro que fez o alvo de "22 a 26s" render 16 — quem responde por
+    segundo é `duracao.roteiro_curto_demais`, que conta palavra.
+
+    **NÃO flagra roteiro com mais linhas que o alvo.** Nenhum dos 18 ouros passa;
+    flagrar seria inventar um problema que ninguém tem, e todo flag falso ensina a
+    ignorar o contador.
 
     Isto é CONTADOR, não portão: quem chama loga o número e insere a pauta do mesmo
     jeito (ver `gerar_pautas`). Um roteiro de quatro linhas é fraco, não quebrado —
@@ -569,15 +600,21 @@ def extrair_notas(texto: str, quantos: int) -> list[float]:
 def demeritos_da_pauta(pauta: dict[str, Any]) -> float:
     """Os deméritos INTRÍNSECOS de uma pauta — os que não dependem do lote. Pura.
 
-    Zero para pauta sã. Os dois somam quando os dois valem: um roteiro de 4 linhas
-    que ainda por cima fecha copiado é pior que qualquer um dos dois sozinho, e não
-    há razão para o pior dos dois "absorver" o outro.
+    Zero para pauta sã. Os três somam quando os três valem: um roteiro sem linhas
+    suficientes, curto demais para os 30s e que ainda por cima fecha copiado é pior
+    que qualquer um deles sozinho, e não há razão para o pior "absorver" os outros.
+
+    Forma e duração são somas separadas de propósito (R31): são defeitos diferentes
+    com consequências diferentes — faltar batida estraga a curva, faltar palavra
+    estraga o vídeo inteiro — e uma pauta pode ter um sem o outro.
     """
     demerito = 0.0
     if fecho_copiado_do_prompt(pauta):
         demerito += DEMERITO_FECHO_COPIADO
     if roteiro_fora_de_forma(pauta.get("roteiro")):
         demerito += DEMERITO_ROTEIRO_CURTO
+    if duracao.roteiro_curto_demais(pauta.get("roteiro")):
+        demerito += DEMERITO_DURACAO_CURTA
     return demerito
 
 
@@ -803,19 +840,30 @@ def montar_prompt(
         "- hook: the first line of the roteiro, read with no image and no "
         f"context. MAXIMUM {HOOK_MAX} characters (past that the video cuts with "
         "an ellipsis). Aim for 40 to 60.\n"
-        f"- roteiro: EXACTLY {LINHAS_DO_ROTEIRO} lines, 22 to 26 seconds total. "
-        "REQUIRED and cannot be empty. Not 6, not 10 — eight, each one short "
-        "(one idea) and each with a job:\n"
+        f"- roteiro: EXACTLY {LINHAS_DO_ROTEIRO} lines AND "
+        f"{duracao.PALAVRAS_ALVO_MIN} to {duracao.PALAVRAS_ALVO_MAX} words in "
+        "total. REQUIRED and cannot be empty.\n"
+        f"  THE WORD COUNT IS THE HARD RULE. The video lasts exactly as long as "
+        f"these words take to say out loud — about {duracao.PALAVRAS_POR_SEG:.1f} "
+        f"words per second, so {duracao.PALAVRAS_ALVO_MIN} words is roughly "
+        f"{duracao.PALAVRAS_ALVO_MIN / duracao.PALAVRAS_POR_SEG:.0f} seconds. A "
+        f"roteiro under {duracao.palavras_minimas()} words renders a video shorter "
+        f"than {duracao.DURACAO_MINIMA_SEG:.0f} seconds and is REJECTED, however "
+        "good the hook is. Count the words before you answer.\n"
+        f"  {LINHAS_DO_ROTEIRO} lines and ~{duracao.PALAVRAS_ALVO_MIN} words means "
+        "about 6 words per line. One idea per line — not two. The beats run in "
+        "movements:\n"
         "    line 1 = the hook (same text as the hook field)\n"
-        "    line 2 = the discomfort, stated plainly\n"
-        "    line 3 = the turn — what is actually going on\n"
-        "    line 4 = the consequence, what it costs over time\n"
-        "    line 5 = press the same truth further\n"
-        "    line 6 = a second consequence, widening\n"
-        "    line 7 = the tension at its tightest, just before the close\n"
-        "    line 8 = the close (see CLOSING below)\n"
-        "  One idea per line. Add length with more beats, never longer lines — "
-        "a line with two ideas becomes an unreadable caption.\n"
+        "    lines 2-4 = the discomfort, stated plainly, one concrete beat each\n"
+        "    lines 5-7 = the turn — what is actually going on\n"
+        "    lines 8-10 = the consequence, what it costs over time\n"
+        "    lines 11-13 = press the same truth further, and wider\n"
+        "    lines 14-15 = the tension at its tightest, just before the close\n"
+        f"    line {LINHAS_DO_ROTEIRO} = the close (see CLOSING below)\n"
+        "  Every beat is a NEW small image or fact. Never restate the previous "
+        "line in other words — that is how a long roteiro turns boring. Add length "
+        "with more beats, never by stuffing a line: a line with two ideas becomes "
+        "an unreadable caption.\n"
         f"\n=== CLOSING ===\n{bloco_do_fecho(rodada)}\n=== END OF CLOSING ===\n\n"
         "- titulo: YouTube title, up to 60 characters.\n"
         "- descricao: 2 lines, do not repeat the roteiro.\n\n"
@@ -1143,6 +1191,18 @@ def gerar_pautas(
             extra={"quantos": curtos, "de": len(finais)},
         )
 
+    # O contador que a R31 acrescentou, e o mais caro dos três: desde ela o worker
+    # REPROVA sozinho o vídeo que sai abaixo do mínimo, então cada pauta contada aqui
+    # é um render que vai ser jogado fora se o dono a aprovar na revisão. Vai ao log e
+    # à tela pelo mesmo motivo dos outros — quem roda o gerador é quem vai revisar.
+    curtos_demais = sum(1 for p in finais if duracao.roteiro_curto_demais(p["roteiro"]))
+    if curtos_demais:
+        log.warning(
+            f"roteiros com menos de {duracao.palavras_minimas()} palavras — o vídeo "
+            f"sai abaixo de {duracao.DURACAO_MINIMA_SEG:.0f}s e será reprovado",
+            extra={"quantos": curtos_demais, "de": len(finais)},
+        )
+
     # Contadores de variedade (R27). O primeiro é proxy e superestima; o segundo é
     # exato e é o grave — fecho copiado publica o nosso próprio few-shot no canal.
     repetidos = fechos_com_mesma_abertura(finais)
@@ -1173,6 +1233,7 @@ def gerar_pautas(
             "categoria": categoria,
             "fila_viva": viva,
             "fora_de_forma": curtos,
+            "curto_demais": curtos_demais,
             "abertura_repetida": repetidos,
             "fecho_copiado": copiados,
             "demovidas": demovidas,
@@ -1187,6 +1248,7 @@ def gerar_pautas(
         "categoria": categoria,
         "fila_viva": viva,
         "fora_de_forma": curtos,
+        "curto_demais": curtos_demais,
         "abertura_repetida": repetidos,
         "fecho_copiado": copiados,
         "demovidas": demovidas,
@@ -1242,6 +1304,15 @@ def main() -> int:
             f" {curtos} com menos de {LINHAS_DO_ROTEIRO} linhas — confira o fecho."
             if curtos else ""
         )
+        # R31: a duração vem ANTES da forma na frase porque é a mais cara das duas —
+        # roteiro curto demais não é "confira", é render que já nasce reprovado.
+        curtos_demais = resumo.get("curto_demais", 0)
+        curta = (
+            f" {curtos_demais} têm menos de {duracao.palavras_minimas()} palavras: "
+            f"o vídeo sai abaixo de {duracao.DURACAO_MINIMA_SEG:.0f}s e o worker vai "
+            "reprovar — descarte ou alongue na revisão."
+            if curtos_demais else ""
+        )
         # Variedade (R27): a repetição é o defeito que a revisão de pauta enxerga
         # melhor que qualquer log, então ela vai para a tela de quem vai revisar.
         variedade = "".join(
@@ -1261,7 +1332,7 @@ def main() -> int:
         print(
             f"gerou {resumo['gerou']} pautas prontas de um pool de {resumo.get('pool', '?')} "
             f"candidatos, {ranking}, {few_shot} "
-            f"(descartou {resumo['descartou']} inválidas do modelo).{forma}{variedade} "
+            f"(descartou {resumo['descartou']} inválidas do modelo).{curta}{forma}{variedade} "
             "Elas esperam sua revisão em `uv run controle.py` → 📝 Revisar pautas."
         )
     return 0
