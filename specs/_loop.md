@@ -32,7 +32,7 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
   concreto vale também para quem **julga**, e no juiz não há compensação) e
   `memory/juiz-lote-degrada-em-modelo-pequeno.md` (a leitura da R28 corrigida: o juiz
   separa; quem está empatado é o **pool**).
-- **Commit:** ver abaixo, na branch `rodada-21-producao-automatica`.
+- **Commit:** `be7b4c4` na branch `rodada-21-producao-automatica`.
 - **Pendente de decisão:** nenhuma.
 - **Próximo item recomendado:** **o pool pontuar como anti-padrão** (§ 10.3 do spec) — a
   medição mostrou que os candidatos do gerador local caem na mesma faixa dos anti-padrões
