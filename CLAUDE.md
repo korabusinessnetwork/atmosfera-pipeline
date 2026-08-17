@@ -55,7 +55,7 @@ vídeo, que é do trigger e do gate. Nada mais consome uso de plano.
   schema. Rodar `supabase db advisors --linked` depois de cada migration — o
   alvo é `No issues found`, não "só warnings".
 - Teste de RLS roda pelo CLI: `supabase db query --linked -f supabase/tests/rls_test.sql`.
-  **Todos ✅** (67 desde a R25) é definition-of-done de qualquer migration que toque tabela —
+  **Todos ✅** (69 desde a R29) é definition-of-done de qualquer migration que toque tabela —
   e o teste cresce junto com o schema: política nova sem caso novo não conta como
   pronta. Os casos 09–12 cobrem `storage.objects` (o preview); os 13–19 cobrem a
   máquina de estados, que é outra pergunta: RLS responde "esta linha é sua?", não

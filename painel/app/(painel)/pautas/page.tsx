@@ -5,6 +5,7 @@ import FormularioDePauta from "@/components/FormularioDePauta";
 import FormularioDeEdicao from "@/components/FormularioDeEdicao";
 import Vazio from "@/components/Vazio";
 import { quando } from "@/lib/formato";
+import { fraseDaDuracao } from "@/lib/duracao";
 import type { PautaPronta } from "@/lib/tipos";
 
 /**
@@ -79,8 +80,25 @@ export default async function Pautas() {
             </p>
           )}
 
-          <p className="mt-3 text-xs text-tinta-fraca">
-            {quando(pauta.created_at)}
+          {/*
+            A duração estimada, ao lado da data. Até a R31 o painel local mostrava
+            este número na revisão e este aqui não — quem enfileirava pelo celular
+            era o único do sistema decidindo às cegas, e mandava para o render um
+            roteiro que o `main.py` reprova sozinho depois de 2,5 min de MPT.
+            É relato, não veto: o botão continua ali, porque a estimativa é
+            pessimista e a decisão é do dono.
+          */}
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta-fraca">
+            <span>{quando(pauta.created_at)}</span>
+            {(() => {
+              const d = fraseDaDuracao(pauta.roteiro);
+              if (!d) return null;
+              return (
+                <span className={d.curto ? "text-brasa" : undefined}>
+                  · {d.texto}
+                </span>
+              );
+            })()}
           </p>
 
           <BotaoEnfileirar pautaId={pauta.id} />

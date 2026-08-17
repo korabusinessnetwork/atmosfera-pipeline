@@ -121,3 +121,23 @@ class TestMcpLote:
         monkeypatch.setenv("MCP_LOTE", "0")
         with pytest.raises(config.ConfigInvalida, match="maior que zero"):
             config._inteiro("MCP_LOTE", 50)
+
+
+class TestDefaultsDeIdioma:
+    """R32: o par voz/idioma não pode divergir de novo em silêncio.
+
+    Até esta rodada o default da voz era `pt-BR-AntonioNeural-Male` e o do idioma
+    `en-US` — os dois no mesmo `return`, discordando desde que o canal virou
+    inglês na R5. Quem tinha a linha no `.env` nunca viu; quem não tinha
+    renderizava narração em português com legenda inglesa, sem nenhuma camada
+    reclamando. Aqui o defeito passa a ser vermelho na suíte, não no canal.
+    """
+
+    def test_voz_e_idioma_padrao_falam_a_mesma_lingua(self):
+        assert config.VOZ_PADRAO.startswith(config.IDIOMA_PADRAO)
+
+    def test_o_canal_e_en_us(self):
+        # O acoplamento com o publisher é real: `youtube.montar_corpo` declara
+        # `defaultLanguage`/`defaultAudioLanguage` fixos em en-US. Trocar o idioma
+        # do canal exige mexer nos dois lugares, e este teste é onde isso aparece.
+        assert config.IDIOMA_PADRAO == "en-US"

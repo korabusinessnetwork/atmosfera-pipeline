@@ -180,19 +180,30 @@ def ciclo(sb, cfg: Config, log: logging.Logger) -> bool:
     # vídeo para reivindicar, e um worker que renderiza a fila até o fim e só
     # então pergunta "tem slot?" ficaria 30s ocioso à toa no primeiro ciclo do
     # dia. Falha aqui não impede o render — é a esteira que importa.
+    #
+    # O retorno não é lido: quem registra o desfecho da geração é o próprio
+    # `producao.tick` (log e `configuracao_producao.pausada_motivo`, que é o que o
+    # painel local lê). Guardá-lo aqui só fazia sentido enquanto o ciclo tomava
+    # uma decisão com ele — o `return True` do trigger dropado, logo abaixo.
     try:
-        gerou = producao.tick(cfg, sb)
+        producao.tick(cfg, sb)
     except Exception:  # noqa: BLE001 — produção não pode travar o render
         log.exception("producao automatica falhou — seguindo")
-        gerou = None
 
     video = db.claim_proximo_video(sb, logmod.WORKER_ID)
     if video is None:
-        if gerou is not None and gerou.houve_trabalho:
-            # Gerou pauta neste ciclo: o trigger já criou os vídeos, então há
-            # trabalho esperando. Não dormir aqui os pega no ciclo seguinte, na
-            # hora, em vez de daqui a `poll_seg`.
-            return True
+        # AQUI havia um `return True` quando a produção tinha gerado pauta, com o
+        # comentário "o trigger já criou os vídeos, então há trabalho esperando".
+        # O trigger `t_pautas_auto_enfileirar` foi DROPADO na R25
+        # (`20260806212432_revisao_de_pauta.sql`), quando a revisão de pauta virou
+        # o gate do texto: pauta gerada hoje nasce `pronta` e espera uma PESSOA
+        # ler o roteiro. Não existe vídeo novo para pegar no ciclo seguinte.
+        #
+        # Manter o atalho custava um giro à toa (acorda, não acha nada, dorme) e,
+        # pior, deixava no código a afirmação de que gerar pauta produz render —
+        # exatamente o que alguém vai ler ao investigar "gerei e não renderizou".
+        # Quem transforma pauta em vídeo agora é o dono, em `📝 Revisar pautas`.
+        #
         # Render tem prioridade sobre publicação, e não é ordem arbitrária: o
         # render segura um lock e tem `tentativas < 3` correndo contra ele;
         # publicar não segura nada e o excedente é adiado de graça. Quem espera

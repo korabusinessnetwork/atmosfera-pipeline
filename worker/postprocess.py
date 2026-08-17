@@ -39,6 +39,7 @@ Quem governa reincidência é o `tentativas < 3` do `claim_proximo_video`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -146,7 +147,77 @@ def caminho_storage(org_id: Any, video_id: str, extensao: str) -> str:
     return f"{org_id}/{video_id}{extensao}"
 
 
-def montar_filtro(hook_arquivo: Path | None, fonte: Path) -> str:
+# ------------------------------------------------------- graduação por vídeo
+#
+# Três graduações em vez de uma, sorteadas pelo id do vídeo. O motivo não é
+# estético — é a política de conteúdo inautêntico do YouTube, que desde
+# 2025-07-15 nomeia "mass-produced, generic, repetitive" e cujo exemplo textual
+# de inelegibilidade ao YPP é "AI-generated content made with generic or
+# unoriginal templates giving the impression of mass production". Até aqui dois
+# vídeos deste canal diferiam APENAS pelo texto da legenda: mesma curva, mesma
+# vinheta, mesmo grão, bit a bit. Isso é a descrição literal de um template.
+#
+# As três são variações da MESMA identidade, não três visuais diferentes: todas
+# levantam o preto no azul (sombra fria), todas seguram o highlight abaixo de 1,0
+# (nada estoura em branco) e todas ficam dentro da faixa que o `noise=alls=6`
+# consegue "ditherizar" sem banding. O que muda é a temperatura e o quanto o meio
+# tom afunda — o suficiente para a grade de vídeos do canal não parecer
+# fotocópia, longe do suficiente para descaracterizar o canal.
+#
+# `frio` é a graduação original da Sprint 3, intacta. Ela continua sendo a
+# referência: as outras duas foram escritas a partir dela, deslocando um eixo por
+# vez, e não de um gerador aleatório de números.
+GRADUACOES: tuple[tuple[str, str], ...] = (
+    (
+        "frio",  # a original da Sprint 3
+        "curves="
+        "r='0/0.02 0.5/0.45 1/0.94':"
+        "g='0/0.03 0.5/0.47 1/0.95':"
+        "b='0/0.08 0.5/0.53 1/0.98'",
+    ),
+    (
+        "cinza",  # meio tom mais fundo, menos azul na sombra: mais concreto
+        "curves="
+        "r='0/0.03 0.5/0.42 1/0.93':"
+        "g='0/0.04 0.5/0.43 1/0.94':"
+        "b='0/0.06 0.5/0.48 1/0.96'",
+    ),
+    (
+        "brasa",  # sombra ainda fria, highlight puxado ao quente: luz de sódio
+        "curves="
+        "r='0/0.02 0.5/0.48 1/0.97':"
+        "g='0/0.03 0.5/0.46 1/0.94':"
+        "b='0/0.07 0.5/0.50 1/0.92'",
+    ),
+)
+
+# A vinheta varia junto, e pouco. `PI/4.2` era o valor único; a faixa vai de mais
+# aberta a mais fechada sem chegar perto de escurecer a legenda central.
+VINHETAS: tuple[str, ...] = ("PI/4.6", "PI/4.2", "PI/3.9")
+
+
+def escolher_variacao(semente: str | None) -> tuple[str, str, str]:
+    """`(nome, curves, vinheta)` — determinístico e estável entre processos.
+
+    `hashlib` e não `hash()`: o hash embutido do Python é semeado por processo
+    desde a 3.3, então o mesmo vídeo re-renderizado depois de um reinício sairia
+    com outra cor. Um vídeo reprovado e refeito tem de voltar igual — senão
+    "por que este ficou diferente?" vira arqueologia, e o teste que fixa a
+    escolha não teria como existir.
+
+    Semente vazia cai na graduação original, que é o comportamento de antes
+    desta rodada: quem chama sem id não recebe surpresa.
+    """
+    if not semente:
+        return (GRADUACOES[0][0], GRADUACOES[0][1], VINHETAS[1])
+    digest = hashlib.sha256(str(semente).encode("utf-8")).digest()
+    nome, curva = GRADUACOES[digest[0] % len(GRADUACOES)]
+    return (nome, curva, VINHETAS[digest[1] % len(VINHETAS)])
+
+
+def montar_filtro(
+    hook_arquivo: Path | None, fonte: Path, semente: str | None = None
+) -> str:
     """A cadeia de filtros inteira, na ordem em que importa.
 
     A ordem não é arbitrária: a graduação vem antes do grão (grão graduado
@@ -154,8 +225,13 @@ def montar_filtro(hook_arquivo: Path | None, fonte: Path) -> str:
     escurece o ruído da borda junto, que é o que faz parecer filme e não
     ruído de sensor), e o texto vem por último — legenda com grão em cima
     fica ilegível no celular, que é onde isso vai ser assistido.
+
+    `semente` (o id do vídeo, na prática) escolhe a graduação e a vinheta. A
+    ORDEM não varia com ela, e isso é o ponto: o que a rodada 32 quis foi tirar a
+    aparência de fotocópia, não afrouxar a cadeia que a Sprint 3 mediu.
     """
     fonte_esc = escapar_valor(fonte)
+    _, curva, vinheta = escolher_variacao(semente)
 
     partes = [
         # Enquadramento primeiro: tudo abaixo assume 1080x1920.
@@ -164,11 +240,8 @@ def montar_filtro(hook_arquivo: Path | None, fonte: Path) -> str:
         # Base escura: contraste um pouco acima, saturação abaixo.
         "eq=contrast=1.06:saturation=0.80:brightness=-0.025",
         # A graduação. Preto levantado no azul = sombra fria; highlight puxado
-        # para baixo = nada estoura em branco puro.
-        "curves="
-        "r='0/0.02 0.5/0.45 1/0.94':"
-        "g='0/0.03 0.5/0.47 1/0.95':"
-        "b='0/0.08 0.5/0.53 1/0.98'",
+        # para baixo = nada estoura em branco puro. Qual das três, ver acima.
+        curva,
         # Grão temporal: `t` faz o ruído mudar a cada frame. Sem isso ele fica
         # parado na tela e o olho lê como sujeira na lente, não como filme.
         #
@@ -188,7 +261,7 @@ def montar_filtro(hook_arquivo: Path | None, fonte: Path) -> str:
         # O encoder gasta bitrate para preservar ruído aleatório, então o custo
         # explode sem virar imagem melhor. 6 dither, 18 é 82x o arquivo.
         "noise=alls=6:allf=t+u",
-        "vignette=a=PI/4.2",
+        f"vignette=a={vinheta}",
     ]
 
     if hook_arquivo is not None:
@@ -344,7 +417,10 @@ def aplicar_identidade(
         hook_arquivo.write_text(hook, encoding="utf-8")
 
     try:
-        filtro = montar_filtro(hook_arquivo, fonte)
+        # O id do vídeo é a semente: estável entre re-renders do MESMO vídeo
+        # (reprovar e refazer devolve a mesma cor) e diferente entre vídeos
+        # distintos, que é exatamente a variação que faltava.
+        filtro = montar_filtro(hook_arquivo, fonte, semente=str(video["id"]))
         _rodar(montar_comando(ffmpeg, bruto, final, filtro), "ffmpeg (identidade)")
     finally:
         if hook_arquivo is not None:

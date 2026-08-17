@@ -161,6 +161,43 @@ def test_tags_param_no_limite_de_caracteres():
     assert sum(len(t) for t in tags) <= youtube.LIMITE_TAGS_CHARS
 
 
+def test_tag_do_tema_descreve_o_video():
+    """A única tag que varia entre um vídeo e outro sai daqui."""
+    assert youtube.tags_do_tema("The discipline of doing it tired") == [
+        "discipline",
+        "doing",
+        "tired",
+    ]
+
+
+def test_tag_do_tema_ignora_gramatica_e_pontuacao():
+    # "of"/"it" são gramática; a vírgula encostada faria "discipline," virar uma
+    # tag distinta de "discipline" e furar a deduplicação.
+    assert youtube.tags_do_tema("Discipline, discipline and the it of") == ["discipline"]
+
+
+def test_tag_do_tema_respeita_o_teto():
+    tema = " ".join(f"palavra{n}" for n in range(20))
+    assert len(youtube.tags_do_tema(tema)) == youtube.MAX_TAGS_DO_TEMA
+
+
+def test_tema_e_formato_vem_antes_das_da_marca():
+    """No aperto do limite de 500, cai a 5ª tag de marca — nunca a deste vídeo.
+
+    As da marca se repetem em 100% dos vídeos do canal; as do tema são a única
+    coisa no metadado que diz de que ESTE vídeo trata.
+    """
+    corpo = youtube.montar_corpo(
+        {"tema": "Discipline beats motivation", "hashtags": ["#mindset"]},
+        _quando(),
+        "22",
+    )
+    tags = corpo["snippet"]["tags"]
+    assert tags[:1] == ["discipline"]
+    assert youtube.TAG_FORMATO in tags
+    assert tags.index(youtube.TAG_FORMATO) < tags.index("mindset")
+
+
 def test_descricao_leva_no_maximo_quinze_hashtags():
     """Passando de 15 o YouTube ignora TODAS, não só o excedente."""
     hashtags = [f"#tag{n}" for n in range(40)]
@@ -174,11 +211,17 @@ def test_descricao_longa_e_cortada():
 
 
 def test_pauta_sem_hashtags_nao_quebra():
+    # A intenção deste teste é "campo nulo não derruba o upload", e ela continua
+    # valendo. O que mudou na R32: sem hashtags e sem tema ainda sobra a tag de
+    # FORMATO, que não vem do banco — declarar que o vídeo é um Short não depende
+    # de a pauta ter sido bem preenchida.
     corpo = youtube.montar_corpo(
-        {"titulo": "x", "descricao": None, "hashtags": None}, _quando(), "22"
+        {"titulo": "x", "descricao": None, "hashtags": None, "tema": None},
+        _quando(),
+        "22",
     )
-    assert corpo["snippet"]["tags"] == []
-    assert corpo["snippet"]["description"] == ""
+    assert corpo["snippet"]["tags"] == [youtube.TAG_FORMATO]
+    assert corpo["snippet"]["description"] == f"#{youtube.TAG_FORMATO}"
 
 
 def test_idioma_declarado_como_en_us():

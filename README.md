@@ -32,24 +32,31 @@ Fundação. O que existe:
 |---|---|
 | `ATMOSFERA_PIPELINE.md` | documento mestre — fonte da verdade |
 | `CLAUDE.md` | constituição para o Claude Code (importa o mestre) |
-| `supabase/migrations/20260801_000_init_pipeline.sql` | schema inicial: `pautas`, `videos`, `publicacoes` + RLS + RPCs |
-| `.env.example` | contrato de variáveis (worker e painel) |
-
-Ainda **não** existe: `worker/`, `painel/`, `memory/`, `docs/`. Vêm pelas sprints
-da seção 5 do documento mestre, uma por vez.
+| `supabase/migrations/` | o schema, uma migration por rodada — a primeira é `20260801000000_init_pipeline.sql` |
+| `worker/` | o worker Python que renderiza e publica (roda no PC) |
+| `painel/` | o painel Next.js do gate humano (Vercel) |
+| `worker/.env.example` | contrato de variáveis do worker |
+| `specs/_manual.md` | os passos que só uma pessoa pode dar (credencial, portal, footage) |
 
 ## Setup
 
 ```bash
-# 1. rodar a migration no Supabase (SQL Editor ou CLI)
+# 1. rodar as migrations no Supabase
 supabase db push
+supabase db advisors --linked                              # alvo: No issues found
+supabase db query --linked -f supabase/tests/rls_test.sql  # alvo: todos ✅
 
-# 2. criar usuário de teste com app_metadata.org_id e confirmar que
-#    o RLS bloqueia leitura de outra org  ← não pule esta etapa
-
-# 3. worker (quando existir)
-cp .env.example worker/.env    # preencher SUPABASE_SERVICE_ROLE_KEY e ORG_ID
+# 2. worker
+cp worker/.env.example worker/.env   # preencher SUPABASE_SERVICE_ROLE_KEY e ORG_ID
+cd worker && uv run python -m pytest tests/ -q
 ```
+
+O `worker/.env.example` é o **único** contrato de variáveis vivo. Houve um
+`.env.example` na raiz até a R32: ele nomeava quatro variáveis que código nenhum
+lia (`MPT_API_URL`, `YOUTUBE_TOKEN_PATH`, …) e faltavam nele as que o worker de
+fato exige, então copiá-lo produzia um `.env` que falha na largada — com nomes
+plausíveis, que é o pior jeito de falhar. Foi apagado, não corrigido: dois
+contratos para a mesma coisa divergem de novo na primeira rodada.
 
 `SUPABASE_SERVICE_ROLE_KEY` ignora RLS por design. Fica **só** no `.env` do
 worker, no PC local. Nunca no painel, nunca na Vercel, nunca no git.

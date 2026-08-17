@@ -68,6 +68,24 @@ LIMITE_DESCRICAO = 5_000
 LIMITE_TAGS_CHARS = 500
 MAX_HASHTAGS = 15  # acima disso o YouTube ignora TODAS as hashtags da descrição
 
+# Palavras que nunca viram tag sozinhas. A lista é curta de propósito: só o que
+# é gramática pura em inglês. Filtrar por "palavra genérica" seria opinião, e
+# opinião num filtro mecânico envelhece sem ninguém perceber.
+VAZIAS = frozenset(
+    """a an the and or but if of to in on at by for with from as is are was were
+    be been being this that these those it its you your i me my we our they them
+    their he she his her not no do does did done how what when where why who
+    can will just than then so very more most much many what's don't won't""".split()
+)
+
+# O teto de tags derivadas do tema. Três é o que cabe sem empurrar as da marca
+# para fora do limite de 500 caracteres, e tag demais dilui em vez de somar.
+MAX_TAGS_DO_TEMA = 3
+
+# A tag do formato. Não é da marca e não vem do banco: é a declaração de que o
+# vídeo é um Short, e até aqui NENHUM vídeo do canal carregava ela.
+TAG_FORMATO = "Shorts"
+
 # 8 MB por pedaço. Os vídeos daqui têm ~5 MB, então na prática o upload é um
 # request só; o modo resumable existe pelo retry, que reaproveita a mesma
 # sessão de insert e por isso NÃO cobra cota de novo.
@@ -173,16 +191,49 @@ def _cortar(texto: str, limite: int) -> str:
     return texto[: limite - 1].rstrip() + "…"
 
 
-def montar_tags(hashtags: list[str] | None) -> list[str]:
+def tags_do_tema(tema: str | None) -> list[str]:
+    """As palavras do tema que valem como tag — o único metadado que varia.
+
+    Até aqui todo vídeo do canal subia com as MESMAS cinco tags da marca, nenhuma
+    delas sobre o assunto do vídeo. Isso é metade da definição operacional de
+    "generic or unoriginal template … impression of mass production" da política
+    de conteúdo inautêntico do YouTube, e a outra metade é visual (`postprocess`).
+
+    Derivar aqui, e não pedir ao modelo, é deliberado: a regra 8 de
+    `00_IDENTIDADE.md` proíbe o **modelo** escrever hashtag (ele inventa tag que
+    não existe e gasta atenção que devia ir para o hook). Não proíbe o publisher
+    ler o tema que o modelo já escreveu. Mecânico, testável, sem chamada de LLM.
+    """
+    palavras: list[str] = []
+    vistas: set[str] = set()
+    for bruta in _limpar(tema).lower().split():
+        # Só letras e dígitos: pontuação encostada ("discipline," / "—habit")
+        # viraria tag distinta da mesma palavra e estouraria a deduplicação.
+        palavra = "".join(c for c in bruta if c.isalnum())
+        if len(palavra) < 3 or palavra in VAZIAS or palavra in vistas:
+            continue
+        vistas.add(palavra)
+        palavras.append(palavra)
+        if len(palavras) == MAX_TAGS_DO_TEMA:
+            break
+    return palavras
+
+
+def montar_tags(hashtags: list[str] | None, extras: list[str] | None = None) -> list[str]:
     """`['#mindset', ...]` → `['mindset', ...]`, sem repetir e dentro do teto.
 
     `snippet.tags` não usa `#` — o caractere conta no limite de 500 e não vira
     hashtag clicável. Quem vira hashtag é o que está na descrição.
+
+    `extras` entram ANTES das da marca e já sem `#`: são as que variam por vídeo
+    (tema + `Shorts`), e no dia em que o limite de 500 caracteres apertar é a
+    quinta repetição da mesma tag de marca que deve cair, não a única tag que
+    descreve este vídeo.
     """
     vistas: set[str] = set()
     tags: list[str] = []
     total = 0
-    for bruta in hashtags or []:
+    for bruta in [*(extras or []), *(hashtags or [])]:
         tag = _limpar(bruta).lstrip("#").strip()
         if not tag or tag.lower() in vistas:
             continue
@@ -194,16 +245,24 @@ def montar_tags(hashtags: list[str] | None) -> list[str]:
     return tags
 
 
-def montar_descricao(descricao: str | None, hashtags: list[str] | None) -> str:
+def montar_descricao(
+    descricao: str | None,
+    hashtags: list[str] | None,
+    extras: list[str] | None = None,
+) -> str:
     """Descrição da pauta + hashtags, cortada no limite da API.
 
     As hashtags entram com `#` aqui (é o que o YouTube mostra acima do título) e
     no máximo 15: passando disso ele ignora **todas**, não só o excedente.
+
+    `extras` chegam sem `#` (são as mesmas do `snippet.tags`) e ganham o `#`
+    aqui. Vêm primeiro pelo mesmo motivo das tags: são as que descrevem ESTE
+    vídeo, e o YouTube mostra as três primeiras acima do título.
     """
     corpo = _limpar(descricao)
-    marcadas = [
-        t for t in (_limpar(h) for h in (hashtags or [])) if t.startswith("#")
-    ][:MAX_HASHTAGS]
+    deste_video = [f"#{_limpar(e).lstrip('#')}" for e in (extras or []) if _limpar(e)]
+    da_marca = [t for t in (_limpar(h) for h in (hashtags or [])) if t.startswith("#")]
+    marcadas = [*deste_video, *da_marca][:MAX_HASHTAGS]
     if marcadas:
         corpo = f"{corpo}\n\n{' '.join(marcadas)}".strip()
     return _cortar(corpo, LIMITE_DESCRICAO)
@@ -212,14 +271,18 @@ def montar_descricao(descricao: str | None, hashtags: list[str] | None) -> str:
 def montar_corpo(pauta: dict[str, Any], publicar_em: datetime, categoria: str) -> dict:
     """Monta o recurso `Video` do insert. Puro — dá para testar sem rede."""
     titulo = _limpar(pauta.get("titulo")) or _limpar(pauta.get("tema")) or "Atmosfera"
+    # Derivadas uma vez e usadas nos dois lugares: `snippet.tags` (que ninguém vê,
+    # mas o algoritmo lê) e a descrição (que o espectador vê acima do título).
+    # Divergir entre os dois seria dizer duas coisas sobre o mesmo vídeo.
+    extras = [*tags_do_tema(pauta.get("tema")), TAG_FORMATO]
 
     return {
         "snippet": {
             "title": _cortar(titulo, LIMITE_TITULO),
             "description": montar_descricao(
-                pauta.get("descricao"), pauta.get("hashtags")
+                pauta.get("descricao"), pauta.get("hashtags"), extras=extras
             ),
-            "tags": montar_tags(pauta.get("hashtags")),
+            "tags": montar_tags(pauta.get("hashtags"), extras=extras),
             "categoryId": categoria,
             # Canal virou en-US (Rodada 5). Estes dois campos dizem ao YouTube
             # o idioma do metadado e do áudio — é o que ajuda o algoritmo a

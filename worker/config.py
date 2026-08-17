@@ -23,6 +23,21 @@ RAIZ = Path(__file__).resolve().parent
 # (▯▯) e ninguém percebe até olhar o vídeo pronto. A msyhbd vem com o Windows.
 FONTE_ASSINATURA_PADRAO = Path(r"C:\Windows\Fonts\msyhbd.ttc")
 
+# A voz e o idioma do vídeo, como CONSTANTES e não literais soltos no `carregar`.
+#
+# Até a R32 o default da voz era `pt-BR-AntonioNeural-Male` e o do idioma era
+# `en-US` — os dois no mesmo `return`, a nove linhas de distância, discordando um
+# do outro desde que o canal virou inglês na R5. O defeito é MUDO nas duas pontas:
+# quem tem a linha no `.env` nunca vê, e quem não tem (instalação nova, ou o Task
+# Scheduler subindo com outro ambiente) renderiza narração em português com
+# legenda inglesa, sem nenhuma camada reclamando.
+#
+# Como constantes, o par vira testável — `test_config.py` cobra que os dois
+# concordem —, e a próxima troca de idioma do canal falha no teste em vez de
+# falhar no vídeo publicado.
+VOZ_PADRAO = "en-US-AndrewMultilingualNeural-Male"
+IDIOMA_PADRAO = "en-US"
+
 
 class ConfigInvalida(RuntimeError):
     """Config ausente ou malformada. A mensagem nunca contém valores."""
@@ -324,10 +339,10 @@ def carregar(env_path: Path | None = None) -> Config:
         output_dir=output_dir,
         mpt_url=mpt_url,
         mpt_timeout_seg=_inteiro("MPT_TIMEOUT_SEG", 1200),
-        mpt_voz=_texto("MPT_VOZ", "pt-BR-AntonioNeural-Male"),
+        mpt_voz=_texto("MPT_VOZ", VOZ_PADRAO),
         mpt_fonte=_texto("MPT_FONTE", "MicrosoftYaHeiBold.ttc"),
         mpt_video_source=mpt_video_source,
-        mpt_video_language=_texto("MPT_VIDEO_LANGUAGE", "en-US"),
+        mpt_video_language=_texto("MPT_VIDEO_LANGUAGE", IDIOMA_PADRAO),
         ffmpeg_bin=_binario("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=_binario("FFPROBE_BIN", "ffprobe"),
         fonte_assinatura=fonte_assinatura,
@@ -343,8 +358,16 @@ def carregar(env_path: Path | None = None) -> Config:
         tiktok_redirect_uri=_texto("TIKTOK_REDIRECT_URI", ""),
         batimento_seg=_inteiro("BATIMENTO_SEG", 60),
         ollama_url=ollama_url,
-        ollama_model=_texto("OLLAMA_MODEL", "llama3.1"),
-        pauta_local_n=_inteiro("PAUTA_LOCAL_N", 15),
+        # `qwen2.5` e não `llama3.1`: TODAS as medições das R26–R31 (forma do
+        # roteiro, fecho, cópia do few-shot, duração) foram feitas no qwen2.5, e
+        # o `.env.example` já recomendava ele. Um default que contradiz a medição
+        # é uma medição que não vale para quem não editou o `.env`.
+        ollama_model=_texto("OLLAMA_MODEL", "qwen2.5"),
+        # 6 e não 15: o teto de publicação do YouTube é 6/dia (aritmética de cota,
+        # `youtube.py`). Gerar 15 por slot × 3 slots = 45 pautas/dia para publicar
+        # 6 não vira alcance — vira backlog envelhecendo na revisão, e o gate
+        # editorial da R25 vira carimbo quando o dono encara 20 roteiros de uma vez.
+        pauta_local_n=_inteiro("PAUTA_LOCAL_N", 6),
         pauta_local_teto=_inteiro("PAUTA_LOCAL_TETO", 20),
         pauta_local_candidatos=_inteiro("PAUTA_LOCAL_CANDIDATOS", 18),
         pauta_local_refinar=_booleano("PAUTA_LOCAL_REFINAR", True),

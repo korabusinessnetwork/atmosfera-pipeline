@@ -1044,7 +1044,7 @@ if __name__ == "__main__":
 | TikTok não auditado | Direct post forçado em SELF_ONLY (server-side) | Pipeline "funciona" e gera zero views |
 | TikTok rate limit | 6 requests/min por access_token | 429 |
 | Quota YouTube Analytics API | Separada e ampla (dezenas de milhares de requests/dia) | Sem teto em código: 1 request por vídeo publicado fica muito abaixo (Rodada 11) |
-| Rótulo de IA | Obrigatório nas duas plataformas | Remoção do conteúdo |
+| Rótulo de IA | Obrigatório nas duas plataformas | Remoção do conteúdo **ou suspensão do YPP** — e o rótulo **não** custa alcance: *"a disclosure label alone does not change how a video is recommended or whether it's eligible to earn money"* (apurado na R32) |
 | Conteúdo repetitivo em massa | Política de conteúdo inautêntico do YouTube | Desmonetização do canal |
 | Tarefa do Task Scheduler | Morta em **72 h** se `ExecutionTimeLimit` não for zerado | Worker some no terceiro dia, e o agendador registra "concluída com êxito" |
 
@@ -1092,6 +1092,8 @@ if __name__ == "__main__":
 [x] 23. Ancorar a régua do juiz (R30) — HIPÓTESE REPROVADA (1h)    ← 665 testes, ZERO mudança de código; 2 tiragens × 2 braços, 104 pontuações
 [x] 24. Duração mínima de 30s (R31)                        (1h30)  ← 691 testes, sem migration; alvo em PALAVRAS, exemplos-ouro estendidos, auto-reprovação
 [ ] 24b. Limpar a fila e as pautas do alvo antigo           (10 min) ← SEU: controle.py → 🧹 limpar fila + descartar as pautas com ⚠, ver specs/_manual.md §17
+[x] 25. Rótulo de IA apurado + variação por vídeo (R32)     (2h)     ← 703 testes, 1 migration (só `set default`), rls_test segue 69; premissa do rótulo REPROVADA com fonte
+[ ] 25b. Aplicar a migration das hashtags + os 3 passos que destravam tudo (30 min) ← SEU: db push, e H1/H2/H3 do specs/rotulo-de-ia-e-variacao-por-video.md §6
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1342,6 +1344,45 @@ taxa de 2,8 palavras/s é **inferida** dos exemplos-ouro das duas épocas, não
 cronometrada. O § 2 do spec diz como trocá-la por medição real assim que houver uma
 dúzia de vídeos novos — `duracao_seg ÷ palavras(roteiro)`, um número só a mexer.
 Detalhe em `specs/duracao-minima-de-30s.md` e `specs/_manual.md` § 17.
+
+**Item 25 — a pergunta era sobre o rótulo de IA, e a resposta estava no lugar errado.**
+Pedido do dono: *"verifica se temos como tirar a marca de IA dos vídeos pro YouTube não
+reter"*. A premissa foi apurada contra a fonte oficial e **reprovada nas duas pontas**.
+Não existe marca dentro do arquivo — varredura por `c2pa`/`xmp`/`provenance` dá zero, e
+o ffmpeg não escreve metadado nenhum; a declaração é **um booleano numa chamada de
+API**. E virá-lo não compra alcance, porque o YouTube diz por escrito que ele não custa
+alcance: *"a disclosure label **alone** does not change how a video is recommended or
+whether it's eligible to earn money"*. Omitir, por outro lado, prevê *"removal of
+content or suspension from the YouTube Partner Program"* — e a detecção automática
+aplica o rótulo assim mesmo, num modo em que o criador **não pode removê-lo**. Ganho
+zero contra perda do canal: `containsSyntheticMedia` fica, e **não** vira `.env`, pelo
+mesmo motivo do teto de 6 uploads.
+
+**O que retém alcance é a política de conteúdo inautêntico**, renomeada de "repetitious
+content" em 2025-07-15, cujo exemplo textual de inelegibilidade ao YPP é *"AI-generated
+content made with generic or unoriginal templates giving the impression of mass
+production"*. O § 7 deste documento já dizia isso desde o dia 1 ("3 a 5 vídeos/dia com
+variação real vale mais que 20 iguais") — o que a rodada descobriu é que **a variação
+real não existia na camada que o espectador vê**: dois vídeos do canal diferiam
+*apenas* pelo texto da legenda. Mesma graduação bit a bit, mesmas 5 hashtags (duas de
+volume zero, uma em português e uma em CJK num canal en-US), mesmo rodapé, nenhuma tag
+sobre o assunto do vídeo, e nenhum vídeo declarando `#Shorts`.
+
+A R32 ataca isso por três lados: **graduação sorteada pelo id do vídeo** (três curvas +
+três vinhetas, `hashlib` e não `hash()` — o hash embutido é semeado por processo, e um
+vídeo refeito tem de voltar igual), **tags derivadas do tema** no publisher (mecânico,
+sem LLM: a identidade proíbe o *modelo* escrever hashtag, não o *publisher* ler o tema
+que ele já escreveu) e **o default de `pautas.hashtags`** reescrito para o canal que
+existe hoje. E consertou três defaults que produziam o artefato errado em silêncio — o
+pior deles, `MPT_VOZ` em **pt-BR** a nove linhas de `MPT_VIDEO_LANGUAGE` em **en-US**,
+discordando desde a R5.
+
+**O que NÃO está provado:** nenhum vídeo foi renderizado — as três graduações estão
+provadas como *string de filtro*, não como imagem, e o banco de material local segue
+preto (item 7). A migration não foi aplicada. E o efeito das tags em alcance é
+raciocínio de produto, **sem fonte oficial** — o que tem fonte é a política. Detalhe em
+`specs/rotulo-de-ia-e-variacao-por-video.md`; os três passos que destravam tudo (OAuth
+morto, migration da R29 antes do 🧹, footage) estão no § 6 de lá.
 
 **Onde cada coisa é operada, porque isto já confundiu.** O projeto tem **dois**
 painéis e eles não competem: `worker/controle.py` (Tkinter, no PC, `service_role`)

@@ -800,3 +800,88 @@ verdade: `duracao_seg` está em `videos` e o roteiro na pauta, então
 `duracao_seg ÷ palavras(roteiro)` é a taxa real. Se ela cair longe de 2,8, mude
 `PALAVRAS_POR_SEG` — é o único número a mexer, e todo o resto (mínimo de palavras,
 alvo do prompt, aviso da revisão) se ajusta sozinho.
+
+---
+
+## 18. Rótulo de IA e variação por vídeo (Rodada 32)
+
+### 18.1 A resposta sobre "tirar a marca de IA" — não faça
+
+Você pediu para verificar se dá para tirar. **Dá, e não deve.** Apurado na fonte
+oficial, com citação em `specs/rotulo-de-ia-e-variacao-por-video.md` § 1:
+
+- **Não existe marca dentro do arquivo.** O mp4 não carrega C2PA, nem XMP, nem nada
+  de IA — o ffmpeg do pós-processo não escreve metadado. A declaração é **um booleano
+  numa chamada de API** (`containsSyntheticMedia`), e é a única coisa que existe para
+  "tirar".
+- **O rótulo não custa alcance.** O YouTube: *"a disclosure label alone does not change
+  how a video is recommended or whether it's eligible to earn money."*
+- **Omitir custa o canal:** *"removal of content or suspension from the YouTube Partner
+  Program"* — e o YouTube aplica o rótulo **sozinho** por detecção automática, num modo
+  em que você **não pode removê-lo**.
+
+Ganho zero contra perda do canal. O código continua declarando, e isso não é
+configurável de propósito.
+
+### 18.2 Aplicar a migration (5 min)
+
+```bash
+supabase db push
+supabase db advisors --linked                              # alvo: No issues found
+supabase db query --linked -f supabase/tests/rls_test.sql  # alvo: 69 ✅
+```
+
+A migration nova (`20260817143000_hashtags_do_canal_en_us`) só troca o **default** da
+coluna `pautas.hashtags` e escreve um `comment`. Não cria objeto, não toca política —
+por isso o `rls_test` segue em 69 casos. As pautas **já escritas não mudam**: hashtag é
+conteúdo, e reescrever conteúdo por migration é o tipo de coisa que ninguém revisa em
+diff. As novas nascem certas, e o publisher já deriva tag do tema mesmo nas antigas.
+
+### 18.3 Os três passos que destravam tudo — nesta ordem
+
+Nenhuma correção de código adianta antes destes.
+
+**1. O OAuth do YouTube provavelmente está morto, e falha em silêncio.** O item 9b foi
+feito em 2026-08-04; com o app em *Testing*, o refresh token expira em **7 dias**. O
+modo de falha é o pior possível: o canal vira "desligado", os vídeos aprovados ficam em
+`aprovado` para sempre, **nada** vai para `erro`, nenhum contador sobe e o `saude.py`
+imprime SAUDÁVEL — porque o loop está girando. O único vestígio é um `log.warning`.
+
+No `console.cloud.google.com`, marque o app como **"In production"** (remove o prazo de
+7 dias de vez), e depois:
+
+```bash
+cd worker && uv run autorizar_youtube.py
+```
+
+Isso resolve o item 14b no mesmo ato — o autorizador já pede o escopo de analytics.
+
+**2. Aplique a migration da R29 ANTES de clicar em 🧹 limpar fila.**
+`20260808130000_limpar_fila_respeita_terminal.sql` está no disco desde 2026-08-08 e a
+última verificação de banco registrada é de 2026-08-06. Com a versão antiga da função,
+limpar a fila recria vídeo para pauta **`consumida`** — conteúdo **já publicado**
+renderiza e sobe de novo. Conteúdo duplicado é justamente o gatilho da política de
+conteúdo inautêntico, e o castigo dela é o canal, não o vídeo. O `db push` do § 18.2 já
+aplica as duas.
+
+**3. Footage de verdade.** Os 3 clipes em `MoneyPrinterTurbo/storage/local_videos/` são
+pretos (o pixel mais claro do frame inteiro fica em 36–41 de 255), e a R31 triplicou a
+duração sem ninguém tocar no material: um vídeo de 35s com cortes de 4s recicla os
+mesmos 3 clipes ~3 vezes. Ou solte `.mp4` verticais de verdade nessa pasta, ou ponha a
+chave gratuita do Pexels no `config.toml` do MPT (§ da Rodada 6) e deixe o Ollama de pé.
+
+**Enquanto isso não acontecer, a variação de graduação da R32 não é avaliável** — três
+curvas diferentes sobre tela preta continuam dando tela preta.
+
+### 18.4 O que mudou no que você vê
+
+- **`/pautas` no celular agora mostra `≈34s · 95 palavras`**, com `⚠` em vermelho
+  quando o roteiro não alcança 30s — o mesmo número que o painel local já mostrava. É
+  aviso, não bloqueio: o botão de enfileirar continua ali, porque a estimativa é
+  pessimista de propósito e a decisão é sua.
+- **Os vídeos deixam de sair todos com a mesma cor.** Três graduações, sorteadas pelo id
+  do vídeo. Um vídeo reprovado e re-renderizado volta com **a mesma** cor de antes.
+- **As hashtags publicadas mudam por vídeo:** até 3 palavras tiradas do tema da pauta,
+  mais `#Shorts` (que nenhum vídeo do canal carregava), mais as da marca. Saíram
+  `#disciplina` (português num canal inglês) e `#亡者` — a assinatura continua **no
+  pixel**, queimada no canto, que é onde ela sempre funcionou.

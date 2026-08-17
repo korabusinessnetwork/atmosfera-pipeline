@@ -140,6 +140,65 @@ class TestMontarFiltro:
         assert "black@" not in caixa
 
 
+class TestVariacaoPorVideo:
+    """R32: dois vídeos do canal não podem mais diferir só pelo texto da legenda.
+
+    O alvo não é estético — é a política de conteúdo inautêntico do YouTube, que
+    nomeia "generic or unoriginal templates giving the impression of mass
+    production" como inelegível ao YPP.
+    """
+
+    FONTE = Path(r"C:\Windows\Fonts\msyhbd.ttc")
+
+    def test_mesma_semente_da_sempre_a_mesma_cor(self):
+        # O ponto mais importante da rodada. `hash()` embutido é semeado por
+        # processo desde a 3.3: com ele, o MESMO vídeo re-renderizado depois de um
+        # reinício sairia com outra graduação, e "por que este ficou diferente?"
+        # viraria arqueologia. Um vídeo reprovado e refeito volta igual.
+        semente = "cf3b2376-0000-4000-8000-000000000001"
+        assert pp.escolher_variacao(semente) == pp.escolher_variacao(semente)
+
+    def test_sementes_diferentes_espalham_pelas_graduacoes(self):
+        # Não basta variar: tem que cobrir o conjunto. Uma escolha que caísse
+        # sempre na mesma graduação passaria no teste acima e não teria mudado nada.
+        vistos = {pp.escolher_variacao(f"video-{n}")[0] for n in range(60)}
+        assert vistos == {nome for nome, _ in pp.GRADUACOES}
+
+    def test_sem_semente_e_a_graduacao_da_sprint_3(self):
+        # Quem chamar sem id recebe o comportamento de antes desta rodada, não
+        # uma surpresa. A original é a referência da qual as outras derivam.
+        nome, curva, _ = pp.escolher_variacao(None)
+        assert (nome, curva) == pp.GRADUACOES[0]
+
+    def test_a_semente_muda_a_cor_do_filtro_de_verdade(self):
+        # Ligado ponta a ponta: a escolha precisa chegar na string do ffmpeg, não
+        # ficar num helper que ninguém usa.
+        filtros = {
+            pp.montar_filtro(None, self.FONTE, semente=f"v{n}") for n in range(60)
+        }
+        assert len(filtros) > 1
+
+    def test_toda_graduacao_mantem_a_identidade_do_canal(self):
+        # As três são variações da MESMA identidade, não três visuais. Em todas o
+        # preto sobe no azul (sombra fria) e nenhum canal estoura em 1.0 — que é o
+        # que o `noise=alls=6` consegue ditherizar sem banding.
+        for nome, curva in pp.GRADUACOES:
+            pretos = {
+                canal: float(curva.split(f"{canal}='")[1].split("/")[1].split(" ")[0])
+                for canal in ("r", "g", "b")
+            }
+            assert pretos["b"] > pretos["r"], f"{nome}: sombra não é fria"
+            assert pretos["b"] > pretos["g"], f"{nome}: sombra não é fria"
+            assert "1/1.0" not in curva, f"{nome}: highlight estoura em branco"
+
+    def test_a_ordem_causal_nao_varia_com_a_semente(self):
+        # A rodada tirou a aparência de fotocópia; não afrouxou a cadeia que a
+        # Sprint 3 mediu. Graduação → grão → vinheta, em qualquer semente.
+        for n in range(30):
+            f = pp.montar_filtro(None, self.FONTE, semente=f"v{n}")
+            assert f.index("curves") < f.index("noise") < f.index("vignette")
+
+
 class TestMontarComando:
     def test_parametros_do_entregavel(self):
         cmd = pp.montar_comando(Path("ffmpeg"), Path("a.mp4"), Path("b.mp4"), "null")
