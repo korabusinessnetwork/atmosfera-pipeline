@@ -9,6 +9,66 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 31 — `obra/`: vídeo off-grid de 13 clipes, sem narração · 2026-08-31
+
+- Spec: `specs/obra-offgrid-13-clipes.md` · Manual: `specs/_manual.md` § 17
+- **Pedido do dono:** *"transformar o atmosfera pipeline nisso aqui, criar videos de
+  bunkers e cavernas, de construção (…) não precisa automatizar a postagem, só
+  precisa ser um video bom para se tornar viral e eu mesmo postar, não precisa de
+  narração apenas musica e som de ambiente"*. Documento de referência: um playbook
+  do formato Aiworkflows2. **Correção no meio da rodada:** *"não quero música só som
+  ambiente mesmo"* — o caminho de música saiu inteiro do módulo.
+- **O que entrou:** `obra/`, módulo NOVO e independente (10 arquivos + 11 de teste).
+  Não toca Supabase, fila, gate nem publicação. `projeto.toml` via `tomllib`
+  (zero dependência de runtime), catálogo de 6 cenários com 13 estágios cada,
+  prompts puros, encadeamento pelo último frame, laudo mecânico e montagem numa
+  passada de encode com loudness em duas passadas.
+- **Portões:** **792 testes** · zero dependência de runtime · `worker/`, `painel/` e
+  `supabase/` intocados (`git status` vazio neles) · sem migration (o módulo não tem
+  banco).
+- **O gargalo mudou de lugar, e isso redesenhou tudo.** No pipeline velho o render
+  era grátis e ilimitado; aqui **cada clipe custa um dia de crédito** de uma
+  ferramenta web grátis. Consequências que viraram regra: nada é apagado
+  automaticamente, a conferência vem antes do próximo crédito, e sinal mecânico
+  ordena e alerta mas **nunca veta**.
+- **Três defeitos atravessaram uma suíte verde**, todos achados rodando ffmpeg de
+  verdade: áudio saindo **mono** (faltava `aformat`), a **96 kHz** (faltava
+  `aresample` depois do loudnorm) e **deslizando 351 ms** do corte, acumulado.
+  Nenhum tem substring para procurar — **teste de comando confere o que o comando
+  diz, não o que ele omite nem em que ordem.**
+- **O deslize é o achado técnico da rodada.** Toda emenda de loop de mp3 perde o
+  decoder delay do LAME (1105 amostras, 25,06 ms), o `atrim` corta por PTS e o PTS
+  já vem com o buraco. Com 13 ramos concatenados, acumula. A correção é **ordem**:
+  `asetpts=N/SR/TB,apad,atrim=0:D` — o `asetpts` antes do corte. Medido contra três
+  variantes; a intuitiva (`atrim,apad,atrim`) **não** funciona.
+- **E dois defeitos no próprio material de teste**, que desarmavam os detectores que
+  ele existe para exercitar: `drawbox=x='120+150*t'` não move nada (em `drawbox`
+  `t` é a **espessura da borda**, não o tempo — expressão aceita, avaliada uma vez),
+  e a cor da descontinuidade tinha luma 50,8 contra 49,0 do fundo: cenas diferentes
+  para o olho, quase idênticas para o PSNR. **Fixture precisa ser validado contra o
+  detector antes de validar o detector.**
+- **Um terceiro do mesmo tipo, do lado do prompt:** `PRESERVAR` era uma constante
+  única escrita para a caverna e aplicada aos seis cenários — cinco mandavam
+  preservar teto de rocha em concreto e aço. Constante compartilhada por N cenas
+  carrega o vocabulário da primeira. Mesma família do "exemplo concreto vira
+  gabarito" da R26/R27, agora do lado da **instrução**.
+- **Provado ponta a ponta, não só em teste:** 3 defeitos plantados → 3 avisos no
+  laudo (congelado 71,12 dB contra 24,6 dos outros; descontinuidade 8,19 contra
+  20–23); `final.mp4` com **vídeo e áudio ambos em 59,800000s**, estéreo 48 kHz,
+  −14,0 LUFS; e cada estágio dominando a **própria** frequência por ~30 dB na
+  janela certa, com o estágio sem arquivo ausente em −46,3 dB.
+- **Commit:** `c994f74` na `main` (push direto autorizado).
+- **Pendente de decisão:** nenhuma.
+- **Passos do dono:** baixar os clipes pela ferramenta web (é a fronteira do
+  módulo) e o som de obra para `audio/ambiente/`. Depois dos dois primeiros
+  vídeos, calibrar `OBRA_PSNR_CONGELADO` e `OBRA_PSNR_DESCONTINUIDADE` — os
+  limiares são proxy não calibrado, e o laudo diz isso na tela.
+- **Próximo item recomendado:** rodar o primeiro vídeo de verdade. Tudo o que falta
+  é material, não código — e é o material que vai dizer se os dois limiares estão
+  em qualquer lugar perto do certo.
+
+---
+
 ## Rodada 30 — ancorar a régua do juiz · 2026-08-08 · **HIPÓTESE REPROVADA**
 
 - Spec: `specs/juiz-usa-a-escala.md`
