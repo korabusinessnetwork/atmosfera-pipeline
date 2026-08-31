@@ -743,3 +743,155 @@ quando você quer só tocar a fila —, mas o caminho normal desta rodada é o �
 no banco, desatrelada: religar é recriar um trigger de cinco linhas
 (`after insert on public.pautas when (new.status = 'pronta' and new.origem in (...))`).
 O comentário da função no banco guarda a receita.
+
+---
+
+## 17. `obra/` — vídeo off-grid de 13 clipes, sem narração (Rodada 31)
+
+Você pediu para transformar o pipeline em vídeos de **bunker e caverna, de
+construção**: sem narração, só música e som de obra, e **você mesmo posta**.
+
+Isso não é uma mudança do worker — é um **módulo novo e separado**, `obra/`. O
+pipeline antigo continua inteiro no lugar; ele não custa nada parado, e o formato
+antigo pode voltar quando você quiser. O `obra/` **não fala com o Supabase**, não
+tem fila, não tem gate e não publica nada.
+
+### 17.1 O que a máquina faz e o que é seu
+
+A parte criativa roda em **ferramenta web grátis** (Dreamina/Seedance, Gemini,
+Hailuo) — elas não têm API grátis, e dirigi-las por robô fere ToS e queima conta.
+Então a divisão é esta, e ela é a fronteira do módulo, não uma dívida:
+
+| Quem | Faz |
+|---|---|
+| **`obra/`** | escreve os prompts, extrai o frame que encadeia um clipe no outro, confere os clipes, monta o vídeo com áudio no volume certo |
+| **você** | cola o prompt na ferramenta, baixa o mp4, salva com o nome que o comando mandou |
+
+### 17.2 Instalar (uma vez)
+
+```bash
+cd obra && uv sync --group dev
+```
+
+O ffmpeg já está nesta máquina e o módulo o acha sozinho. Se um dia não achar,
+exporte `FFMPEG_BIN` — o mesmo caminho que já está no `worker/.env`.
+
+### 17.3 Criar o projeto
+
+```bash
+cd obra && uv run montar.py novo meu-bunker --cenario bunker
+```
+
+Cenários prontos: `mud-cave` (o do playbook, literal), `bunker`, `container`,
+`ruina`, `caixa-dagua`, `arvore-oca`. Cada um traz os 13 estágios escritos.
+
+Isso cria `obra/projetos/meu-bunker/` com `projeto.toml`, que é a fonte da
+verdade dos prompts. **Abra e leia** — é onde você muda o cenário, a ficha do
+personagem ou qualquer estágio. O texto usa `''' … '''`, então nada precisa de
+escape; a única coisa proibida dentro do texto é três aspas simples seguidas.
+
+### 17.4 O ciclo do dia a dia
+
+```bash
+cd obra && uv run montar.py proximo
+```
+
+Ele diz qual estágio falta, imprime o prompt pronto e — do estágio 2 em diante —
+o caminho do **frame para anexar**. Você cola na ferramenta, gera, baixa e salva
+com o nome exato que ele mandou (`clips/clip_07.mp4`). Roda de novo. Treze vezes.
+
+**Por que o frame:** é ele que trava cenário, luz e roupa. Gerando as 13 imagens
+do zero, cada uma vem com uma caverna diferente e o vídeo desmonta.
+
+Com 2 a 3 clipes/dia numa conta, um vídeo sai em ~5 dias. Com 3 serviços em
+paralelo, 1 a 2 dias — quantas contas você abre é decisão sua, não do módulo.
+
+### 17.5 Conferir antes de gastar o crédito do dia
+
+```bash
+cd obra && uv run montar.py checar
+```
+
+Ele mede o que dá para medir (duração, enquadramento, fps) e mais **dois sinais
+que ninguém confere a olho**: clipe **congelado** (nada se moveu) e **cena que
+mudou** entre um clipe e o seguinte — que é a falha número um deste formato.
+
+**Os dois limiares são chute calibrável, e o laudo diz isso na cara.** Não há
+material real deste formato aqui para calibrá-los, então o laudo **imprime o
+número medido ao lado do aviso**: depois dos dois primeiros vídeos você vai saber
+onde eles deveriam estar, e ajusta por `OBRA_PSNR_CONGELADO` e
+`OBRA_PSNR_DESCONTINUIDADE`. **Nada é apagado nem bloqueado por causa deles** —
+clipe custa um dia de crédito, então a máquina avisa e você decide.
+
+O laudo termina com o checklist humano (roupa e boné iguais, rosto nunca nítido,
+mão sem dedo a mais, sem movimento de câmera) — o que a máquina não mede.
+
+### 17.6 O áudio — e por que ele virou a parte importante
+
+**Não há música.** Você decidiu: só som ambiente. Isso simplifica o módulo e
+muda uma coisa que vale entender: **o ambiente passou a ser 100% do áudio.** No
+formato de referência a música carrega o ritmo e o ambiente carrega o realismo.
+Sem música, o ambiente tem de fazer as duas coisas — e um loop único de 60s não
+faz: soa chapado e não marca corte nenhum.
+
+Por isso o som é **por estágio**, casado com a ação do clipe:
+
+```
+projetos/<slug>/audio/
+├── fundo.mp3        # opcional: leito contínuo (vento, gotejar, mata)
+└── ambiente/
+    ├── 01.mp3       # pá raspando barro
+    ├── 04.mp3       # martelo na junta
+    ├── 06.mp3       # rolo de tinta
+    └── 10.mp3       # vassoura
+```
+
+Cada arquivo é ajustado à duração **exata** do clipe e entra na ordem. O som
+troca no mesmo frame em que a imagem corta — num vídeo mudo, é isso que marca o
+ritmo, ou seja, é isso que a música fazia. O `fundo.mp3` entra por baixo dos
+treze e cola os cortes; sem ele os SFX soam como treze arquivos separados, que é
+o que são.
+
+Não precisa dos treze de uma vez. **Um arquivo já liga o modo por estágio** — os
+que faltarem saem com o fundo por baixo, e o `checar` diz quais são. E se você
+não tiver nenhum, ponha um `audio/ambiente.mp3` só: o módulo usa como leito único
+e monta igual. Extensão livre (mp3, wav, m4a, ogg, flac, opus).
+
+```bash
+cd obra && uv run montar.py montar
+```
+
+Sai `final.mp4` em 1080×1920, **estéreo a 48 kHz**, com o loudness medido em duas
+passadas. Medido nesta máquina: 13 clipes viram vídeo em **~12 segundos**.
+
+### 17.7 Duas coisas na hora de postar (as duas custam caro se erradas)
+
+**Se um dia você quiser trilha, ela entra NO APP, não no arquivo.** O módulo não
+monta música e isso é decisão, não limitação: no TikTok o som em alta só conta
+para o algoritmo quando é adicionado lá dentro, e música comercial queimada no
+mp4 rende mute ou strike no YouTube. Você adiciona no editor do app, em 15
+segundos, e o som de obra continua por baixo.
+
+**Marque o rótulo de conteúdo gerado por IA.** É obrigatório nas duas
+plataformas e a consequência de não marcar é remoção. A copy que o playbook
+sugere ("venda como se você tivesse feito") funciona **com** o rótulo marcado —
+a primeira pessoa no passado é o que gera o comentário "isso é IA?", e esse
+comentário é o engajamento; o rótulo não tira isso de você.
+
+### 17.8 Provar o pipeline sem gastar crédito
+
+```bash
+cd obra && uv run scripts/gerar_material_de_teste.py projetos/teste
+```
+
+Fabrica 13 clipes sintéticos e o som por estágio, **com três defeitos plantados
+de propósito**: o clipe 5 congelado, o 9 fora do cenário e o estágio 7 sem
+arquivo de som. Rode o `checar` em cima: ele **tem** de acusar os três. Se ficar
+calado em qualquer um, quem está quebrado é o detector, não o material — é assim
+que você calibra os limiares antes de confiar neles.
+
+O som do fixture é hostil de propósito: durações de 1,1s a 9,0s contra clipes de
+4,6s, tudo mono, em três taxas de amostragem diferentes. É o que um banco de som
+real entrega, e é o que já derrubou este módulo uma vez — a suíte inteira passou
+verde com o vídeo saindo **mono**, porque teste de comando confere o que o
+comando diz e não o que ele omite.

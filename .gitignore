@@ -25,6 +25,13 @@ output/
 # === MoneyPrinterTurbo (vem do Docker, não é nosso código) ===
 MoneyPrinterTurbo/
 
+# === obra/ — material do dono, não código ===
+# Clipe gerado por IA, frame extraído, trilha e o mp4 final. O `*.mp4` acima já
+# pegaria o vídeo, mas frames são .png e trilha é .mp3/.wav — e um projeto
+# inteiro pesa centenas de MB. O `projeto.toml` de cada projeto é o único
+# arquivo que valeria versionar, e ele é regenerável pelo catálogo.
+obra/projetos/
+
 # === Python (worker) ===
 __pycache__/
 *.py[cod]

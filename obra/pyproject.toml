@@ -1,0 +1,23 @@
+[project]
+name = "atmosfera-obra"
+version = "0.1.0"
+description = "Vídeo off-grid de 13 clipes — prompts, encadeamento por frame, laudo e montagem."
+# Mesma versão do worker por hábito da casa, não por dependência: este módulo
+# não importa nada de lá. 3.11 é o piso real — `tomllib` é stdlib a partir dela,
+# e é ele que sustenta a decisão de não ter dependência de runtime nenhuma.
+requires-python = ">=3.11"
+
+# NENHUMA dependência de runtime, e isso é critério de aceite (§ 6.2 da spec).
+# Tudo que o módulo precisa é stdlib (tomllib, subprocess, pathlib, argparse) e
+# o ffmpeg, que é binário do sistema e não pacote Python. Um `pip install` a
+# mais aqui seria uma coisa a manter num módulo que o dono vai operar sozinho.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
