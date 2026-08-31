@@ -22,7 +22,8 @@ Se um estado novo não cabe no `check (status in (...))`, é migration antes de 
 | **Cowork** ~~(aposentado R10)~~ | ~~remoto, agendado~~ | ~~decide: pauta, relatório~~ | — |
 | **Worker** | seu PC (Windows + WSL2), Python 3.11 | executa: render, ffmpeg, upload; decide: pauta e relatório (Ollama local) | abrir porta, receber conexão |
 | **Painel web** (`painel/`) | Vercel, Next.js, anon key | aprova: fila, preview, histórico | usar service_role, operar a máquina |
-| **Painel local** (`worker/controle.py`) | seu PC, Tkinter, service_role | opera: liga/pausa worker, sobe MPT, gera pauta, horários e categorias; **revisa a pauta antes do render** (R25) | aprovar vídeo (o gate é do celular) |
+| **Painel local** (`worker/controle.py`) | seu PC, Tkinter, service_role | opera: liga/pausa worker, sobe MPT, gera pauta, horários e categorias; **revisa a pauta antes do render** (R25); **opera o `obra/` pelo cartão OBRA** (R32) | aprovar vídeo (o gate é do celular) |
+| **`obra/`** (R31) | seu PC, offline, zero dependência | vídeo off-grid: emite prompt, encadeia por frame, confere, monta | tocar Supabase, fila, gate ou publicação |
 
 O worker **só faz saída** (polling). O PC nunca abre porta — isso elimina a
 superfície de ataque inteira, e não é negociável.
@@ -87,6 +88,41 @@ espera o dono ler o roteiro em `controle.py` → **📝 Revisar pautas**. O gate
 **texto** roda no PC (é operação de máquina); o do **vídeo** segue no celular. Quem
 mexer nos geradores lembre que o freio deles conta **vídeo vivo + pauta `pronta`** —
 contar só vídeo pararia de frear no dia em que o trigger saiu, em silêncio.
+
+## `obra/` — a esteira nova, e onde o trabalho está desde 2026-08-31
+
+O dono pediu para o projeto virar **vídeo de construção off-grid**: bunkers e
+cavernas, 13 clipes de ~4,6s, 9:16, **sem narração e sem música** (só som de
+obra), e **ele mesmo posta**. Isso virou `obra/` — módulo novo, e é lá que o
+trabalho novo acontece. Spec: `specs/obra-offgrid-13-clipes.md`; passo a passo do
+dono: `specs/_manual.md` § 17.
+
+**O pipeline antigo continua inteiro e intocado** — `worker/`, `painel/` e
+`supabase/` não mudaram. Ele não custa nada parado e o formato antigo pode voltar.
+Mas demanda de vídeo de construção se responde com `obra/`, nunca com o worker.
+
+Três coisas que mudam os reflexos, e confundi-las custa material:
+
+- **O gargalo trocou de lugar.** No worker o render é grátis e ilimitado; no
+  `obra/` **cada clipe custa um dia de crédito** de uma ferramenta web. Por isso
+  **nada é apagado automaticamente** ali, e sinal mecânico **ordena e alerta,
+  nunca veta** — o oposto do `descartar_bruto` do `postprocess.py`, que está certo
+  onde está.
+- **O `obra/` é offline e sem dependência de runtime.** Não conhece Supabase, não
+  lê `.env`, não tem migration. É o que permite ao painel rodá-lo com o próprio
+  interpretador, sem instalar nada.
+- **O painel fala com ele por SUBPROCESSO, nunca por `import`.**
+  `worker/config.py` e `obra/config.py` têm o mesmo nome de módulo: com os dois no
+  `sys.path`, um vence e o outro recebe a Config do vizinho **em silêncio**. A
+  ponte é `worker/obra_ponte.py`, e a docstring dela tem a medição. A direção é
+  `worker → obra`, só nesse sentido.
+
+**A regra de teste que este módulo ensinou, e que vale para o repositório todo:**
+teste que confere o **texto** de um comando de mídia não vê o que o comando
+**omite** nem em que **ordem** os filtros estão. Três defeitos de áudio (mono,
+96 kHz, 351 ms de deslize) atravessaram 792 testes verdes. O que pega é um arquivo
+saindo do outro lado — por isso existe `obra/scripts/gerar_material_de_teste.py`,
+com defeitos plantados de propósito.
 
 ## Ciclo de trabalho
 

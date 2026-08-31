@@ -263,6 +263,7 @@ atmosfera-pipeline/
 │   ├── producao.py                # relógio 8/14/18h + "gerar agora" (R21)
 │   ├── mpt_supervisor.py          # sobe o MPT oculto, confere, derruba (R21)
 │   ├── controle.py                # painel LOCAL: opera a máquina (Tkinter)
+│   ├── obra_ponte.py              # a ponte para o obra/ — SUBPROCESSO, nunca import
 │   ├── batimento.py               # thread daemon: "o processo está vivo"
 │   ├── saude.py                   # CLI que JULGA o batimento (exit code)
 │   ├── log.py                     # logging estruturado em JSON
@@ -297,6 +298,18 @@ atmosfera-pipeline/
 │   │   ├── saude.ts               # RELATA o batimento (nunca julga)
 │   │   └── storage.ts             # assina o preview na hora de exibir
 │   └── .env.local                 # anon key — NUNCA commitar
+│
+├── obra/                          # R31: vídeo off-grid, OFFLINE e independente
+│   ├── montar.py                  # CLI: novo · listar · proximo · checar · montar
+│   ├── projeto.py                 # projeto.toml (tomllib) ↔ Projeto — o contrato
+│   ├── cenarios.py                # 6 cenários × 13 estágios + a ficha do personagem
+│   ├── prompts.py                 # PURO: os textos que o dono cola na ferramenta
+│   ├── frames.py                  # último frame (é o que encadeia) + PSNR
+│   ├── checar.py                  # laudo: congelado, descontinuidade, som por estágio
+│   ├── montagem.py                # 1 encode + loudnorm em 2 passadas
+│   ├── console.py                 # stdout em UTF-8 (o cp1252 do Windows derruba o →)
+│   ├── scripts/gerar_material_de_teste.py   # fixture COM defeitos plantados
+│   └── projetos/<slug>/           # material do dono (gitignored)
 │
 ├── supabase/
 │   ├── migrations/                # 9 arquivos, carimbados pelo CLI
@@ -1090,6 +1103,9 @@ if __name__ == "__main__":
 [x] 21. Variedade de fecho dentro do lote (R27)            (1h)     ← 652 testes, sem migration; 3 tiragens pareadas de 36 fechos por braço
 [x] 22. A seleção do pool olha o roteiro (R28)             (1h)     ← 665 testes, sem migration; medição pareada com uma passada de modelo
 [x] 23. Ancorar a régua do juiz (R30) — HIPÓTESE REPROVADA (1h)    ← 665 testes, ZERO mudança de código; 2 tiragens × 2 braços, 104 pontuações
+[x] 24. `obra/` — vídeo off-grid de 13 clipes, sem narração (R31) (4h) ← 799 testes, ZERO dependência de runtime, sem migration; provado ponta a ponta contra ffmpeg real
+[x] 25. O `obra/` operado pelo painel local — cartão OBRA (R32) (2h) ← worker 620→741, obra 792→799, sem migration; janela verificada com mainloop real
+[ ] 26. PRIMEIRO VÍDEO OFF-GRID REAL ← marco                  ←── SEU: 13 clipes na ferramenta web + som de obra. Só falta material, não código.
 ```
 
 **Item 15 — a esteira começa sozinha.** Até aqui, pauta nascia de alguém lembrar de
@@ -1315,6 +1331,73 @@ gratuito/local": três vídeos por dia com hook fraco valem menos que nenhum, en
 automática para e diz por quê na tela. No manual o dono está olhando e prefere pauta
 imperfeita a tela vazia. O professor do modelo local continua sendo a **retenção
 real** (a tabela `metricas`, § 9), nunca a imitação do Gemini.
+
+**Item 24 — o projeto virou outra coisa, e o que veio antes continua de pé.**
+Pedido do dono em 2026-08-31: *"criar videos de bunkers e cavernas, de construção
+(…) não precisa automatizar a postagem, só precisa ser um video bom para se tornar
+viral e eu mesmo postar, não precisa de narração apenas (…) som de ambiente"* — e,
+na rodada seguinte, *"não quero música só som ambiente mesmo"*. Isso é o formato
+**off-grid build**: 13 clipes de ~4,6s encadeados, 9:16, mudo, ~60s, com o clipe 13
+voltando ao início para o vídeo dar loop.
+
+Virou `obra/`, **módulo novo e independente** — não toca Supabase, fila, gate nem
+publicação, e não tem dependência de runtime nenhuma. `worker/`, `painel/` e
+`supabase/` ficaram **intocados**: a esteira antiga não custa nada parada e o
+formato antigo pode voltar. Spec em `specs/obra-offgrid-13-clipes.md`; o passo a
+passo do dono em `specs/_manual.md` § 17.
+
+**A fronteira do módulo é deliberada, não uma dívida.** A geração dos clipes roda
+em ferramenta web grátis (Dreamina/Seedance, Gemini, Hailuo) que não tem API
+gratuita; dirigi-las por robô é frágil, fere ToS e queima conta. O humano cola o
+prompt e baixa o mp4 — o módulo faz o resto: emite os prompts (com a ficha do
+personagem e a âncora do cenário), **extrai o último frame** do clipe anterior
+para encadear a cena, confere antes de gastar o próximo crédito, e monta.
+
+**O gargalo mudou de lugar, e isso redesenha os reflexos.** No pipeline antigo o
+render era grátis e ilimitado e o gargalo era a qualidade do hook; aqui **cada
+clipe custa um dia de crédito**. Então: nada é apagado automaticamente, a
+conferência vem antes do próximo crédito, e **sinal mecânico ordena e alerta,
+nunca veta** — a mesma regra da R4/R28, agora com o preço multiplicado.
+
+**Sem música, o ambiente virou 100% do áudio** — e por isso ele é **por estágio**
+(`audio/ambiente/01.mp3` … `13.mp3`, cada um casado com a duração exata do clipe,
+mais um `fundo.mp3` contínuo). Num vídeo mudo é o corte de som que marca o ritmo:
+é o papel que a música faria. Degrada em dois níveis — estágio sem arquivo sai com
+o fundo por baixo, e sem nenhum arquivo por estágio o módulo usa um leito único.
+
+**Três defeitos de áudio atravessaram 792 testes verdes, e a lição é a maior da
+rodada:** o áudio saía **mono** (faltava `aformat`), a **96 kHz** (faltava
+`aresample` depois do `loudnorm`) e **deslizando 351 ms** do corte, acumulado —
+toda emenda de loop de mp3 perde o decoder delay do LAME (25,06 ms), e a correção
+é **ordem de filtro** (`asetpts` antes de `apad` e `atrim`), não filtro novo.
+Nenhum dos três tem substring para procurar: **teste de comando confere o que o
+comando diz, não o que ele omite nem em que ordem.** O que os pegou foi um arquivo
+saindo do outro lado — daí `obra/scripts/gerar_material_de_teste.py`, que fabrica
+material com defeitos plantados de propósito.
+
+**E dois defeitos no próprio material de teste**, que desarmavam os detectores que
+ele existe para exercitar: o "personagem em movimento" era `drawbox=x='120+150*t'`
+— e no `drawbox` **`t` é a espessura da borda**, não o tempo, então a expressão é
+aceita, avaliada uma vez, e o retângulo fica parado; e a cor da descontinuidade
+tinha luma 50,8 contra 49,0 do fundo, cenas diferentes para o olho e quase
+idênticas para o PSNR. **Fixture precisa ser validado contra o detector antes de
+validar o detector.**
+
+**Item 25 — e ele é operado por botão.** *"seta ele pra funcionar dentro daquele
+painel controle"*. Cartão **OBRA** no `worker/controle.py` (painel local, que é
+onde operação de máquina nasce): combo de projetos, `＋ novo`, `▶ Próximo estágio
+(NN/13)`, `🔍 Checar` e `🎬 Montar`, mais a janela do próximo com **botão de
+copiar** por prompt e **abrir a pasta dos clipes** — que são exatamente os dois
+passos do ciclo, e onde o dono mais erra o nome do arquivo.
+
+**O painel fala com o `obra/` por SUBPROCESSO, nunca por `import`, e isso foi
+medido:** `worker/config.py` e `obra/config.py` têm o mesmo nome de módulo, e com
+os dois no `sys.path` um vence e o outro recebe a Config do vizinho **em
+silêncio**. Rodar `obra/montar.py` como processo põe o diretório do script em
+`sys.path[0]` e a disputa deixa de existir — e é barato porque o `obra/` não tem
+dependência de runtime: o Python do venv do worker o roda sem instalar nada. A
+ponte é `worker/obra_ponte.py`; o estado vem de `montar.py listar --json`, porque
+raspar o texto humano seria um parser que quebra na primeira frase melhorada.
 
 **Item 14 — métrica de verdade (coleta).** Até aqui o banco sabia que publicou e
 não se alguém assistiu. A Rodada 11 adiciona a tabela `metricas` e o coletor
