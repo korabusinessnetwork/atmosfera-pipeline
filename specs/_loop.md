@@ -9,6 +9,53 @@ marcado `SEU` é passo humano e vai para `specs/_manual.md`, nunca vira rodada.
 
 ---
 
+## Rodada 32 — o `obra/` operado pelo painel local · 2026-08-31
+
+- Spec: `specs/obra-no-painel-local.md` · Manual: `specs/_manual.md` § 17.2
+- **Pedido do dono:** *"seta ele pra funcionar dentro daquele painel controle"*. Painel
+  certo, e o `CLAUDE.md` já dizia qual: operação de máquina nasce no `controle.py`.
+- **O que entrou:** `worker/obra_ponte.py` (a ponte) · cartão **OBRA** no
+  `controle.py` com combo de projetos, `＋ novo`, `▶ Próximo estágio (NN/13)`,
+  `🔍 Checar` e `🎬 Montar` · a janela do próximo estágio com **botão de copiar** por
+  prompt e **abrir a pasta dos clipes** · `montar.py listar --json` no `obra/`.
+- **Portões:** worker **741** (eram 620) · obra **799** (eram 792) · `painel/` e
+  `supabase/` intocados · nenhuma migration.
+- **A decisão que define a rodada: subprocesso, nunca import** — e ela foi medida, não
+  escolhida por gosto. `worker/config.py` e `obra/config.py` têm o mesmo nome de
+  módulo; com os dois no `sys.path`, um vence e o outro recebe a Config do vizinho
+  **em silêncio**. Rodar `obra/montar.py` como processo põe o diretório do script em
+  `sys.path[0]` e a disputa deixa de existir. É barato porque o `obra/` não tem
+  dependência de runtime: o `python.exe` do venv do worker o roda sem instalar nada.
+- **`listar --json` em vez de raspar texto.** O cartão precisa de números; um parser
+  sobre o laudo humano quebraria na primeira frase que alguém melhorasse. O texto sem
+  a flag continua byte a byte o mesmo, e há teste de não-regressão.
+- **Três defeitos meus, achados nesta rodada:** (1) `obra: Path = OBRA` congelava o
+  padrão no import — **o teste do critério 7 media a pasta presente e passava verde
+  sobre a pergunta errada**; (2) o interpretador caía no `uv` por padrão, o que
+  quebraria sob o Task Scheduler (outro PATH, a armadilha da Sprint 7); (3)
+  `Resultado.resumo` era a última linha, e o `montar.py` fecha toda ação com o mesmo
+  lembrete de postagem — o messagebox diria "o rótulo de IA é obrigatório" em vez de
+  dizer onde o vídeo foi parar. Virou o primeiro parágrafo.
+- **E um no fatiador de prompts:** ele classificava qualquer linha começada em
+  `PROMPT `, e a saída do `proximo` tem a prosa *"3. … cole o PROMPT DE VÍDEO"*. O
+  bloco falso só não estragou nada porque o de verdade vinha depois e sobrescrevia.
+  Título passou a valer só logo depois da régua.
+- **Verificado abrindo a janela de verdade**, com `mainloop` real, invisível
+  (`-alpha 0`) e fechamento agendado — nenhum teste do repositório abre Tk, e erro de
+  layout só aparece em runtime. Três estados conferidos: projeto incompleto (4 botões
+  ativos, `(01/13)` no rótulo), clique no botão principal (a janela abriu com os três
+  botões de copiar, o de abrir pasta e o de fechar) e **`obra/` ausente** (o painel
+  sobe, os 4 botões `disabled`, o motivo na tela).
+- **Aprendido:** *padrão de argumento avaliado no import é armadilha de teste* — ele
+  transforma um monkeypatch em no-op e o teste passa medindo outra coisa. Foi a
+  segunda vez em duas rodadas que um teste verde escondia a pergunta errada; a
+  primeira foi o fixture do § 10.2 da R31.
+- **Pendente de decisão:** nenhuma.
+- **Próximo item recomendado:** segue sendo **rodar o primeiro vídeo de verdade**.
+  Tudo o que falta é material, não código.
+
+---
+
 ## Rodada 31 — `obra/`: vídeo off-grid de 13 clipes, sem narração · 2026-08-31
 
 - Spec: `specs/obra-offgrid-13-clipes.md` · Manual: `specs/_manual.md` § 17

@@ -471,6 +471,96 @@ class TestListar:
 # --------------------------------------------------------------- proximo
 
 
+class TestListarJson:
+    """O contrato de máquina que o painel local consome (`worker/obra_ponte.py`).
+
+    O painel NÃO pode importar este módulo — `worker/config.py` e `obra/config.py`
+    disputam o mesmo nome e um dos dois recebe a Config do outro em silêncio —,
+    então ele chama esta CLI como subprocesso. Se este JSON mudar de forma, o
+    cartão OBRA quebra do outro lado do repositório, e é este teste que avisa.
+    """
+
+    def _json(self, capsys) -> dict:
+        import json
+
+        return json.loads(capsys.readouterr().out)
+
+    def test_sem_slug_lista_os_projetos(self, cfg: Config, exigencias, capsys):
+        criar(cfg, "mud-cave-01")
+        criar(cfg, "bunker-02", "bunker")
+        assert montar.main(["listar", "--json"]) == montar.EXIT_OK
+        dados = self._json(capsys)
+        assert dados["projetos"] == ["bunker-02", "mud-cave-01"]
+        assert "estado" not in dados
+
+    def test_com_slug_traz_o_estado_inteiro(self, cfg: Config, exigencias, capsys):
+        p = criar(cfg, "mud-cave-01")
+        criar_clipe(p, 1)
+        criar_clipe(p, 2)
+        montar.main(["listar", "mud-cave-01", "--json"])
+        estado = self._json(capsys)["estado"]
+
+        # As chaves que o cartão lê. Tirar qualquer uma daqui quebra o painel.
+        for chave in (
+            "slug", "titulo", "total_estagios", "clipes_presentes",
+            "clipes_faltando", "proximo_estagio", "estagios_com_som",
+            "estagios_sem_som", "modo_do_som", "tem_final", "dir_clips",
+            "dir_ambiente", "final",
+        ):
+            assert chave in estado, chave
+
+        assert estado["clipes_presentes"] == [1, 2]
+        assert estado["proximo_estagio"] == 3
+        assert estado["total_estagios"] == 13
+        assert estado["tem_final"] is False
+
+    def test_projeto_completo_tem_proximo_nulo(self, cfg: Config, exigencias, capsys):
+        p = criar(cfg, "cheio-01")
+        for n in range(1, 14):
+            criar_clipe(p, n)
+        montar.main(["listar", "cheio-01", "--json"])
+        estado = self._json(capsys)["estado"]
+        assert estado["proximo_estagio"] is None
+        assert estado["clipes_faltando"] == []
+
+    def test_e_json_valido_e_nada_mais(self, cfg: Config, exigencias, capsys):
+        """Uma linha, um objeto. Prosa junto quebraria o `json.loads` do painel."""
+        criar(cfg, "um-01")
+        montar.main(["listar", "--json"])
+        saida = capsys.readouterr().out.strip()
+        assert saida.startswith("{") and saida.endswith("}")
+        assert saida.count("\n") == 0
+
+    def test_acento_sai_literal_nao_escapado(self, cfg: Config, exigencias, capsys):
+        """`ensure_ascii=False`, provado no valor e não num proxy.
+
+        A primeira versão deste teste procurava `\\u` na saída — e falhou, porque
+        caminho do Windows tem `\\\\um-01` dentro. O que importa é o valor que vai
+        para a tela do painel: com `ensure_ascii=True` o modo viraria
+        `POR EST\\u00c1GIO` e o cartão mostraria isso literalmente ao dono.
+        """
+        p = criar(cfg, "um-01")
+        (p.dir_ambiente / "01.mp3").write_bytes(b"som")
+        montar.main(["listar", "um-01", "--json"])
+        saida = capsys.readouterr().out
+        assert '"modo_do_som": "POR ESTÁGIO"' in saida
+
+    def test_e_comando_de_papel_como_o_listar(self, cfg: Config, exigencias):
+        """Não pode exigir ffmpeg: o painel chama isto a cada refresh."""
+        criar(cfg, "um-01")
+        montar.main(["listar", "--json"])
+        assert exigencias == [False]
+
+    def test_sem_a_flag_o_texto_humano_e_o_mesmo(self, cfg: Config, exigencias, capsys):
+        """Não-regressão: acrescentar saída de máquina não pode mexer na humana."""
+        p = criar(cfg, "um-01")
+        criar_clipe(p, 1)
+        montar.main(["listar", "um-01"])
+        saida = capsys.readouterr().out
+        assert saida.startswith("PROJETO um-01")
+        assert "{" not in saida
+
+
 class TestProximoEstagioUm:
     def test_nao_chama_ffmpeg(self, cfg: Config, exigencias, sem_ffmpeg, capsys):
         criar(cfg)

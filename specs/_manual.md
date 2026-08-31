@@ -767,7 +767,38 @@ Então a divisão é esta, e ela é a fronteira do módulo, não uma dívida:
 | **`obra/`** | escreve os prompts, extrai o frame que encadeia um clipe no outro, confere os clipes, monta o vídeo com áudio no volume certo |
 | **você** | cola o prompt na ferramenta, baixa o mp4, salva com o nome que o comando mandou |
 
-### 17.2 Instalar (uma vez)
+### 17.2 Pelo painel local (o jeito normal)
+
+Tudo o que está abaixo tem um botão no **painel local** (`worker/controle.py`),
+num cartão **OBRA** logo abaixo do cartão de produção:
+
+```bash
+cd worker && uv run controle.py
+```
+
+| Botão | O que faz |
+|---|---|
+| **＋ novo** | cria o projeto, com o cenário num combo |
+| **▶ Próximo estágio (NN/13)** | abre a janela do dia a dia: os prompts com **botão de copiar** e o botão que abre a pasta dos clipes |
+| **🔍 Checar** | o laudo numa janela rolável |
+| **🎬 Montar** | monta e oferece abrir o `final.mp4` |
+
+O número no botão principal é o estágio em que você parou — é a pergunta que
+você faz mais vezes por dia, e ela fica respondida sem abrir nada.
+
+**Por que o painel vale mais que o terminal aqui:** o ciclo inteiro é
+copiar-e-colar numa ferramenta web e salvar um mp4 com nome exato numa pasta. O
+botão de copiar e o "abrir pasta dos clipes" são precisamente esses dois passos —
+e o nome do arquivo é onde se erra.
+
+**Detalhe de arquitetura, para quem for mexer:** o painel chama o `obra/` como
+**processo separado**, nunca por `import`. `worker/config.py` e `obra/config.py`
+têm o mesmo nome de módulo, e qualquer ordem de `sys.path` faz um dos dois receber
+a Config do outro **em silêncio**. A ponte é `worker/obra_ponte.py` e a docstring
+dela tem a medição. O `obra/` continua sem saber que o painel existe: a linha de
+comando abaixo funciona igual, e continua sendo o caminho de quem prefere terminal.
+
+### 17.2b Instalar (uma vez)
 
 ```bash
 cd obra && uv sync --group dev

@@ -91,6 +91,7 @@ regeráveis. Clipe, áudio e `final.mp4` não são tocados em caminho nenhum.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tomllib
 from collections.abc import Sequence
@@ -367,6 +368,41 @@ def linhas_do_estado(proj: Projeto) -> tuple[str, ...]:
     return tuple(linhas)
 
 
+def estado_em_dados(proj: Projeto) -> dict[str, object]:
+    """O mesmo estado de `linhas_do_estado`, em forma que uma máquina lê.
+
+    Existe para o cartão OBRA do painel local (`worker/obra_ponte.py`), que não
+    pode **importar** este módulo: `worker/config.py` e `obra/config.py` disputam
+    o mesmo nome, e qualquer ordem de `sys.path` faz um dos dois receber a Config
+    do outro, em silêncio. O painel chama esta CLI como subprocesso, e a
+    alternativa a este JSON seria ele raspar o texto humano — um parser que
+    quebra na primeira frase que alguém melhorar.
+
+    Tudo aqui sai de `Projeto` e de `checar.ler_som`, nunca de uma segunda
+    contagem escrita para o painel: duas respostas para "que estágio está sem
+    clipe?" divergiriam, e a que o dono veria seria a errada.
+    """
+    som = checar.ler_som(proj)
+    return {
+        "slug": proj.slug,
+        "titulo": proj.titulo,
+        "cenario": proj.cenario,
+        "raiz": str(proj.raiz),
+        "total_estagios": len(proj.estagios),
+        "clipes_presentes": list(proj.clipes_presentes()),
+        "clipes_faltando": list(proj.clipes_faltando()),
+        "proximo_estagio": proj.proximo_estagio(),
+        "estagios_com_som": list(proj.estagios_com_som()),
+        "estagios_sem_som": list(proj.estagios_sem_som()),
+        "modo_do_som": som.modo,
+        "tem_fundo": bool(proj.fundo_no_disco()),
+        "dir_clips": str(proj.dir_clips),
+        "dir_ambiente": str(proj.dir_ambiente),
+        "final": str(proj.final),
+        "tem_final": proj.final.is_file(),
+    }
+
+
 def resumo_de(proj: Projeto) -> str:
     """Uma linha por projeto na listagem geral. `stat()`, nada de processo.
 
@@ -477,6 +513,17 @@ def comando_listar(args: argparse.Namespace) -> None:
     """
     cfg = config.carregar(exigir_ffmpeg=False)
     slugs = projeto.listar_projetos(cfg.projetos_dir)
+
+    if getattr(args, "json", False):
+        # O ramo de máquina sai ANTES de qualquer `print` humano, e devolve um
+        # objeto só — com slug ou sem. Um projeto ilegível vira `erro` no lado
+        # dele em vez de derrubar a chamada: o painel precisa listar os outros
+        # doze mesmo quando um `projeto.toml` está quebrado.
+        dados: dict[str, object] = {"projetos": list(slugs), "raiz": str(cfg.projetos_dir)}
+        if args.slug:
+            dados["estado"] = estado_em_dados(_abrir(cfg, args.slug))
+        print(json.dumps(dados, ensure_ascii=False))
+        return
 
     if args.slug:
         print("\n".join(linhas_do_estado(_abrir(cfg, args.slug))))
@@ -619,6 +666,11 @@ def construir_parser() -> argparse.ArgumentParser:
 
     p_listar = sub.add_parser("listar", help="os projetos, ou o estado de um")
     p_listar.add_argument("slug", nargs="?", default="", help="opcional")
+    p_listar.add_argument(
+        "--json",
+        action="store_true",
+        help="saída legível por máquina (é o que o painel local consome)",
+    )
     p_listar.set_defaults(funcao=comando_listar)
 
     p_proximo = sub.add_parser(

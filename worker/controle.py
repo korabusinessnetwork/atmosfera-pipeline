@@ -21,9 +21,16 @@ import logging
 import subprocess
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+
+# A ÚNICA porta para o `obra/`, e ela fala por subprocesso. Importar qualquer
+# módulo de lá quebraria este painel em silêncio: `worker/config.py` e
+# `obra/config.py` têm o mesmo nome, e um dos dois receberia a Config do outro
+# (está medido na docstring do `obra_ponte`). Só stdlib entra por aqui.
+import obra_ponte
 
 log = logging.getLogger("worker.controle")
 
@@ -34,6 +41,12 @@ GATE = "aguardando_aprovacao"
 # Rótulo da "sem categoria" no seletor. Nunca vai ao banco: `categoria_escolhida`
 # o traduz para None, e `pautas.categoria` nula é o que significa genérico.
 GENERICO = "— genérico —"
+
+# Rótulo do combo do cartão OBRA quando não há projeto nenhum no disco. Nunca vai
+# à linha de comando: `projeto_escolhido` o traduz para "", e slug vazio é o que o
+# `montar.py` entende como "escolha você" — mandar o rótulo criaria um projeto
+# chamado "— sem projeto —".
+SEM_PROJETO = "— sem projeto —"
 
 # Sondagem curta: um serviço lento não pode congelar a janela.
 TIMEOUT_SONDA_SEG = 1.5
@@ -553,6 +566,122 @@ def resumo_da_revisao(aprovadas: int, descartadas: int) -> str:
     return ". ".join(partes) + "."
 
 
+# ------------------------------------------------- obra: o vídeo off-grid
+
+# Os cenários que o `＋ novo` oferece, na ordem do catálogo. A FONTE DA VERDADE é
+# `obra/cenarios.py` (a tupla `_CATALOGO`, que o `nomes()` devolve nesta ordem);
+# esta é uma cópia DELIBERADA, porque o painel não importa nada do `obra/` — os
+# dois `config.py` colidem de nome. Acrescentar um cenário lá pede acrescentar
+# aqui, senão ele existe na linha de comando e não aparece no painel.
+CENARIOS_DA_OBRA = (
+    "mud-cave",
+    "bunker",
+    "container",
+    "ruina",
+    "caixa-dagua",
+    "arvore-oca",
+)
+
+# Ordem e rótulo dos botões de copiar da janela do próximo estágio. A ordem é a do
+# TRABALHO (a imagem base nasce antes do estágio; o vídeo, depois da imagem), não a
+# do dicionário: `separar_prompts` devolve o que achou, e iterar por ele faria os
+# botões trocarem de lugar entre um estágio e outro — num painel que se opera de
+# memória, botão que anda é botão clicado errado.
+ROTULOS_DO_COPIAR = (
+    ("base", "copiar prompt base"),
+    ("imagem", "copiar prompt de imagem"),
+    ("video", "copiar prompt de vídeo"),
+)
+
+
+def projeto_escolhido(rotulo: str) -> str:
+    """O que o combo mostra → o slug que vai à linha de comando. Pura.
+
+    Espelha o `categoria_escolhida`: o rótulo de "sem projeto" é enfeite de UI, e
+    passá-lo adiante faria o `montar.py` procurar (ou criar) um projeto com esse
+    nome literal.
+    """
+    limpo = (rotulo or "").strip()
+    return "" if not limpo or limpo == SEM_PROJETO else limpo
+
+
+def rotulo_do_copiar(chave: str) -> str:
+    """O texto do botão de copiar de um bloco. Pura.
+
+    Bloco desconhecido não vira exceção: o `obra/` pode ganhar um quarto prompt, e
+    um painel que morre por causa de um título novo é pior que um botão com nome
+    feio.
+    """
+    for conhecida, rotulo in ROTULOS_DO_COPIAR:
+        if conhecida == chave:
+            return rotulo
+    return f"copiar {chave}"
+
+
+def copias_disponiveis(blocos: dict[str, str]) -> tuple[tuple[str, str], ...]:
+    """Os botões de copiar que a janela mostra, na ordem do trabalho. Pura.
+
+    Bloco ausente — ou presente e vazio — não vira botão. Um botão que copia
+    string vazia é pior que botão nenhum: o dono cola na ferramenta web, não vê
+    nada, e não tem como saber se falhou o painel ou o Ctrl+V.
+    """
+    return tuple(
+        (chave, rotulo)
+        for chave, rotulo in ROTULOS_DO_COPIAR
+        if (blocos.get(chave) or "").strip()
+    )
+
+
+def botoes_da_obra(e: obra_ponte.Estado) -> dict[str, bool]:
+    """Quais botões do cartão OBRA aceitam clique, dado o estado. Pura.
+
+    Três regras, e a primeira é a que mantém o painel de pé: com o `obra/` ausente
+    (ou com o `listar` falhando) o cartão APARECE inerte, em vez de sumir — cartão
+    que some ensina que a função não existe. Sem projeto nenhum, só o `＋ novo`
+    vive: os outros três precisam de um slug que ainda não há, e oferecê-los seria
+    convidar a um erro que a própria tela já sabe prever.
+    """
+    if e.erro:
+        return {"novo": False, "proximo": False, "checar": False, "montar": False}
+    if not e.tem_projeto:
+        return {"novo": True, "proximo": False, "checar": False, "montar": False}
+    return {"novo": True, "proximo": True, "checar": True, "montar": True}
+
+
+def slug_novo(antes: Sequence[str], depois: Sequence[str], pedido: str) -> str:
+    """Qual projeto passou a existir depois do `＋ novo`. Pura.
+
+    Não dá para confiar no que o dono digitou: o `obra/` normaliza o slug (`Mud
+    Cave` vira `mud-cave`), então selecionar o texto cru apontaria o combo para um
+    projeto inexistente — e o cartão ficaria vazio logo depois de uma criação bem
+    sucedida, que é o pior momento possível para parecer quebrado. A diferença
+    entre as duas listas é o nome verdadeiro; o pedido é só a última tentativa.
+    """
+    conhecidos = set(antes)
+    novos = [s for s in depois if s not in conhecidos]
+    if novos:
+        return novos[0]
+    limpo = (pedido or "").strip()
+    if limpo in depois:
+        return limpo
+    return depois[0] if depois else ""
+
+
+def frase_do_erro_da_obra(e: BaseException) -> str:
+    """A frase de erro do cartão OBRA. Pura, e escolhe entre duas fontes.
+
+    `ObraIndisponivel` é exceção NOSSA, e a mensagem dela é escrita para o dono ler
+    ("a pasta obra/ não está ao lado do worker/…") — é o texto que diz o que fazer,
+    e trocá-lo pelo nome da classe jogaria fora a única informação útil. Qualquer
+    outra exceção vem de fora, e aí vale a regra da casa inteira: só o TIPO, nunca a
+    mensagem crua, porque mensagem de terceiro carrega caminho, URL e, um dia,
+    credencial.
+    """
+    if isinstance(e, obra_ponte.ObraIndisponivel):
+        return str(e)
+    return f"{type(e).__name__} ao falar com o obra/."
+
+
 def rodar_status() -> int:
     """Modo headless: imprime o estado uma vez e sai. Para terminal e teste."""
     from config import ConfigInvalida, carregar
@@ -588,7 +717,7 @@ def abrir_janela() -> int:
     e os testes não precisam de display."""
     import threading
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, simpledialog
 
     import db as db_mod
     from config import ConfigInvalida, carregar
@@ -605,7 +734,9 @@ def abrir_janela() -> int:
     raiz = tk.Tk()
     raiz.title("Atmosfera — Controle")
     raiz.configure(bg=BG)
-    raiz.minsize(380, 720)
+    # Subiu de 720 com o cartão OBRA: a esteira tem `expand=True` e absorveria a
+    # diferença encolhendo, mas abaixo disso os seis estágios ficam ilegíveis.
+    raiz.minsize(380, 800)
 
     estado_atual: dict[str, Estado | None] = {"e": None}
     ocupado = {"v": False}   # ligar/pausar o worker
@@ -613,10 +744,29 @@ def abrir_janela() -> int:
     limpando = {"v": False}  # limpar a fila (R22) — destrutiva, trava so dela
     executando = {"v": False}  # executar a fila (R23) — idem, independente das outras
     revisando = {"v": False}   # abrir a revisão de pautas (R25) — idem
+
+    # Cartão OBRA: uma trava por ação, pela mesma razão das quatro acima. Aqui ela
+    # pesa mais: um `montar` de dois encodes segura o botão por minutos, e uma
+    # trava compartilhada deixaria o `＋ novo` mudo o tempo todo, sem dizer por quê.
+    obra_atual: dict[str, obra_ponte.Estado | None] = {"e": None}
+    obra_criando = {"v": False}
+    obra_seguinte = {"v": False}
+    obra_checando = {"v": False}
+    obra_montando = {"v": False}
+    obra_autoescolha = {"feito": False}
     fase = {"p": True}   # alterna a cada tique para pulsar o estágio ativo
 
     def fonte(tam: int, negrito: bool = False) -> tuple:
         return ("Segoe UI", tam, "bold" if negrito else "normal")
+
+    def mono(tam: int) -> tuple:
+        """Largura fixa, para a saída do `obra/`.
+
+        O laudo do `checar` alinha números em coluna e os prompts têm indentação
+        significativa; fonte proporcional embaralha as duas coisas. Se a Consolas
+        faltar, o Tk cai numa fonte padrão em vez de falhar.
+        """
+        return ("Consolas", tam)
 
     # ================= topo: um cartão só, estado + botão gigante =========
     topo = tk.Frame(raiz, bg=CARD)
@@ -699,6 +849,67 @@ def abrir_janela() -> int:
         cursor="hand2", bd=0, bg=BG, fg=VERMELHO, padx=8,
     )
     botao_limpar.pack(side="right", padx=(0, 6))
+
+    # ================= obra: o vídeo off-grid de 13 clipes ================
+    # Cartão irmão do de produção, e no mesmo lugar pelo mesmo motivo: é operação
+    # de máquina — roda ffmpeg, abre pasta no Explorer e copia prompt para a área
+    # de transferência, três coisas que só existem ao lado do PC. Fica ANTES da
+    # esteira porque a esteira é a fila de vídeo do worker, e o `obra/` não passa
+    # por ela: são dois produtos no mesmo painel, não duas etapas do mesmo.
+    #
+    # Tudo aqui passa pelo `obra_ponte`, que fala por subprocesso. Nenhum import
+    # do `obra/` entra neste arquivo — os dois `config.py` colidem de nome.
+    obra = tk.Frame(raiz, bg=CARD)
+    obra.pack(fill="x", padx=12, pady=(0, 8))
+
+    linha_projeto = tk.Frame(obra, bg=CARD)
+    linha_projeto.pack(fill="x", padx=16, pady=(12, 6))
+    tk.Label(
+        linha_projeto, text="OBRA", bg=CARD, fg=FRACO, font=fonte(8, True)
+    ).pack(side="left", padx=(0, 8))
+
+    projeto_sel = tk.StringVar(value=SEM_PROJETO)
+    combo_projeto = tk.OptionMenu(linha_projeto, projeto_sel, SEM_PROJETO)
+    combo_projeto.config(
+        bg=BG, fg=FG, font=fonte(9), relief="flat", bd=0, highlightthickness=0,
+        activebackground=BG, activeforeground=FG, cursor="hand2", width=14,
+    )
+    combo_projeto["menu"].config(bg=BG, fg=FG, font=fonte(9))
+    combo_projeto.pack(side="left")
+
+    botao_obra_novo = tk.Button(
+        linha_projeto, text="＋ novo", font=fonte(9), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=AZUL, padx=10, pady=6,
+    )
+    botao_obra_novo.pack(side="left", padx=(6, 0))
+
+    # Largura inteira e cor cheia: é a ação do dia a dia. O rótulo carrega o
+    # número do estágio porque é a pergunta que o dono faz várias vezes por dia —
+    # sem ele, saber onde parou custa abrir a janela.
+    botao_obra_proximo = tk.Button(
+        obra, text="▶ Próximo estágio", font=fonte(10, True), relief="flat",
+        cursor="hand2", bd=0, bg=AZUL, fg=BG, pady=7,
+    )
+    botao_obra_proximo.pack(fill="x", padx=16, pady=(0, 6))
+
+    linha_obra_acoes = tk.Frame(obra, bg=CARD)
+    linha_obra_acoes.pack(fill="x", padx=16, pady=(0, 4))
+    botao_obra_checar = tk.Button(
+        linha_obra_acoes, text="🔍 Checar", font=fonte(9), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=AZUL, padx=10, pady=6,
+    )
+    botao_obra_checar.pack(side="left")
+    botao_obra_montar = tk.Button(
+        linha_obra_acoes, text="🎬 Montar", font=fonte(9), relief="flat",
+        cursor="hand2", bd=0, bg=BG, fg=VERDE, padx=10, pady=6,
+    )
+    botao_obra_montar.pack(side="left", padx=(6, 0))
+
+    lbl_obra = tk.Label(
+        obra, text="…", bg=CARD, fg=FRACO, font=fonte(8),
+        wraplength=300, justify="left",
+    )
+    lbl_obra.pack(anchor="w", padx=16, pady=(0, 12))
 
     # ================= a esteira (Canvas desenhado) =======================
     canvas = tk.Canvas(raiz, bg=BG, highlightthickness=0, height=380)
@@ -1301,6 +1512,389 @@ def abrir_janela() -> int:
             cursor="hand2", bd=0, bg=BG, fg=VERMELHO, padx=10, command=remover,
         ).pack(side="left", padx=(6, 0))
 
+    # ================= obra: as quatro ações ==============================
+
+    def _caixa_de_texto(pai, conteudo: str) -> None:
+        """A caixa rolável monoespaçada que as janelas do `obra/` usam.
+
+        Mesma moldura da revisão de pauta — `tk.Text` com `tk.Scrollbar` ao lado —,
+        com duas diferenças que vêm do conteúdo: largura fixa (o laudo alinha
+        números em coluna) e `disabled` no fim, porque aqui não se edita nada.
+        """
+        caixa = tk.Frame(pai, bg=BG)
+        caixa.pack(fill="both", expand=True, padx=14, pady=(14, 8))
+        barra = tk.Scrollbar(caixa, relief="flat", bd=0)
+        barra.pack(side="right", fill="y")
+        texto = tk.Text(
+            caixa, bg=BG, fg=FG, font=mono(9), relief="flat", wrap="word",
+            highlightthickness=0, padx=10, pady=10, yscrollcommand=barra.set,
+        )
+        texto.pack(side="left", fill="both", expand=True)
+        barra.config(command=texto.yview)
+        texto.insert("1.0", conteudo)
+        texto.config(state="disabled")
+        texto.yview_moveto(0)
+
+    def _mostrar_texto(titulo: str, conteudo: str) -> None:
+        """Uma saída inteira do `obra/` numa janela rolável.
+
+        É o destino de todo `Resultado(ok=False)`: o `montar.py` escreve mensagem
+        de humano para cada família de erro — a lista dos clipes que faltam, por
+        exemplo — e espremer isso num messagebox de uma linha jogaria fora
+        exatamente a parte acionável.
+        """
+        jan = tk.Toplevel(raiz)
+        jan.title(titulo)
+        jan.configure(bg=BG)
+        jan.transient(raiz)
+        jan.geometry("660x600")
+        jan.minsize(420, 360)
+
+        bloco = tk.Frame(jan, bg=CARD)
+        bloco.pack(fill="both", expand=True, padx=12, pady=12)
+        _caixa_de_texto(bloco, conteudo)
+        tk.Button(
+            bloco, text="fechar", font=fonte(9), relief="flat", cursor="hand2",
+            bd=0, bg=BG, fg=FRACO, padx=14, pady=6, command=jan.destroy,
+        ).pack(anchor="e", padx=14, pady=(0, 14))
+
+    def _rodar_obra(verbo, argumentos, trava, alvo, rotulo_ocupado, concluir) -> None:
+        """Roda um verbo do `obra/` fora da thread do Tk e entrega o resultado.
+
+        O molde é o do `acao_gerar`: trava própria, `threading.Thread` e volta por
+        `raiz.after(0, …)` — widget do Tk só se toca na thread que o criou, e
+        violar isso dá travamento intermitente, do tipo que não se reproduz.
+
+        `Resultado(ok=False)` NÃO chega aqui como erro: quem decide o que fazer com
+        ele é o `concluir` de cada ação, porque para o `checar` um laudo reprovado é
+        o conteúdo que se quer ver, e para o `montar` é um erro a explicar.
+        """
+        if trava["v"]:
+            return
+        trava["v"] = True
+        rotulo_antigo = alvo.cget("text")
+        alvo.config(state="disabled", text=rotulo_ocupado)
+
+        def trabalho() -> None:
+            try:
+                r, falha = obra_ponte.executar(verbo, argumentos), None
+            except Exception as ex:  # noqa: BLE001 — a frase escolhe o que mostrar
+                r, falha = None, frase_do_erro_da_obra(ex)
+
+            def depois() -> None:
+                trava["v"] = False
+                alvo.config(state="normal", text=rotulo_antigo)
+                if falha:
+                    messagebox.showerror("Atmosfera — obra", falha)
+                else:
+                    concluir(r)
+                disparar_obra()
+
+            raiz.after(0, depois)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def _pedir_cenario() -> str:
+        """Um combo modal com os seis cenários. `""` quando o dono desiste.
+
+        Combo, e não caixa de texto: o nome tem de bater com o catálogo do `obra/`,
+        e `caixa-dagua` erra na primeira digitada. O padrão é o primeiro da lista
+        pela mesma razão de ele ser o primeiro lá — é o cenário validado.
+        """
+        jan = tk.Toplevel(raiz)
+        jan.title("Atmosfera — cenário")
+        jan.configure(bg=BG)
+        jan.transient(raiz)
+        jan.resizable(False, False)
+
+        escolhido = {"v": ""}
+        sel = tk.StringVar(value=CENARIOS_DA_OBRA[0])
+
+        bloco = tk.Frame(jan, bg=CARD)
+        bloco.pack(fill="both", expand=True, padx=12, pady=12)
+        tk.Label(
+            bloco, text="Cenário do projeto", bg=CARD, fg=FG, font=fonte(11, True)
+        ).pack(anchor="w", padx=14, pady=(12, 2))
+        tk.Label(
+            bloco,
+            text="dirige os 13 prompts. Trocar depois é refazer o projeto.",
+            bg=CARD, fg=FRACO, font=fonte(8), wraplength=280, justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        combo = tk.OptionMenu(bloco, sel, *CENARIOS_DA_OBRA)
+        combo.config(
+            bg=BG, fg=FG, font=fonte(10), relief="flat", bd=0, highlightthickness=0,
+            activebackground=BG, activeforeground=FG, cursor="hand2", width=16,
+        )
+        combo["menu"].config(bg=BG, fg=FG, font=fonte(10))
+        combo.pack(anchor="w", padx=14)
+
+        linha = tk.Frame(bloco, bg=CARD)
+        linha.pack(fill="x", padx=14, pady=(14, 14))
+
+        def confirmar() -> None:
+            escolhido["v"] = sel.get()
+            jan.destroy()
+
+        tk.Button(
+            linha, text="criar", font=fonte(10, True), relief="flat", cursor="hand2",
+            bd=0, bg=VERDE, fg=BG, padx=16, pady=6, command=confirmar,
+        ).pack(side="left")
+        tk.Button(
+            linha, text="cancelar", font=fonte(10), relief="flat", cursor="hand2",
+            bd=0, bg=BG, fg=FRACO, padx=12, pady=6, command=jan.destroy,
+        ).pack(side="left", padx=(8, 0))
+
+        jan.grab_set()
+        raiz.wait_window(jan)
+        return escolhido["v"]
+
+    def acao_obra_novo() -> None:
+        """Cria um projeto e deixa o combo apontando para o que nasceu."""
+        # Trava própria, como as outras três do cartão. Ela é checada ANTES dos
+        # diálogos: dois `＋ novo` abertos ao mesmo tempo criariam dois projetos e
+        # o combo ficaria com o segundo, sem sinal do primeiro.
+        if obra_criando["v"]:
+            return
+        pedido = simpledialog.askstring(
+            "Atmosfera — obra", "Nome do projeto (vira kebab-case):", parent=raiz
+        )
+        if not pedido or not pedido.strip():
+            return
+        cenario = _pedir_cenario()
+        if not cenario:
+            return
+
+        atual = obra_atual["e"]
+        antes = tuple(atual.projetos) if atual else ()
+        obra_criando["v"] = True
+        botao_obra_novo.config(state="disabled", text="criando…")
+
+        def trabalho() -> None:
+            novo, r = "", None
+            try:
+                r = obra_ponte.executar(
+                    "novo", [pedido.strip(), "--cenario", cenario]
+                )
+                falha = None
+                if r.ok:
+                    # Uma leitura a mais, e ela paga: o `obra/` normaliza o slug
+                    # (`Mud Cave` → `mud-cave`), e sem perguntar ao disco o combo
+                    # apontaria para um nome que não existe — logo depois de uma
+                    # criação bem sucedida, que é o pior momento para parecer
+                    # quebrado.
+                    novo = slug_novo(antes, obra_ponte.ler_estado().projetos, pedido)
+            except Exception as ex:  # noqa: BLE001
+                falha = frase_do_erro_da_obra(ex)
+
+            def depois() -> None:
+                obra_criando["v"] = False
+                botao_obra_novo.config(state="normal", text="＋ novo")
+                if falha:
+                    messagebox.showerror("Atmosfera — obra", falha)
+                elif not r.ok:
+                    _mostrar_texto("Atmosfera — obra: novo projeto", r.saida)
+                elif novo:
+                    projeto_sel.set(novo)
+                disparar_obra(novo)
+
+            raiz.after(0, depois)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def acao_obra_proximo() -> None:
+        """O passo a passo do estágio seguinte, com os prompts prontos para copiar."""
+        e = obra_atual["e"]
+        if e is None or not e.tem_projeto:
+            return
+        _rodar_obra(
+            "proximo", [e.slug], obra_seguinte, botao_obra_proximo, "preparando…",
+            lambda r: (
+                _abrir_janela_do_proximo(r.saida, e)
+                if r.ok
+                else _mostrar_texto("Atmosfera — próximo estágio", r.saida)
+            ),
+        )
+
+    def acao_obra_checar() -> None:
+        """O laudo dos clipes. Vai para a janela nos dois desfechos.
+
+        `ok=False` aqui não é falha de execução: é o laudo dizendo que um clipe
+        está fora do padrão — e esse texto é exatamente o que se quer ler.
+        """
+        e = obra_atual["e"]
+        if e is None or not e.tem_projeto:
+            return
+        _rodar_obra(
+            "checar", [e.slug], obra_checando, botao_obra_checar, "checando…",
+            lambda r: _mostrar_texto("Atmosfera — checar", r.saida),
+        )
+
+    def acao_obra_montar() -> None:
+        """Os 13 clipes viram `final.mp4`. Confere a fila antes de gastar o encode."""
+        e = obra_atual["e"]
+        if e is None:
+            return
+        # A recusa de VERDADE continua sendo a do `obra/`, que relê o disco: esta
+        # contagem tem a idade do último refresh, e o dono pode ter apagado um clipe
+        # no Explorer nesse intervalo. Aqui só se evita o clique que já se sabe inútil.
+        pode, motivo = obra_ponte.pode_montar(e)
+        if not pode:
+            messagebox.showinfo("Atmosfera — montar", motivo)
+            return
+
+        def concluir(r) -> None:
+            if not r.ok:
+                _mostrar_texto("Atmosfera — montar", r.saida)
+                return
+            messagebox.showinfo("Atmosfera — montar", r.resumo)
+            if e.final and messagebox.askyesno(
+                "Atmosfera — montar", "Abrir o vídeo agora?"
+            ):
+                obra_ponte.abrir_no_explorer(e.final)
+
+        _rodar_obra(
+            "montar", [e.slug], obra_montando, botao_obra_montar, "montando…", concluir
+        )
+
+    def _abrir_janela_do_proximo(saida: str, e: obra_ponte.Estado) -> None:
+        """O passo a passo do estágio, com o que só existe numa GUI.
+
+        A janela mostra o texto INTEIRO — ele é escrito para uma pessoa ler de cabo
+        a rabo — e acrescenta as três coisas que o terminal não dá: copiar cada
+        prompt num clique (selecionar 20 linhas com o mouse quebra), abrir a pasta
+        onde o mp4 tem de ser salvo com nome exato (é onde o dono mais erra) e sair
+        sem perder o lugar.
+        """
+        jan = tk.Toplevel(raiz)
+        jan.title(f"Atmosfera — próximo estágio · {e.slug}")
+        jan.configure(bg=BG)
+        jan.transient(raiz)
+        jan.geometry("680x680")
+        jan.minsize(460, 420)
+
+        bloco = tk.Frame(jan, bg=CARD)
+        bloco.pack(fill="both", expand=True, padx=12, pady=12)
+        _caixa_de_texto(bloco, saida)
+
+        blocos = obra_ponte.separar_prompts(saida)
+
+        def _copiar(qual: tk.Button, chave: str) -> None:
+            raiz.clipboard_clear()
+            raiz.clipboard_append(blocos[chave])
+            # Sem o `update`, o Tk só entrega o conteúdo quando o app processa
+            # eventos — e um painel parado devolve área de transferência vazia
+            # justamente na hora de colar.
+            raiz.update()
+            # O retorno visual não é enfeite: copiar é a ação sem consequência
+            # visível do sistema inteiro, e sem o "copiado ✓" o dono clica de novo
+            # por não ter certeza.
+            qual.config(text="copiado ✓")
+
+            def voltar() -> None:
+                # A janela pode ter sido fechada dentro dos 1,2s.
+                if qual.winfo_exists():
+                    qual.config(text=rotulo_do_copiar(chave))
+
+            jan.after(1200, voltar)
+
+        linha_copiar = tk.Frame(bloco, bg=CARD)
+        linha_copiar.pack(fill="x", padx=14, pady=(0, 4))
+        for chave, rotulo in copias_disponiveis(blocos):
+            b = tk.Button(
+                linha_copiar, text=rotulo, font=fonte(9, True), relief="flat",
+                cursor="hand2", bd=0, bg=ROXO, fg=BG, padx=10, pady=6,
+            )
+            b.config(command=lambda alvo=b, ch=chave: _copiar(alvo, ch))
+            b.pack(side="left", padx=(0, 6))
+
+        linha_fim = tk.Frame(bloco, bg=CARD)
+        linha_fim.pack(fill="x", padx=14, pady=(6, 14))
+        botao_pasta = tk.Button(
+            linha_fim, text="📂 abrir pasta dos clipes", font=fonte(9),
+            relief="flat", cursor="hand2", bd=0, bg=BG, fg=AZUL, padx=10, pady=6,
+            command=lambda: obra_ponte.abrir_no_explorer(e.dir_clips),
+        )
+        botao_pasta.pack(side="left")
+        if not e.dir_clips:
+            botao_pasta.config(state="disabled", fg=FRACO)
+        tk.Button(
+            linha_fim, text="fechar", font=fonte(9), relief="flat", cursor="hand2",
+            bd=0, bg=BG, fg=FRACO, padx=12, pady=6, command=jan.destroy,
+        ).pack(side="right")
+
+    def _escolher_projeto(nome: str) -> None:
+        projeto_sel.set(nome)
+        disparar_obra(nome)
+
+    def _recarregar_projetos(e: obra_ponte.Estado) -> None:
+        """Repopula o combo com os projetos do disco, preservando a escolha.
+
+        Mesma regra do `_recarregar_categorias`: escolha que se mexe sozinha tira o
+        alvo debaixo do dedo de quem estava indo clicar.
+        """
+        nomes = list(e.projetos) or [SEM_PROJETO]
+        atual = projeto_sel.get()
+        menu = combo_projeto["menu"]
+        menu.delete(0, "end")
+        for nome in nomes:
+            menu.add_command(label=nome, command=lambda n=nome: _escolher_projeto(n))
+        if atual not in nomes:
+            projeto_sel.set(e.slug or nomes[0])
+
+    def pintar_obra(e: obra_ponte.Estado) -> None:
+        obra_atual["e"] = e
+        _recarregar_projetos(e)
+
+        habilitado = botoes_da_obra(e)
+        travas = {
+            "novo": obra_criando, "proximo": obra_seguinte,
+            "checar": obra_checando, "montar": obra_montando,
+        }
+        botoes = {
+            "novo": botao_obra_novo, "proximo": botao_obra_proximo,
+            "checar": botao_obra_checar, "montar": botao_obra_montar,
+        }
+        for chave, widget in botoes.items():
+            # Ação em curso vence o estado: devolver o botão ao normal no meio de
+            # uma montagem convidaria a um segundo clique sobre o mesmo encode.
+            if travas[chave]["v"]:
+                continue
+            widget.config(state="normal" if habilitado[chave] else "disabled")
+        if not obra_seguinte["v"]:
+            botao_obra_proximo.config(text=obra_ponte.rotulo_do_proximo(e))
+
+        lbl_obra.config(
+            text=obra_ponte.linha_do_cartao(e), fg=LARANJA if e.erro else FRACO
+        )
+
+        # Primeira pintura com projeto no disco e nenhum escolhido: escolhe o
+        # primeiro sozinho, uma vez só. Sem isto o cartão abre inerte todo dia e o
+        # dono gasta um clique para chegar onde ele já estava ontem. Uma vez só
+        # porque, depois disso, "nenhum escolhido" é escolha dele.
+        if not obra_autoescolha["feito"] and not e.tem_projeto and e.projetos:
+            obra_autoescolha["feito"] = True
+            disparar_obra(e.projetos[0])
+
+    def disparar_obra(slug: str = "") -> None:
+        """Relê o estado do `obra/` numa thread e repinta o cartão.
+
+        Sob demanda, e NÃO no tique de 5s do `agendar`: cada leitura sobe um
+        processo Python e varre a pasta do projeto — doze vezes por minuto seria
+        gastar CPU para ver o mesmo número. O cartão se atualiza na abertura, na
+        troca de projeto e no fim de cada ação, que são os momentos em que ele
+        muda de verdade.
+        """
+        alvo = slug or projeto_escolhido(projeto_sel.get())
+
+        def trabalho() -> None:
+            # `obra_ponte.ler_estado` nunca levanta: devolve `Estado(erro=…)`, e o
+            # cartão pinta o motivo. É o que mantém o painel de pé sem o `obra/`.
+            e = obra_ponte.ler_estado(alvo)
+            raiz.after(0, lambda: pintar_obra(e))
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
     # ================= pintura ============================================
     def pintar(e: Estado) -> None:
         estado_atual["e"] = e
@@ -1424,9 +2018,16 @@ def abrir_janela() -> int:
     botao_limpar.config(command=acao_limpar)
     botao_executar.config(command=acao_executar)
     botao_revisar.config(command=acao_revisar)
+    botao_obra_novo.config(command=acao_obra_novo)
+    botao_obra_proximo.config(command=acao_obra_proximo)
+    botao_obra_checar.config(command=acao_obra_checar)
+    botao_obra_montar.config(command=acao_obra_montar)
     canvas.bind("<Configure>", lambda _e: (estado_atual["e"] and desenhar_esteira(estado_atual["e"])))
 
     agendar()
+    # Uma leitura do `obra/` na abertura, e só. Depois disso o cartão se atualiza
+    # quando algo nele muda — não há relógio, porque não há nada que mude sozinho.
+    disparar_obra()
     pulsar()
     raiz.mainloop()
     return 0

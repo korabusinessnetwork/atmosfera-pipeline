@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 import controle as c
+import obra_ponte
 
 
 # ---------------------------------------------------------- interpretar_estado
@@ -350,3 +351,162 @@ def test_resumo_da_revisao_sem_decisao_diz_isso():
     # Chegar ao fim pulando tudo é resultado legítimo — e precisa de frase, senão
     # a janela fecha calada e parece que engoliu as decisões.
     assert c.resumo_da_revisao(0, 0) == "Nenhuma pauta decidida."
+
+
+# ==================================================================== cartão OBRA
+# Nada aqui abre janela, roda subprocesso ou toca o `obra/`: são as funções puras
+# que o cartão apenas pinta. O `obra_ponte.Estado` é um dataclass congelado —
+# construí-lo não vai ao disco.
+
+
+def _obra(**campos):
+    return obra_ponte.Estado(**campos)
+
+
+# ---------------------------------------------------------- CENARIOS_DA_OBRA
+def test_cenarios_tem_os_seis_do_catalogo():
+    # A fonte da verdade é `obra/cenarios.py`; esta cópia existe porque o painel
+    # não importa nada de lá (os dois `config.py` colidem de nome). Um cenário
+    # novo lá que não chegue aqui existe na CLI e some do painel — em silêncio.
+    assert set(c.CENARIOS_DA_OBRA) == {
+        "mud-cave", "bunker", "container", "ruina", "caixa-dagua", "arvore-oca",
+    }
+    assert len(c.CENARIOS_DA_OBRA) == 6
+
+
+def test_cenarios_comecam_pelo_validado():
+    # O primeiro é o padrão do diálogo, e o catálogo põe o `mud-cave` na frente
+    # justamente por ser o único validado ponta a ponta.
+    assert c.CENARIOS_DA_OBRA[0] == "mud-cave"
+
+
+# ------------------------------------------------------------ projeto_escolhido
+def test_projeto_generico_vira_vazio():
+    # Mandar o rótulo de UI à linha de comando criaria um projeto chamado
+    # "— sem projeto —"; slug vazio é o que o `montar.py` entende como "escolha você".
+    assert c.projeto_escolhido(c.SEM_PROJETO) == ""
+    assert c.projeto_escolhido("") == ""
+    assert c.projeto_escolhido("   ") == ""
+
+
+def test_projeto_real_passa_limpo():
+    assert c.projeto_escolhido("  mud-cave  ") == "mud-cave"
+
+
+# -------------------------------------------------------------- rotulo_do_copiar
+def test_rotulo_do_copiar_nomeia_cada_bloco():
+    assert c.rotulo_do_copiar("base") == "copiar prompt base"
+    assert c.rotulo_do_copiar("imagem") == "copiar prompt de imagem"
+    assert c.rotulo_do_copiar("video") == "copiar prompt de vídeo"
+
+
+def test_rotulo_do_copiar_de_bloco_novo_nao_levanta():
+    # O `obra/` pode ganhar um quarto prompt. Painel que morre por causa de um
+    # título novo é pior que um botão com nome feio.
+    assert c.rotulo_do_copiar("audio") == "copiar audio"
+
+
+# ----------------------------------------------------------- copias_disponiveis
+def test_copias_seguem_a_ordem_do_trabalho_nao_a_do_dicionario():
+    # A imagem base nasce antes do estágio; o vídeo, depois da imagem. Iterar pelo
+    # dict faria os botões trocarem de lugar entre um estágio e outro.
+    blocos = {"video": "v", "base": "b", "imagem": "i"}
+    assert [k for k, _ in c.copias_disponiveis(blocos)] == ["base", "imagem", "video"]
+
+
+def test_copias_omitem_bloco_ausente():
+    # O estágio 01 é o único que traz o prompt de imagem base.
+    assert [k for k, _ in c.copias_disponiveis({"imagem": "i", "video": "v"})] == [
+        "imagem", "video",
+    ]
+
+
+@pytest.mark.parametrize("vazio", ["", "   \n ", None])
+def test_copias_omitem_bloco_vazio(vazio):
+    # Botão que copia string vazia é pior que botão nenhum: o dono cola, não vê
+    # nada, e não tem como saber se falhou o painel ou o Ctrl+V.
+    assert c.copias_disponiveis({"imagem": vazio, "video": "v"}) == (
+        ("video", "copiar prompt de vídeo"),
+    )
+
+
+def test_copias_de_saida_sem_prompt_nenhum():
+    assert c.copias_disponiveis({}) == ()
+
+
+# --------------------------------------------------------------- botoes_da_obra
+def test_botoes_com_obra_ausente_ficam_todos_mortos():
+    # O cartão APARECE e explica, em vez de sumir — inclusive o `＋ novo`, que sem
+    # o `montar.py` não teria como criar coisa nenhuma.
+    estado = _obra(erro="a pasta obra/ não está ao lado do worker/ neste clone.")
+    assert c.botoes_da_obra(estado) == {
+        "novo": False, "proximo": False, "checar": False, "montar": False,
+    }
+
+
+def test_botoes_sem_projeto_deixam_so_o_novo():
+    # Os outros três precisam de um slug que ainda não há.
+    assert c.botoes_da_obra(_obra()) == {
+        "novo": True, "proximo": False, "checar": False, "montar": False,
+    }
+
+
+def test_botoes_com_projeto_liberam_tudo():
+    # Inclusive o montar: quem recusa fila incompleta é o `pode_montar` na hora do
+    # clique, com a lista do que falta — desabilitar aqui esconderia o motivo.
+    assert c.botoes_da_obra(_obra(slug="mud-cave", projetos=("mud-cave",))) == {
+        "novo": True, "proximo": True, "checar": True, "montar": True,
+    }
+
+
+def test_botoes_com_projeto_mas_erro_de_leitura_ficam_mortos():
+    # `listar` que falha vira `Estado(erro=…)` sem slug: o cartão não pode oferecer
+    # ação sobre um estado que ele não conseguiu ler.
+    assert c.botoes_da_obra(_obra(erro="o obra/ não conseguiu listar os projetos."))[
+        "proximo"
+    ] is False
+
+
+# -------------------------------------------------------------------- slug_novo
+def test_slug_novo_acha_o_nome_normalizado():
+    # O `obra/` normaliza o slug: selecionar o texto cru apontaria o combo para um
+    # projeto que não existe, logo depois de uma criação bem sucedida.
+    assert c.slug_novo(("bunker",), ("bunker", "mud-cave"), "Mud Cave") == "mud-cave"
+
+
+def test_slug_novo_da_primeira_criacao():
+    assert c.slug_novo((), ("mud-cave",), "mud-cave") == "mud-cave"
+
+
+def test_slug_novo_sem_diferenca_cai_no_pedido():
+    # Recriar um projeto existente não muda a lista; o pedido ainda é o alvo certo.
+    assert c.slug_novo(("bunker", "ruina"), ("bunker", "ruina"), " ruina ") == "ruina"
+
+
+def test_slug_novo_sem_diferenca_e_sem_pedido_valido_cai_no_primeiro():
+    assert c.slug_novo(("bunker",), ("bunker",), "outro-qualquer") == "bunker"
+
+
+def test_slug_novo_de_lista_vazia_e_vazio():
+    # Combo vazio é melhor que combo apontando para o nada.
+    assert c.slug_novo((), (), "x") == ""
+
+
+# ------------------------------------------------------- frase_do_erro_da_obra
+def test_erro_da_obra_preserva_a_mensagem_nossa():
+    # `ObraIndisponivel` é exceção NOSSA e a mensagem dela diz o que fazer —
+    # trocá-la pelo nome da classe jogaria fora a única informação útil.
+    frase = c.frase_do_erro_da_obra(
+        obra_ponte.ObraIndisponivel("a pasta obra/ não está ao lado do worker/.")
+    )
+    assert frase == "a pasta obra/ não está ao lado do worker/."
+
+
+def test_erro_de_terceiro_mostra_so_o_tipo():
+    # Mensagem de exceção de fora carrega caminho, URL e um dia credencial. Vale a
+    # mesma regra do resto do arquivo.
+    frase = c.frase_do_erro_da_obra(
+        OSError(r"[WinError 5] acesso negado: 'C:\Users\bonas\...\token.json'")
+    )
+    assert frase == "OSError ao falar com o obra/."
+    assert "token.json" not in frase and "WinError" not in frase
