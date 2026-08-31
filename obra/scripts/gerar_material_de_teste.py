@@ -14,8 +14,8 @@ crédito de uma ferramenta grátis. Descobrir um erro de `filter_complex` gastan
 ## O material é desenhado para ATIVAR os detectores, não só para existir
 
 Um fixture que passa em tudo não prova detector nenhum — prova só que ele está
-calado. Então, com `--defeitos` (o padrão), o material sai com dois defeitos
-plantados, cada um mirando um dos dois sinais mecânicos do `checar.py`:
+calado. Então, por padrão, o material sai com **quatro defeitos plantados**, um
+para cada sinal que o `checar.py` sabe emitir:
 
 - **clipe 5 congelado**: sem o retângulo que se move, o primeiro e o último frame
   são o mesmo pixel. O PSNR interno vai para `inf` e o aviso "clipe parado" tem de
@@ -24,11 +24,22 @@ plantados, cada um mirando um dos dois sinais mecânicos do `checar.py`:
 - **clipe 9 fora do cenário**: fundo de outra cor. O PSNR contra o clipe 8
   desaba e o aviso "a cena mudou" tem de aparecer — é a falha número um deste
   formato, e a única que só se enxerga comparando dois clipes.
+- **clipe 13 continuando a cena**: o fecho tem de voltar ao início para o vídeo
+  dar loop; quem o encadeia pelo frame do 12 recebe a casa pronta. É o defeito
+  mais silencioso dos quatro, porque o vídeo sai bonito e só o loop morre.
+- **estágio 7 sem som**: o laudo tem de dizer qual trecho vai sair quieto, sem
+  derrubar a montagem.
 
-Os outros onze clipes formam uma progressão contínua: mesmo fundo, uma barra a
-mais por estágio (a obra subindo) e um retângulo atravessando o quadro (o
-personagem). É o que dá continuidade alta entre vizinhos e movimento dentro de
-cada um — exatamente o que o material bom tem.
+Os demais clipes formam uma progressão contínua: mesmo fundo, uma barra a mais
+por estágio (a obra subindo) e um retângulo atravessando o quadro (o personagem).
+É o que dá continuidade alta entre vizinhos e movimento dentro de cada um —
+exatamente o que o material bom tem.
+
+Com `--sem-defeitos` sai o material LIMPO, e limpo de verdade: o fecho volta à
+cena vazia e ganha a poeira à deriva que o prompt do estágio 13 pede. Um material
+"limpo" que dispara um alarme verdadeiro ensina o dono a ignorar alarme — foi o
+que aconteceu na primeira versão deste arquivo, com o fecho estático acusado de
+"clipe parado".
 
 ## O som também é hostil de propósito
 
@@ -54,6 +65,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 # Este script mora em `obra/scripts/`, um nível abaixo do módulo. O insert existe
 # para reusar o `console.preparar()` em vez de repetir o `reconfigure` aqui: são
@@ -92,6 +104,71 @@ PERSONAGEM_VX = 150  # px por segundo: 120 → 810 em 4,6s, e 810+180 < 1080
 CLIPE_CONGELADO = 5
 CLIPE_DESCONTINUO = 9
 
+# O terceiro defeito plantado, e o que mais demorou a existir: **o fecho que
+# continua a cena em vez de voltar ao início**.
+#
+# O estágio 13 do formato reencena o *antes* — cena vazia, ninguém em quadro — e
+# é isso que faz o vídeo dar loop. Por isso ele é encadeado da IMAGEM BASE, não
+# do frame do clipe 12 (`prompts.referencia_de`). Encadeá-lo do 12 é o erro
+# silencioso: sai um clipe da casa pronta, o loop morre, e nada avisa.
+#
+# O `checar` tem um ramo próprio para isso, que INVERTE o sinal: no fecho, PSNR
+# baixo contra o 12 é o correto e PSNR **alto** é o defeito. Mas o fixture nunca
+# armava esse ramo — o clipe 13 saía com a obra inteira e o personagem
+# atravessando o quadro, e os 690 px de movimento derrubavam o PSNR para ~24 dB,
+# abaixo do limiar. Ou seja: material errado (não voltava ao início) que ainda
+# assim não disparava o alarme. O mesmo par de erros do `drawbox` e da cor da
+# descontinuidade, pela terceira vez.
+#
+# Modelado agora como o erro REALMENTE acontece: quem encadeia pelo frame do 12
+# recebe um clipe que **começa exatamente onde o 12 terminou**. Então o 13 do
+# defeito nasce com as barras todas e o personagem parado na posição final — e
+# anda um pouco (para trás, devagar) só para não disparar também o alarme de
+# "clipe parado", que é outra pergunta.
+CLIPE_FECHO_ERRADO = 13
+FECHO_X0 = 810     # onde o personagem do clipe 12 termina: 120 + 150 * 4,6
+FECHO_VX = -40     # devagar e para trás: move o bastante para não parecer parado
+
+
+class Sobreposto(NamedTuple):
+    """O retângulo que se move por cima da cena. Um mecanismo, três papéis."""
+
+    largura: int
+    altura: int
+    cor: str
+    x0: int
+    vx: int
+    y: int
+
+
+# O personagem: grande, atravessa o quadro em 4,6s (120 → 810).
+PERSONAGEM_BOX = Sobreposto(PERSONAGEM_W, PERSONAGEM_H, PERSONAGEM,
+                            PERSONAGEM_X0, PERSONAGEM_VX, PERSONAGEM_Y)
+
+# A poeira do fecho correto. O estágio 13 é "Nobody in frame" — mas o prompt de
+# vídeo dele pede `Only ambient motion: dust drifting in the light`, então o
+# clipe certo **não é estático**. Sem ela o fecho limpo saía com PSNR interno de
+# 81 dB, e o laudo acusava de "clipe parado" justamente o material que existe
+# para ser o exemplo do que está CERTO.
+#
+# Cor quase igual à do fundo de propósito: presença, não protagonismo — se fosse
+# contrastante, a "cena vazia" deixaria de parecer vazia.
+#
+# ATENÇÃO — ESTE NÚMERO ESTÁ DELIBERADAMENTE "ERRADO", E É UM ACHADO:
+# com esta poeira o fecho limpo lê **42,86 dB**, acima do `psnr_congelado` de
+# 38,00, e o laudo ainda o acusa de parado. Medi a varredura:
+#     110×110 andando  60 px/s → 42,86 dB   (dispara)
+#     260×260 andando 110 px/s → 35,38 dB   (não dispara)
+# Ou seja: dava para calar o alarme inflando a poeira. NÃO É O QUE SE FAZ. Uma
+# cena vazia com movimento de ar tem PSNR interno alto **por natureza** — um
+# facho de poeira mexe menos de 1% dos pixels —, então footage real do estágio 13
+# vai ler 40+ e cair no mesmo alarme. O defeito é do DETECTOR, que aplica ao
+# fecho o mesmo limiar dos outros doze; o `checar` já inverte o sinal de
+# *continuidade* no fecho e precisa de tratamento equivalente no de *movimento*.
+# Ajustar o fixture para passar esconderia isso — e é exatamente o erro que já
+# custou três achados a este arquivo. Fica medido, à vista, até o detector mudar.
+POEIRA = Sobreposto(110, 110, "0x4a3f34", 300, 60, 520)
+
 
 def _ffmpeg() -> str:
     achado = shutil.which("ffmpeg")
@@ -116,17 +193,64 @@ def congelado(numero: int, com_defeitos: bool) -> bool:
     return com_defeitos and numero == CLIPE_CONGELADO
 
 
+def fecho_correto(numero: int, com_defeitos: bool, total: int = CLIPES) -> bool:
+    """Este clipe é o fecho VOLTANDO ao início — cena vazia, ninguém em quadro?
+
+    É o comportamento certo do estágio 13, e por isso ele é o padrão de
+    `--sem-defeitos`. Com os defeitos plantados o fecho **continua a cena**, que
+    é o erro que o ramo do fecho no `checar` existe para pegar.
+    """
+    return numero == total and not com_defeitos
+
+
+def fecho_errado(numero: int, com_defeitos: bool, total: int = CLIPES) -> bool:
+    """Este clipe é o fecho plantado que continua a cena em vez de voltar?"""
+    return numero == total and com_defeitos
+
+
+def barras_do_clipe(numero: int, com_defeitos: bool, total: int = CLIPES) -> int:
+    """Quantas faixas de "obra" este clipe mostra.
+
+    Cresce uma por estágio e satura em 11 (não cabe mais no quadro). O fecho
+    correto volta a ZERO — é a cena vazia do começo; o fecho errado herda as onze
+    do clipe 12, que é justamente o que "continuou a cena" quer dizer.
+    """
+    if fecho_correto(numero, com_defeitos, total):
+        return 0
+    return min(numero, 11)
+
+
+def sobreposto_do_clipe(
+    numero: int, com_defeitos: bool, total: int = CLIPES
+) -> Sobreposto | None:
+    """O que se move neste clipe, ou `None` quando nada se move.
+
+    Um lugar só decide isso porque a resposta governa **duas** coisas que
+    precisam concordar: se o comando ganha a segunda entrada e se o grafo ganha o
+    `overlay`. Quando eram dois `if` separados, um input sem consumidor (ou um
+    consumidor sem input) virava erro de ffmpeg no meio de um lote de treze.
+    """
+    if congelado(numero, com_defeitos):
+        return None                       # o defeito plantado: nada se move
+    if fecho_correto(numero, com_defeitos, total):
+        return POEIRA                     # cena vazia, mas com movimento de ar
+    if fecho_errado(numero, com_defeitos, total):
+        return PERSONAGEM_BOX._replace(x0=FECHO_X0, vx=FECHO_VX)
+    return PERSONAGEM_BOX
+
+
 def entradas_do_clipe(numero: int, com_defeitos: bool) -> list[str]:
-    """Os `-i` deste clipe: o fundo, e o personagem quando ele existe."""
+    """Os `-i` deste clipe: o fundo, e o que se move quando algo se move."""
     cor = FUNDO_ERRADO if (com_defeitos and numero == CLIPE_DESCONTINUO) else FUNDO
     args = [
         "-f", "lavfi",
         "-i", f"color=c={cor}:s={LARGURA}x{ALTURA}:d={DURACAO_SEG}:r={FPS}",
     ]
-    if not congelado(numero, com_defeitos):
+    movel = sobreposto_do_clipe(numero, com_defeitos)
+    if movel is not None:
         args += [
             "-f", "lavfi",
-            "-i", f"color=c={PERSONAGEM}:s={PERSONAGEM_W}x{PERSONAGEM_H}"
+            "-i", f"color=c={movel.cor}:s={movel.largura}x{movel.altura}"
                   f":d={DURACAO_SEG}:r={FPS}",
         ]
     return args
@@ -160,7 +284,7 @@ def filtro_do_clipe(numero: int, com_defeitos: bool) -> str:
     """
     cadeia: list[str] = []
 
-    barras = min(numero, 11)
+    barras = barras_do_clipe(numero, com_defeitos)
     for i in range(barras):
         y = ALTURA - 160 - (i * 90)
         cadeia.append(
@@ -173,16 +297,18 @@ def filtro_do_clipe(numero: int, com_defeitos: bool) -> str:
         "fontcolor=white:fontsize=180:x=(w-text_w)/2:y=200"
     )
 
-    if congelado(numero, com_defeitos):
-        # Sem personagem: os frames deste clipe são idênticos entre si, que é o
-        # ponto. PSNR interno `inf`, e o laudo tem de acusar só este.
+    movel = sobreposto_do_clipe(numero, com_defeitos)
+    if movel is None:
+        # Só o clipe congelado chega aqui: sem sobreposto, os frames são
+        # idênticos entre si, PSNR interno `inf`, e o laudo tem de acusar
+        # exatamente este e mais nenhum.
         return f"[0:v]{','.join([*cadeia, rotulo_texto])}[v]"
 
     cena = ",".join(cadeia) if cadeia else "null"
     return (
         f"[0:v]{cena}[cena];"
         f"[cena][1:v]overlay="
-        f"x='{PERSONAGEM_X0}+{PERSONAGEM_VX}*t':y={PERSONAGEM_Y}[comp];"
+        f"x='{movel.x0}+{movel.vx}*t':y={movel.y}[comp];"
         f"[comp]{rotulo_texto}[v]"
     )
 
@@ -293,9 +419,11 @@ def main() -> int:
 
     if com_defeitos:
         print(
-            f"\nDefeitos plantados, e o `checar` TEM de acusar os três:\n"
+            f"\nDefeitos plantados, e o `checar` TEM de acusar os quatro:\n"
             f"  · clipe {CLIPE_CONGELADO} congelado (nada se move)\n"
             f"  · clipe {CLIPE_DESCONTINUO} fora do cenário (fundo de outra cor)\n"
+            f"  · clipe {CLIPE_FECHO_ERRADO} continua a cena em vez de voltar ao "
+            f"início (o loop morre)\n"
             f"  · estágio {ESTAGIO_SEM_SOM} sem arquivo de som\n"
             "Se ficar calado em qualquer um, quem está quebrado é o detector — "
             "não o material. E no vídeo montado, a janela do estágio "
