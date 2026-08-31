@@ -27,6 +27,7 @@ olhar o mp4, e isso é passo do dono (`scripts/gerar_material_de_teste.py`).
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from collections.abc import Sequence
@@ -131,10 +132,19 @@ def projeto_de_teste(
 class FfmpegDublado:
     """Substitui `subprocess.run`. Guarda todo comando para inspeção."""
 
-    def __init__(self, stderr_medicao: str = STDERR_REAL, duracoes: Sequence[float] = DURACOES):
+    def __init__(
+        self,
+        stderr_medicao: str = STDERR_REAL,
+        duracoes: Sequence[float] = DURACOES,
+        duracao_do_audio: float | None = None,
+    ):
         self.comandos: list[list[str]] = []
         self.stderr_medicao = stderr_medicao
         self.duracoes = tuple(duracoes)
+        # `duracao_do_audio` faz o dublê emitir um arquivo cuja trilha embutida é
+        # MAIS LONGA que a imagem — o caso que descolava o som e que o dublê
+        # antigo não sabia representar.
+        self.duracao_do_audio = duracao_do_audio
 
     def __call__(self, comando, **kwargs):
         comando = list(comando)
@@ -142,7 +152,20 @@ class FfmpegDublado:
         if Path(comando[0]).name.startswith("ffprobe"):
             achado = re.search(r"clip_(\d+)", comando[-1])
             numero = int(achado.group(1)) if achado else 1
-            saida = '{"format": {"duration": "%s"}}' % self.duracoes[numero - 1]
+            dur = self.duracoes[numero - 1]
+            # A forma REAL do ffprobe: os streams primeiro, o format depois.
+            # O dublê emitia só `format`, e por isso todo teste passava pelo
+            # ramo de FALLBACK de `ler_duracao` — o caminho principal (a duração
+            # do stream de vídeo) nunca era exercitado. Foi assim que a leitura
+            # do contêiner sobreviveu, e ela descolava o som da imagem sempre que
+            # a trilha embutida era mais longa que o vídeo.
+            saida = json.dumps({
+                "streams": [
+                    {"codec_type": "video", "duration": str(dur)},
+                    {"codec_type": "audio", "duration": str(self.duracao_do_audio or dur)},
+                ],
+                "format": {"duration": str(self.duracao_do_audio or dur)},
+            })
             return subprocess.CompletedProcess(comando, 0, stdout=saida, stderr="")
         if "null" in comando:  # a passada 1 termina em `-f null -`
             return subprocess.CompletedProcess(
@@ -156,6 +179,135 @@ class FfmpegDublado:
 
 def valor_de(comando: list[str], opcao: str) -> str:
     return comando[comando.index(opcao) + 1]
+
+
+class TestLerDuracao:
+    """A duração vem do VÍDEO, não do contêiner. Achado na auditoria.
+
+    `format=duration` é a duração do arquivo, isto é, do stream mais longo que
+    ele contém. Com trilha embutida mais comprida que a imagem — coisa comum em
+    mp4 de ferramenta web — esse número vira o `atrim` do som daquele estágio
+    enquanto a imagem entra com os quadros que existem: o som do estágio
+    seguinte começa atrasado, e o atraso ACUMULA.
+
+    Reproduzido com ffmpeg 8.1.2 num clipe de vídeo 4,6s e áudio 6,0s:
+    `format=duration` dizia 6,000000 e o vídeo tinha 4,600000.
+    """
+
+    def _json(self, video=None, audio=None, formato=None) -> str:
+        streams = []
+        if video is not None:
+            streams.append({"codec_type": "video", "duration": video})
+        if audio is not None:
+            streams.append({"codec_type": "audio", "duration": audio})
+        dados: dict = {"streams": streams}
+        if formato is not None:
+            dados["format"] = {"duration": formato}
+        return json.dumps(dados)
+
+    def test_a_cauda_de_audio_nao_estica_a_duracao(self):
+        saida = self._json(video="4.600000", audio="6.000000", formato="6.000000")
+        assert m.ler_duracao(saida, "clip_01.mp4") == 4.6
+
+    def test_sem_duracao_no_stream_cai_no_formato(self):
+        """Contêiner sem duração por stream existe; o `format` é o plano B."""
+        saida = self._json(video=None, audio=None, formato="4.600000")
+        assert m.ler_duracao(saida, "x.mp4") == 4.6
+
+    @pytest.mark.parametrize("ruim", ["N/A", "", None])
+    def test_duracao_de_video_ilegivel_cai_no_formato(self, ruim):
+        saida = self._json(video=ruim, formato="4.600000")
+        assert m.ler_duracao(saida, "x.mp4") == 4.6
+
+    def test_ignora_o_stream_de_audio_quando_nao_ha_video(self):
+        """Só o vídeo governa o corte: o concat produz a duração da imagem."""
+        with pytest.raises(m.MontagemFalhou):
+            m.ler_duracao(self._json(audio="6.0"), "x.mp4")
+
+    def test_nem_stream_nem_formato_recusa_falando_em_truncado(self):
+        with pytest.raises(m.MontagemFalhou, match="truncado"):
+            m.ler_duracao('{"streams": []}', "clip_07.mp4")
+
+    def test_json_ilegivel_recusa_nomeando_o_arquivo(self):
+        with pytest.raises(m.MontagemFalhou, match="clip_07"):
+            m.ler_duracao("isto não é json", "clip_07.mp4")
+
+    def test_o_comando_pede_stream_e_formato_de_uma_vez(self):
+        """Um ffprobe por clipe, não dois — seriam 26 numa montagem."""
+        comando = m.comando_de_medicao(cfg_de_teste(), Path("/x/clip_01.mp4"))
+        entradas = valor_de(comando, "-show_entries")
+        assert "stream=" in entradas and "format=duration" in entradas
+        assert "codec_type" in entradas and "duration" in entradas
+        assert comando.count("-show_entries") == 1
+
+
+class TestConferirSincronia:
+    """A rede de segurança: mede o arquivo que SAIU, não o comando que entrou.
+
+    Existe porque este módulo já entregou, com a suíte verde, áudio mono, áudio a
+    96 kHz e áudio 351 ms curto — os três achados por alguém medindo o mp4 do
+    outro lado. Aqui essa medição entra no caminho normal.
+    """
+
+    def _probe(self, video: str, audio: str):
+        def rodar(comando, **kwargs):
+            saida = json.dumps({
+                "streams": [
+                    {"codec_type": "video", "duration": video},
+                    {"codec_type": "audio", "duration": audio},
+                ]
+            })
+            return subprocess.CompletedProcess(comando, 0, stdout=saida, stderr="")
+
+        return rodar
+
+    def test_som_e_imagem_iguais_passam(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(m.subprocess, "run", self._probe("59.800", "59.800"))
+        m.conferir_sincronia(cfg_de_teste(), tmp_path / "final.mp4")  # não levanta
+
+    def test_diferenca_menor_que_um_quadro_e_arredondamento(self, monkeypatch, tmp_path):
+        """A 30 fps um quadro são 33 ms: abaixo disso é timestamp, não descolamento."""
+        monkeypatch.setattr(m.subprocess, "run", self._probe("59.800", "59.815"))
+        m.conferir_sincronia(cfg_de_teste(), tmp_path / "final.mp4")
+
+    def test_descolamento_recusa_com_os_dois_numeros(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(m.subprocess, "run", self._probe("57.100", "59.800"))
+        with pytest.raises(m.MontagemFalhou) as erro:
+            m.conferir_sincronia(cfg_de_teste(), tmp_path / "final.mp4")
+        texto = str(erro.value)
+        assert "57.100" in texto and "59.800" in texto and "2.700" in texto
+        # Recusar não pode sugerir que o trabalho se perdeu: o arquivo fica lá, e
+        # os clipes — que valem 13 dias de crédito — não foram tocados.
+        assert "nada foi apagado" in texto.lower()
+
+    def test_um_frame_de_folga_acompanha_o_fps(self, monkeypatch, tmp_path):
+        """A 24 fps o quadro é maior, então a mesma diferença passa a caber."""
+        monkeypatch.setattr(m.subprocess, "run", self._probe("10.000", "10.040"))
+        m.conferir_sincronia(cfg_de_teste(fps=24), tmp_path / "final.mp4")
+        monkeypatch.setattr(m.subprocess, "run", self._probe("10.000", "10.040"))
+        with pytest.raises(m.MontagemFalhou):
+            m.conferir_sincronia(cfg_de_teste(fps=60), tmp_path / "final.mp4")
+
+    @pytest.mark.parametrize("saida", ['{"streams": []}', "lixo", '{"streams": [{"codec_type": "video"}]}'])
+    def test_sem_os_dois_numeros_avisa_e_segue(self, monkeypatch, tmp_path, saida):
+        """Não medir NÃO é o mesmo que medir errado — e o encode já aconteceu.
+
+        Derrubar aqui jogaria fora um arquivo pronto por causa de um ffprobe que
+        não respondeu, quando o próprio arquivo pode estar perfeito.
+        """
+        def rodar(comando, **kwargs):
+            return subprocess.CompletedProcess(comando, 0, stdout=saida, stderr="")
+
+        monkeypatch.setattr(m.subprocess, "run", rodar)
+        m.conferir_sincronia(cfg_de_teste(), tmp_path / "final.mp4")  # não levanta
+
+    def test_ler_sincronia_pega_o_primeiro_de_cada_tipo(self):
+        saida = json.dumps({"streams": [
+            {"codec_type": "video", "duration": "59.8"},
+            {"codec_type": "audio", "duration": "59.8"},
+            {"codec_type": "audio", "duration": "12.0"},
+        ]})
+        assert m.ler_sincronia(saida) == (59.8, 59.8)
 
 
 def entradas_do_comando(comando: Sequence[str]) -> list[str]:

@@ -869,26 +869,153 @@ def _rodar(cfg: Config, comando: Sequence[str], o_que: str) -> subprocess.Comple
     return r
 
 
-def duracao_de(cfg: Config, arquivo: Path) -> float:
-    """Duração de um arquivo, pelo ffprobe."""
-    r = _rodar(
-        cfg,
-        [
-            str(cfg.ffprobe_bin),
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "json",
-            str(arquivo),
-        ],
-        f"ffprobe ({arquivo.name})",
-    )
+def ler_duracao(saida_json: str, nome: str) -> float:
+    """JSON do ffprobe → a duração do **stream de vídeo**. Pura.
+
+    ## Por que o stream de vídeo, e não `format=duration`
+
+    Esta função media `format=duration` — a duração declarada no índice do
+    contêiner — e essa é a duração do arquivo INTEIRO, isto é, do stream mais
+    longo que ele contém. Quando a trilha embutida é mais comprida que a imagem
+    (coisa comum em mp4 devolvido por ferramenta web), o número que sai é o da
+    trilha.
+
+    E esse número vira o `atrim` do som daquele estágio, enquanto a imagem entra
+    no `concat` com os quadros que existem de verdade. Os dois discordam, o som
+    do estágio seguinte começa atrasado, **e o atraso acumula até o fim do
+    vídeo** — que é exatamente o defeito que a § 9.3 da spec gastou uma rodada
+    inteira para corrigir do lado das emendas de mp3, aqui reaparecendo pela
+    porta da medição.
+
+    Medido num clipe fabricado com vídeo de 4,6s e áudio de 6,0s:
+
+        format=duration ............ 6,000000   ← o que o código usava
+        stream v:0 duration ........ 4,600000   ← o que o concat vai produzir
+        stream a:0 duration ........ 6,000000
+
+    1,4 s de descolamento num clipe só, e ninguém avisa: o `ffprobe` responde a
+    pergunta que lhe foi feita, e a pergunta é que estava errada.
+
+    ## Por que o `format` continua sendo lido
+
+    Contêiner sem duração por stream existe (alguns MKV, alguns fluxos remuxados),
+    e ali o `format` é a única resposta disponível. Ele é o **plano B**, nunca a
+    primeira escolha — e a discordância entre os dois é sinal, não ruído: quem
+    chama recebe os dois por `medir_clipe` e decide o que fazer.
+    """
     try:
-        return float(json.loads(r.stdout)["format"]["duration"])
-    except (ValueError, KeyError, TypeError) as e:
+        dados = json.loads(saida_json)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise MontagemFalhou(f"ffprobe devolveu resposta ilegível para {nome}.") from e
+
+    for stream in dados.get("streams") or ():
+        if isinstance(stream, dict) and stream.get("codec_type") == "video":
+            bruto = stream.get("duration")
+            if bruto not in (None, "", "N/A"):
+                try:
+                    return float(bruto)
+                except (TypeError, ValueError):
+                    break
+
+    bruto = (dados.get("format") or {}).get("duration")
+    try:
+        return float(bruto)
+    except (TypeError, ValueError) as e:
         raise MontagemFalhou(
-            f"ffprobe não informou a duração de {arquivo.name} — o arquivo pode "
-            "estar truncado (download interrompido)."
+            f"ffprobe não informou a duração de {nome} — o arquivo pode estar "
+            "truncado (download interrompido)."
         ) from e
+
+
+def comando_de_medicao(cfg: Config, arquivo: Path) -> list[str]:
+    """Pede ao ffprobe os dois números de uma vez. Puro.
+
+    Um `ffprobe` só para as duas perguntas: a duração de cada stream e a do
+    contêiner. Dois processos por clipe seriam 26 numa montagem, para saber o
+    que um único já responde.
+    """
+    return [
+        str(cfg.ffprobe_bin),
+        "-v", "error",
+        "-show_entries", "stream=codec_type,duration:format=duration",
+        "-of", "json",
+        str(arquivo),
+    ]
+
+
+def duracao_de(cfg: Config, arquivo: Path) -> float:
+    """Duração do VÍDEO de um arquivo, pelo ffprobe. Ver `ler_duracao`."""
+    r = _rodar(cfg, comando_de_medicao(cfg, arquivo), f"ffprobe ({arquivo.name})")
+    return ler_duracao(r.stdout, arquivo.name)
+
+
+def ler_sincronia(saida_json: str) -> tuple[float | None, float | None]:
+    """JSON do ffprobe → `(duração do vídeo, duração do áudio)`. Pura."""
+    try:
+        dados = json.loads(saida_json)
+    except (json.JSONDecodeError, TypeError):
+        return None, None
+
+    achado: dict[str, float] = {}
+    for stream in dados.get("streams") or ():
+        if not isinstance(stream, dict):
+            continue
+        tipo = stream.get("codec_type")
+        if tipo in ("video", "audio") and tipo not in achado:
+            try:
+                achado[tipo] = float(stream.get("duration"))
+            except (TypeError, ValueError):
+                continue
+    return achado.get("video"), achado.get("audio")
+
+
+def conferir_sincronia(cfg: Config, final: Path) -> None:
+    """Mede o arquivo que SAIU e recusa se o som não cobrir a imagem.
+
+    A rede de segurança, e ela existe por uma lição que este módulo já pagou
+    duas vezes: **teste de comando confere o que o comando diz, não o que ele
+    produz.** Os 799 testes passam com o áudio saindo mono, a 96 kHz, ou 351 ms
+    curto — todos foram achados por alguém medindo o mp4 do outro lado. Esta
+    função traz essa medição para dentro do caminho normal, para que o próximo
+    defeito da família não precise de uma auditoria para aparecer.
+
+    A tolerância é de um quadro: abaixo disso a diferença é arredondamento de
+    timestamp, não descolamento. Acima, alguma premissa da montagem quebrou, e
+    entregar o arquivo em silêncio seria pior que recusá-lo — o dono publicaria
+    um vídeo em que o som anda separado da imagem, e descobriria pelos
+    comentários.
+
+    Não conferimos o alvo de loudness aqui de propósito: para isso o `loudnorm`
+    já tem `print_format=json`, e a auditoria abriu um item específico sobre ele
+    (o `linear=true` que desiste sozinho em material percussivo). Uma coisa por
+    função.
+    """
+    try:
+        r = _rodar(cfg, comando_de_medicao(cfg, final), f"ffprobe ({final.name})")
+    except MontagemFalhou:
+        # O arquivo existe (o encode acabou de sair) mas o ffprobe recusou. É
+        # informação demais para engolir e de menos para acusar descolamento.
+        log.warning("não consegui conferir a sincronia do final", extra={"arquivo": str(final)})
+        return
+
+    video, audio = ler_sincronia(r.stdout)
+    if video is None or audio is None:
+        log.warning(
+            "o final não declarou duração de vídeo e áudio — sincronia não conferida",
+            extra={"arquivo": str(final)},
+        )
+        return
+
+    folga = 1.0 / max(cfg.fps, 1)
+    if abs(video - audio) > folga:
+        raise MontagemFalhou(
+            f"o arquivo saiu com a imagem em {video:.3f}s e o som em {audio:.3f}s "
+            f"— {abs(video - audio):.3f}s de diferença, acima de um quadro "
+            f"({folga:.3f}s). O som anda separado da imagem e o vídeo não presta "
+            "para publicar. A causa mais comum é um clipe cuja trilha embutida é "
+            "mais longa que a imagem; rode `checar` e olhe os avisos de duração. "
+            f"O arquivo ficou em {final} para você conferir — nada foi apagado."
+        )
 
 
 def duracoes_dos_clipes(cfg: Config, clipes: Sequence[Path]) -> tuple[float, ...]:
@@ -954,6 +1081,9 @@ def montar(cfg: Config, projeto: Projeto) -> Resultado:
         montar_comando_final(cfg, projeto, entradas, trechos, medicao),
         "ffmpeg (montagem final)" if not entradas.mudo else "ffmpeg (montagem final, sem áudio)",
     )
+
+    if not entradas.mudo:
+        conferir_sincronia(cfg, projeto.final)
 
     resultado = Resultado(
         arquivo=projeto.final,

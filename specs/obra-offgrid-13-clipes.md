@@ -468,6 +468,49 @@ Medido depois, fontes de 1,1s / 1,5s / 2,0s / 7,0s para o mesmo alvo de 4,600s:
 (`atrim,apad,atrim`) foi medida também e **não** funciona — devolve os mesmos
 4,55006s. A ordem é a correção inteira.
 
+### 9.4 A duração vinha do contêiner, não do vídeo — achado na auditoria
+
+Auditoria adversarial de 6 lentes (29 hipóteses, 19 confirmadas por um cético
+independente). O achado **crítico**, e ele é da mesma família dos § 9.2 e § 9.3:
+
+`montagem.duracao_de` media `format=duration` — a duração declarada no índice do
+contêiner, que é a do **stream mais longo** que o arquivo contém. Quando a trilha
+embutida é mais comprida que a imagem (comum em mp4 de ferramenta web), o número
+que sai é o da trilha. E esse número vira o `atrim` do som daquele estágio,
+enquanto a imagem entra no `concat` com os quadros que existem: o som do estágio
+seguinte começa atrasado, **e o atraso acumula**.
+
+Reproduzido contra o ffmpeg 8.1.2, num clipe fabricado com vídeo de 4,6s e áudio
+de 6,0s:
+
+```
+format=duration ............ 6,000000   ← o que o código usava
+stream v:0 duration ........ 4,600000   ← o que o concat produz
+```
+
+A auditoria mediu descolamentos de **400 ms a 2,77 s** por três caminhos — mp4
+truncado com `+faststart` (o formato que serviço web usa para o preview tocar no
+navegador), trilha embutida mais longa que a imagem, e o caso que passa por todos
+os guardas: uma cauda de 0,4s em que o `checar` diz **zero avisos** e o `montar`
+sai com código 0.
+
+**Corrigido em duas camadas.** `ler_duracao` passou a ler o stream de vídeo, com
+o `format` como plano B para contêiner que não declara duração por stream. E
+`conferir_sincronia` mede o **arquivo que saiu** depois do encode: se imagem e som
+diferirem mais que um quadro, `MontagemFalhou` — a lição do § 10.2 ("o que os
+pegou foi um arquivo saindo do outro lado") trazida para dentro do caminho normal,
+para o próximo defeito da família não precisar de uma auditoria.
+
+Provado ponta a ponta com um clipe de cauda dentro de um projeto de 13:
+`final.mp4` saiu com **vídeo 59,800000s e áudio 59,800000s**.
+
+**E o dublê era cúmplice.** O `FfmpegDublado` emitia só `{"format": {...}}`, então
+todo teste passava pelo ramo de *fallback* e o caminho principal nunca era
+exercitado. É a terceira vez que o material de teste deste módulo esconde o
+defeito que ele deveria expor — depois do `drawbox` que não movia nada e da cor de
+descontinuidade com luma quase igual à do fundo. **Regra que fica: quando a suíte
+concorda com o código, perguntar em que REGIME ela concordou.**
+
 ---
 
 ## 10. Resultado da review
